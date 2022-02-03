@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/tmp/factory-reset
+Unit=demo-portal-factory.service
+
+[Install]
+WantedBy=paths.target
