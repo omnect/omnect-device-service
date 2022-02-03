@@ -1,0 +1,7 @@
+[Unit]
+Before=paths.target
+[Path]
+PathModified=/tmp/downgrade-start
+Unit=demo-portal-downgrade-start.service
+[Install]
+WantedBy=paths.target

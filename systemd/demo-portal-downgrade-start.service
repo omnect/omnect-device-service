@@ -1,0 +1,6 @@
+[Unit]
+Description=downgrade start sequence
+
+[Service]
+Type=oneshot
+ExecStart=systemctl start aziot-identityd.service adu-agent.service

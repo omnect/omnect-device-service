@@ -1,0 +1,15 @@
+[package]
+name = "demo-portal-module"
+version = "0.1.0"
+edition = "2018"
+authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
+repository = "git@github.com:ICS-DeviceManagement/demo-portal-module.git"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ics-dm-azure = { git = "ssh://git@github.com/JoergZeidler/ics-dm-azure-rs.git", branch = "downgrade" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+env_logger = "0.8"
+log = "0.4"
