@@ -766,7 +766,7 @@ dependencies = [
 [[package]]
 name = "ics-dm-azure"
 version = "0.3.0"
-source = "git+ssh://git@github.com/JoergZeidler/ics-dm-azure-rs.git?branch=downgrade#8ce0bec06c1de87ac9af189babd65ad70ad75bf6"
+source = "git+ssh://git@github.com/JoergZeidler/ics-dm-azure-rs.git?branch=downgrade#0c23a3f1f5b2a19f89787dea3a17f9692752c882"
 dependencies = [
  "chrono",
  "eis-utils",
@@ -777,8 +777,8 @@ dependencies = [
 
 [[package]]
 name = "ics-dm-azure-sys"
-version = "0.1.1"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/ics-dm-azure-sys-rs.git?branch=main#7626fe3a9c8d600a0229c8f605bc1bce76c951db"
+version = "0.2.0"
+source = "git+ssh://git@github.com/JoergZeidler/ics-dm-azure-sys-rs.git?branch=refactor#52df456ab09ea20b956e04791b74b150c6a0c2b9"
 dependencies = [
  "bindgen",
  "glob",
