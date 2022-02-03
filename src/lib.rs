@@ -1,10 +1,10 @@
 use ics_dm_azure::client::{DirectMethod, EventHandler, IotHubModuleClient};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde::{Deserialize,Serialize};
 use std::collections::HashMap;
-use std::{thread, time};
 use std::{fs, fs::File, fs::OpenOptions};
+use std::{thread, time};
 
 #[derive(Deserialize, Debug, Serialize)]
 struct Downgrade {
@@ -39,7 +39,6 @@ impl<'a> EventHandler for &'a DemoPortal<'_> {
 
 impl DemoPortal<'_> {
     pub fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-
         let mut client = IotHubModuleClient::from_identity_service(self)?;
 
         let hundred_millis = time::Duration::from_millis(100);
@@ -55,45 +54,50 @@ impl DemoPortal<'_> {
 pub fn factory(
     in_json: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
-
     let content: Factory = serde_json::from_value(in_json).unwrap();
     let mut result = "OK";
-    debug!("direct method called with: {:?}",content.reset);
+    debug!("direct method called with: {:?}", content.reset);
     let mut file = OpenOptions::new()
-    .write(true)
-    .create(true)
-    .open("/tmp/factory-reset")
-    .expect("/tmp/factory-reset");
+        .write(true)
+        .create(true)
+        .open("/tmp/factory-reset")
+        .expect("/tmp/factory-reset");
 
-    fs::write("/tmp/factory-reset", format!("{}\n", content.reset.as_str())).expect("Can't write");
+    fs::write(
+        "/tmp/factory-reset",
+        format!("{}\n", content.reset.as_str()),
+    )
+    .expect("Can't write");
 
     Ok(Some(serde_json::to_value(result).unwrap()))
-
 }
 
 pub fn downgrade(
     in_json: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
-
     let content: Downgrade = serde_json::from_value(in_json).unwrap();
     let mut result = "OK";
-    debug!("direct method called with: {:?}",content.services);
+    debug!("direct method called with: {:?}", content.services);
     match content.services.as_str() {
         "stop" => {
             let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open("/tmp/downgrade-stop")
-            .expect("/tmp/downgrade-stop");
+                .write(true)
+                .create(true)
+                .open("/tmp/downgrade-stop")
+                .expect("/tmp/downgrade-stop");
 
-            fs::write("/tmp/downgrade-stop", format!("{}\n", content.version.as_str())).expect("Can't write");
+            fs::write(
+                "/tmp/downgrade-stop",
+                format!("{}\n", content.version.as_str()),
+            )
+            .expect("Can't write");
         }
         "start" => {
             File::create("/tmp/downgrade-start")?;
-        },
+        }
         _ => {
             result = "NOK";
-        },
+        }
     }
 
     Ok(Some(serde_json::to_value(result).unwrap()))
@@ -108,13 +112,10 @@ where
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-
     let methods = HashMap::from([
         (
             String::from("closure1"),
-            make_direct_method(|in_json| {
-                Ok(None)
-            }),
+            make_direct_method(|in_json| Ok(None)),
         ),
         (
             String::from("closure2"),
@@ -138,5 +139,4 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     module.run()
-
 }
