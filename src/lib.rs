@@ -55,9 +55,9 @@ pub fn factory(
     in_json: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
     let content: Factory = serde_json::from_value(in_json).unwrap();
-    let mut result = "OK";
+    let result = "OK";
     debug!("direct method called with: {:?}", content.reset);
-    let mut file = OpenOptions::new()
+    OpenOptions::new()
         .write(true)
         .create(true)
         .open("/tmp/factory-reset")
@@ -80,7 +80,7 @@ pub fn downgrade(
     debug!("direct method called with: {:?}", content.services);
     match content.services.as_str() {
         "stop" => {
-            let mut file = OpenOptions::new()
+            OpenOptions::new()
                 .write(true)
                 .create(true)
                 .open("/tmp/downgrade-stop")
@@ -115,7 +115,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let methods = HashMap::from([
         (
             String::from("closure1"),
-            make_direct_method(|in_json| Ok(None)),
+            make_direct_method(|_in_json| Ok(None)),
         ),
         (
             String::from("closure2"),
