@@ -112,27 +112,33 @@ where
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let methods = HashMap::from([
-        (
-            String::from("closure1"),
-            make_direct_method(|_in_json| Ok(None)),
-        ),
-        (
-            String::from("closure2"),
-            make_direct_method(|in_json| {
-                let mut out_json = json!({
-                    "closure2": "called",
-                    "location": "nowhere"
-                });
+    // let methods: Option<HashMap<String, DirectMethod>> = HashMap::from([
+    //     (
+    //         String::from("closure1"),
+    //         make_direct_method(|_in_json| Ok(None)),
+    //     ),
+    //     (
+    //         String::from("closure2"),
+    //         make_direct_method(|in_json| {
+    //             let mut out_json = json!({
+    //                 "closure2": "called",
+    //                 "location": "nowhere"
+    //             });
 
-                out_json["in_json"] = in_json;
+    //             out_json["in_json"] = in_json;
 
-                Ok(Some(out_json))
-            }),
-        ),
-        (String::from("factory"), Box::new(factory)),
-        (String::from("downgrade"), Box::new(downgrade)),
-    ]);
+    //             Ok(Some(out_json))
+    //         }),
+    //     ),
+    //     (String::from("factory"), Box::new(factory)),
+    //     (String::from("downgrade"), Box::new(downgrade)),
+    // ]);
+
+    let mut methods = HashMap::new();
+    methods.insert(String::from("closure1"), make_direct_method(|_in_json| Ok(None)));
+    methods.insert(String::from("closure2"), make_direct_method(|in_json| { let mut out_json = json!({ "closure2": "called","location": "nowhere" }); out_json["in_json"] = in_json; Ok(Some(out_json))}));
+    methods.insert(String::from("factory"), Box::new(factory));
+    methods.insert(String::from("downgrade"), Box::new(downgrade));
 
     let module = DemoPortal {
         direct_methods: Some(&methods),
