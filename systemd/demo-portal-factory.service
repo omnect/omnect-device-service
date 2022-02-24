@@ -3,4 +3,4 @@ Description=factory reset
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /tmp/factory-reset'
+ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /run/factory-reset'

@@ -1,7 +1,0 @@
-[Unit]
-Description=downgrade stop sequence
-
-[Service]
-Type=oneshot
-ExecStart=systemctl stop adu-agent.service aziot-identityd.service
-ExecStart=/bin/bash -c '/usr/bin/patch_sw_versions.sh /tmp/downgrade-stop'

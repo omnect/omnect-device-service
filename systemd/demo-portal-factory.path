@@ -3,7 +3,7 @@
 Before=paths.target
 
 [Path]
-PathChanged=/tmp/factory-reset
+PathChanged=/run/factory-reset
 Unit=demo-portal-factory.service
 
 [Install]
