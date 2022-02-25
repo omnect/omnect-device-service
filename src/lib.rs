@@ -1,56 +1,63 @@
-pub mod demo_portal_module;
-use azure_iot_sdk::client::*;
-use demo_portal_module::{IotModuleTemplate, Message};
-use log::debug;
-use serde_json::json;
-use std::collections::HashMap;
-use std::error::Error;
-use std::sync::mpsc;
+#[cfg(not(any(feature = "device_twin", feature = "module_twin")))]
+compile_error!(
+    "Either feature \"device_twin\" xor \"module_twin\" must be enabled for this crate."
+);
 
-mod demo_portal;
+#[cfg(all(feature = "device_twin", feature = "module_twin"))]
+compile_error!(
+    "Either feature \"device_twin\" xor \"module_twin\" must be enabled for this crate."
+);
+
+#[cfg(feature = "device_twin")]
+type TwinType = DeviceTwin;
+
+#[cfg(feature = "module_twin")]
+type TwinType = ModuleTwin;
+
+pub mod client;
+pub mod direct_methods;
+pub mod message;
+#[cfg(feature = "systemd")]
+pub mod systemd;
+pub mod twin;
+use azure_iot_sdk::twin::*;
+use client::{Client, Message};
+use log::debug;
+use std::error::Error;
+use std::sync::{mpsc, Arc, Mutex};
 
 pub fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
-    // connect via identity servcie
-    // let connection_string = None;
-    // alternatively use connection string
+    let tx_app2client = Arc::new(Mutex::new(tx_app2client));
+    let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
     let connection_string = Some("HostName=iothub-ics-dev.azure-devices.net;DeviceId=joz-rust-test-02:42:ac:14:00:02;ModuleId=ics-dm-iot-module-rs;SharedAccessKey=vd7OI7bDGaeK+kFwGwBN4I5jJG6ufryLOdkC35GzS8o=");
-
-    let mut methods = HashMap::<String, DirectMethod>::new();
-
-    methods.insert(
-        String::from("func_params_as_result"),
-        Box::new(func_params_as_result),
-    );
-
-    methods.insert(String::from("factory"), Box::new(demo_portal::factory));
-
-    let mut template = IotModuleTemplate::new();
-
-    template.run(
-        connection_string,
-        Some(methods),
-        tx_client2app,
-        rx_app2client,
-    );
+    client.run::<TwinType>(connection_string, methods, tx_client2app, rx_app2client);
 
     for msg in rx_client2app {
         match msg {
+            Message::Authenticated => {
+                #[cfg(feature = "systemd")]
+                systemd::notify_ready();
+                twin::factory_reset_status(Arc::clone(&tx_app2client));
+            }
+            Message::Unauthenticated(reason) => {
+                client.stop().unwrap();
+                return Err(Box::<dyn Error + Send + Sync>::from(format!(
+                    "No connection. Reason: {:?}",
+                    reason
+                )));
+            }
+            Message::Desired(state, desired) => {
+                twin::update(state, desired, Arc::clone(&tx_app2client));
+            }
+            Message::C2D(msg) => {
+                message::update(msg, Arc::clone(&tx_app2client));
+            }
             _ => debug!("Application received unhandled message"),
         }
     }
 
-    template.stop()
-}
-
-pub fn func_params_as_result(
-    in_json: serde_json::Value,
-) -> Result<Option<serde_json::Value>, Box<dyn Error + Send + Sync>> {
-    let out_json = json!({
-        "called function": "func_params_as_result",
-        "your param was": in_json
-    });
-
-    Ok(Some(out_json))
+    client.stop()
 }

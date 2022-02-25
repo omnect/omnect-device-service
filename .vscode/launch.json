@@ -21,7 +21,7 @@
       },
       "args": [],
       "cwd": "${workspaceFolder}",
-      "env": { "LD_LIBRARY_PATH": "${workspaceFolder}/target/debug/build/libics-dm-azure-sys-a741ab16cf66d768/out/lib" }
+      "env": { "LD_LIBRARY_PATH": "${workspaceFolder}/target/debug/build/azure-iot-sdk-sys-a741ab16cf66d768/out/lib" }
     },
     {
       "type": "lldb",

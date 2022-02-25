@@ -6,11 +6,12 @@ StartLimitBurst=10
 StartLimitIntervalSec=120
 
 [Service]
-Type=simple
+Type=notify
 Restart=always
 RestartSec=5
 User=demo-portal
 Group=demo-portal
+WatchdogSec=30s
 
 ExecStart=/usr/bin/demo-portal-module
 
