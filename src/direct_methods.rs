@@ -1,6 +1,5 @@
-use crate::{Client, Message};
+use crate::{Message};
 use azure_iot_sdk::client::*;
-use azure_iot_sdk::message::*;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,7 +15,7 @@ struct Factory {
 }
 
 pub fn get_direct_methods(
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
+    _tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) -> Option<HashMap<String, DirectMethod>> {
     let mut methods: HashMap<String, Box<dyn Fn(serde_json::Value) -> Result<Option<serde_json::Value>, Box<dyn Error + Send + Sync>> + Send>> = HashMap::new();
 
