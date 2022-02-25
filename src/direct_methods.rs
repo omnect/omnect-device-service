@@ -18,31 +18,7 @@ struct Factory {
 pub fn get_direct_methods(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) -> Option<HashMap<String, DirectMethod>> {
-    let mut methods = HashMap::new();
-    methods.insert(
-        String::from("closure_send_d2c_message"),
-        Client::make_direct_method(move |_in_json| {
-            let msg = IotMessage::builder()
-                .set_body(
-                    serde_json::to_vec(r#"{"my telemetry message": "hi from device"}"#).unwrap(),
-                )
-                .set_id(String::from("my msg id"))
-                .set_correlation_id(String::from("my correleation id"))
-                .set_property(
-                    String::from("my property key"),
-                    String::from("my property value"),
-                )
-                .set_output_queue(String::from("my output queue"))
-                .build();
-
-            tx_app2client
-                .lock()
-                .unwrap()
-                .send(Message::D2C(msg))
-                .unwrap();
-            Ok(None)
-        }),
-    );
+    let mut methods: HashMap<String, Box<dyn Fn(serde_json::Value) -> Result<Option<serde_json::Value>, Box<dyn Error + Send + Sync>> + Send>> = HashMap::new();
 
     methods.insert(String::from("factory"), Box::new(factory));
 
