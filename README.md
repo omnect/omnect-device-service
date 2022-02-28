@@ -1,33 +1,18 @@
 # demo-portal-module
 
 ## Instruction
-This module is based on the ICS_DeviceManagement [ics-dm-iot-module-rs](https://github.com/ICS-DeviceManagement/ics-dm-iot-module-rs). All information you need to build the project can be found there.
+This module is based on the ICS_DeviceManagement [iot-client-template-rs](https://github.com/ICS-DeviceManagement/iot-client-template-rs). All information you need to build the project can be found there.
 
 
 ## What is demo-portal-module
-This [module](src/lib.rs) on the device side serves the purpose to **demonstrate** both the device downgrade and a factory rest workflow for the demo portal.
+This module on the device side is designed to **demonstrate** a factory rest workflow.
 
-A [downgrade sequence diagram](docs/downgrade.png) illustrates this process.<br>
+The module itself does not perform a factory reset.
+It serves as an interface between the cloud and the built-in factory reset from the [ics-dm yocto image](https://github.com/ICS-DeviceManagement/meta-ics-dm).
 
-**Interface syntax Direct method: downgrade**
+A function was specified for this purpose, a so-called direct method, which is described below.
 
-Method Name:
-
-**downgrade**
-
-Payload:
-```
-{
-"services":"<stop|start>",
-"version": "<downgrade version>"
-}
-```
-
-Result:
-{"status": <HTTP-Statusode>,"payload":"<OK/NOK>"}
-
-
-**Interface syntax Direct method: factory reset**
+**Direct method: factory reset**
 
 Method Name:
 
@@ -41,8 +26,32 @@ Payload:
 ```
 
 Result:
-{"status": <HTTP-Statusode>,"payload":"<OK/NOK>"}
+{"status": <HTTP-Statusode>,"payload":"<result>"}
 
+
+The supported "factory reset types" and the documentation in general about the factory reset can be found in the [meta-ics-dm layer](https://github.com/ICS-DeviceManagement/meta-ics-dm#factory-reset).
+
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{"status":200,"payload":"Ok"}
+```
+
+In all other cases there will be a meaningful error message in the status and payload.
+
+Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported proberty in the module twin.
+
+```
+"factory_reset_status": {
+    "date": "<UTC time of the factory reset status>",
+    "status": "<status>"
+}
+```
+
+The following status information are currently defined:
+ - "successfully"
+ - "error"
+ - "type not supported"
 
 
 ## License
