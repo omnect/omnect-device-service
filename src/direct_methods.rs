@@ -17,7 +17,7 @@ struct Factory {
 pub fn get_direct_methods(
     _tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) -> Option<HashMap<String, DirectMethod>> {
-    let mut methods: HashMap<String, Box<dyn Fn(serde_json::Value) -> Result<Option<serde_json::Value>, Box<dyn Error + Send + Sync>> + Send>> = HashMap::new();
+    let mut methods: HashMap<String, DirectMethod> = HashMap::new();
 
     methods.insert(String::from("factory"), Box::new(factory));
 
@@ -48,7 +48,7 @@ fn write_to_file(reset_type: String) -> String {
     match OpenOptions::new()
         .write(true)
         .create(false)
-        .open("/run/factory-reset")
+        .open("/run/factory-reset/systemd-trigger")
     {
         Ok(mut file) => {
             let content = format!("{}\n", reset_type.as_str());
