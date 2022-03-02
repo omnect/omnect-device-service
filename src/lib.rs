@@ -32,8 +32,8 @@ pub fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
-    let connection_string = Some("HostName=iothub-ics-dev.azure-devices.net;DeviceId=joz-rust-test-02:42:ac:14:00:02;ModuleId=ics-dm-iot-module-rs;SharedAccessKey=vd7OI7bDGaeK+kFwGwBN4I5jJG6ufryLOdkC35GzS8o=");
-    client.run::<TwinType>(connection_string, methods, tx_client2app, rx_app2client);
+
+    client.run::<TwinType>(None, methods, tx_client2app, rx_app2client);
 
     for msg in rx_client2app {
         match msg {

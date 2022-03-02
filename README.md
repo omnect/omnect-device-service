@@ -10,7 +10,7 @@ This module on the device side is designed to **demonstrate** a factory rest wor
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [ics-dm yocto image](https://github.com/ICS-DeviceManagement/meta-ics-dm).
 
-A function was specified for this purpose, a so-called direct method, which is described below.
+A function was specified for this purpose, a so-called direct method which is described below.
 
 **Direct method: factory reset**
 
@@ -29,7 +29,7 @@ Result:
 {"status": <HTTP-Statusode>,"payload":"<result>"}
 
 
-The supported "factory reset types" and the documentation in general about the factory reset can be found in the [meta-ics-dm layer](https://github.com/ICS-DeviceManagement/meta-ics-dm#factory-reset).
+The supported "factory reset type" and the documentation in general about the factory reset can be found in the [meta-ics-dm layer](https://github.com/ICS-DeviceManagement/meta-ics-dm#factory-reset).
 
 In case the method was successful received by the module the return value of the method looks like this:
 
