@@ -3,7 +3,7 @@
 Before=paths.target
 
 [Path]
-PathChanged=/run/factory-reset
+PathChanged=/run/factory-reset/systemd-trigger
 Unit=demo-portal-factory.service
 
 [Install]
