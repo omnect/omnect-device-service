@@ -21,7 +21,7 @@ Method Name:
 Payload:
 ```
 {
-"reset":"<factory reset type>"
+  "reset":"<factory reset type>"
 }
 ```
 
@@ -39,7 +39,7 @@ In case the method was successful received by the module the return value of the
 
 In all other cases there will be a meaningful error message in the status and payload.
 
-Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported proberty in the module twin.
+Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
 
 ```
 "factory_reset_status": {
@@ -48,7 +48,7 @@ Performing a factory reset also triggers a device restart. The restart time of a
 }
 ```
 
-The following status information are currently defined:
+The following status information is defined:
  - "successfully"
  - "error"
  - "type not supported"

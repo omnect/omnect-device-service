@@ -19,32 +19,30 @@ pub fn get_direct_methods(
 ) -> Option<HashMap<String, DirectMethod>> {
     let mut methods: HashMap<String, DirectMethod> = HashMap::new();
 
-    methods.insert(String::from("factory"), Box::new(factory));
+    methods.insert(String::from("factory"), Box::new(reset_to_factory_settings));
 
     Some(methods)
 }
 
-pub fn factory(
+pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, Box<dyn Error + Send + Sync>> {
     let content: Factory;
-    let result;
-    match serde_json::from_value(in_json) {
+    let result = match serde_json::from_value(in_json) {
         Ok(param) => {
             content = param;
             debug!("direct method called with: {:?}", content.reset);
-            result = write_to_file(content.reset);
+            write_to_file(content.reset)
         }
         _ => {
-            result = "param not supported".to_string();
+            "param not supported".to_string()
         }
-    }
+    };
 
     Ok(Some(serde_json::to_value(result).unwrap()))
 }
 
 fn write_to_file(reset_type: String) -> String {
-    let res;
     match OpenOptions::new()
         .write(true)
         .create(false)
@@ -54,11 +52,10 @@ fn write_to_file(reset_type: String) -> String {
             let content = format!("{}\n", reset_type.as_str());
 
             file.write(content.as_bytes()).unwrap();
-            res = "Ok".to_string();
+            "Ok".to_string()
         }
         _ => {
-            res = "file not exists".to_string();
+            "file not exists".to_string()
         }
     }
-    res
 }
