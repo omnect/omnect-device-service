@@ -1,9 +1,8 @@
 use crate::Message;
-use azure_iot_sdk::client::*;
+use azure_iot_sdk::{client::*, IotError};
 use log::debug;
 use serde_json::json;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::mpsc::Sender;
@@ -21,7 +20,7 @@ pub fn get_direct_methods(
 
 pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
-) -> Result<Option<serde_json::Value>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<serde_json::Value>, IotError> {
     match &in_json["reset"].as_str() {
         Some(reset_type) => {
             debug!("direct method called with: {:?}", reset_type);

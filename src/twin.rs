@@ -1,8 +1,7 @@
 use crate::Message;
-use azure_iot_sdk::client::*;
+use azure_iot_sdk::{client::*, IotError};
 use log::warn;
 use serde_json::json;
-use std::error::Error;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -19,7 +18,7 @@ pub fn update(
 
 pub fn report_factory_reset_result(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), IotError> {
     let output = Command::new("sh")
         .arg("-c")
         .arg("fw_printenv factory-reset-status")
@@ -52,5 +51,5 @@ pub fn report_factory_reset_result(
         .arg("fw_setenv factory-reset-status")
         .output()?;
 
-        Ok(())
+    Ok(())
 }

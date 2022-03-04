@@ -1,7 +1,4 @@
-use azure_iot_sdk::client::*;
-use azure_iot_sdk::message::*;
-use azure_iot_sdk::twin::Twin;
-use azure_iot_sdk::IotError;
+use azure_iot_sdk::{client::*, message::*, twin::Twin, IotError};
 use log::debug;
 use std::collections::HashMap;
 use std::error::Error;
