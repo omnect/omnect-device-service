@@ -52,5 +52,5 @@ pub fn report_factory_reset_result(
         .arg("fw_setenv factory-reset-status")
         .output()?;
 
-    Ok(())
+        Ok(())
 }
