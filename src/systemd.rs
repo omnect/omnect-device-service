@@ -1,6 +1,6 @@
+use azure_iot_sdk::IotError;
 use log::debug;
 use sd_notify::NotifyState;
-use std::error::Error;
 use std::sync::Once;
 use std::time::Instant;
 
@@ -28,7 +28,7 @@ impl Default for WatchdogHandler {
 }
 
 impl WatchdogHandler {
-    pub fn init(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn init(&mut self) -> Result<(), IotError> {
         self.usec = u64::MAX;
 
         if sd_notify::watchdog_enabled(false, &mut self.usec)? {
@@ -45,7 +45,7 @@ impl WatchdogHandler {
         Ok(())
     }
 
-    pub fn notify(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn notify(&mut self) -> Result<(), IotError> {
         if let Some(ref mut now) = self.now {
             if u128::from(self.usec) < now.elapsed().as_micros() {
                 debug!("notify watchdog=1");

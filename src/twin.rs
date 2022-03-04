@@ -40,7 +40,7 @@ pub fn report_factory_reset_result(
         .lock()
         .unwrap()
         .send(Message::Reported(json!({
-            "FactoryResetStatus": {
+            "factory_reset_status": {
                 "status": status.unwrap_or_else(|e| e),
                 "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
             }

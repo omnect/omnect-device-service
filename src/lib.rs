@@ -20,13 +20,12 @@ pub mod message;
 #[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
-use azure_iot_sdk::twin::*;
+use azure_iot_sdk::{twin::*, IotError};
 use client::{Client, Message};
 use log::debug;
-use std::error::Error;
 use std::sync::{mpsc, Arc, Mutex};
 
-pub fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
+pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
@@ -44,7 +43,7 @@ pub fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             }
             Message::Unauthenticated(reason) => {
                 client.stop().unwrap();
-                return Err(Box::<dyn Error + Send + Sync>::from(format!(
+                return Err(IotError::from(format!(
                     "No connection. Reason: {:?}",
                     reason
                 )));

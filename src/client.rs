@@ -1,7 +1,6 @@
 use azure_iot_sdk::{client::*, message::*, twin::Twin, IotError};
 use log::debug;
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -61,7 +60,7 @@ impl EventHandler for ClientEventHandler {
 }
 
 pub struct Client {
-    thread: Option<JoinHandle<Result<(), Box<dyn Error + Send + Sync + Send + Sync>>>>,
+    thread: Option<JoinHandle<Result<(), IotError>>>,
     run: Arc<Mutex<bool>>,
 }
 

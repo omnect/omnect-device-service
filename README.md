@@ -49,9 +49,10 @@ Performing a factory reset also triggers a device restart. The restart time of a
 ```
 
 The following status information is defined:
- - "successfully"
- - "error"
- - "type not supported"
+ - "succeeded"
+ - "Unexpected factory reset type in result"
+ - "Unexpected factory reset result"
+ - "Unexpected factory reset result format"
 
 
 ## License

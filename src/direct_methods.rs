@@ -24,12 +24,19 @@ pub fn reset_to_factory_settings(
     match &in_json["reset"].as_str() {
         Some(reset_type) => {
             debug!("direct method called with: {:?}", reset_type);
-            OpenOptions::new()
+            match OpenOptions::new()
                 .write(true)
                 .create(false)
-                .open("/run/factory-reset/systemd-trigger")?
-                .write(reset_type.as_bytes())?;
-            Ok(None)
+                .open("/run/factory-reset/systemd-trigger")
+            {
+                Ok(mut file) => {
+                    file.write(reset_type.as_bytes())?;
+                    Ok(Some(json!("Ok")))
+                }
+                _ => Ok(Some(json!(
+                    "write to /run/factory-reset/systemd-trigger not possible"
+                ))),
+            }
         }
         _ => Ok(Some(json!("param not supported"))),
     }
