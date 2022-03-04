@@ -30,7 +30,7 @@ pub fn report_factory_reset_result(
 
     let status = match vec[..] {
         [_, s] => match s {
-            "0:0\n" => Ok("successfully"),
+            "0:0\n" => Ok("succeeded"),
             "1:-\n" => Err("Unexpected factory reset type in result"),
             _ => Err("Unexpected factory reset result"),
         },
