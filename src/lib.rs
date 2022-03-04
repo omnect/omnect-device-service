@@ -40,7 +40,7 @@ pub fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Message::Authenticated => {
                 #[cfg(feature = "systemd")]
                 systemd::notify_ready();
-                twin::report_factory_reset_result(Arc::clone(&tx_app2client));
+                twin::report_factory_reset_result(Arc::clone(&tx_app2client))?;
             }
             Message::Unauthenticated(reason) => {
                 client.stop().unwrap();

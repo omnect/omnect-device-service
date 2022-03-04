@@ -51,7 +51,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 [[package]]
 name = "aziot-cert-client-async"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-cert-common-http",
  "aziot-key-common",
@@ -64,12 +64,12 @@ dependencies = [
 [[package]]
 name = "aziot-cert-common"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 
 [[package]]
 name = "aziot-cert-common-http"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-key-common",
  "serde",
@@ -78,7 +78,7 @@ dependencies = [
 [[package]]
 name = "aziot-certd-config"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "hex",
  "http-common",
@@ -92,7 +92,7 @@ dependencies = [
 [[package]]
 name = "aziot-identity-client-async"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-cert-common-http",
  "aziot-identity-common",
@@ -106,7 +106,7 @@ dependencies = [
 [[package]]
 name = "aziot-identity-common"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-key-common",
  "http-common",
@@ -116,7 +116,7 @@ dependencies = [
 [[package]]
 name = "aziot-identity-common-http"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-cert-common-http",
  "aziot-identity-common",
@@ -130,7 +130,7 @@ dependencies = [
 [[package]]
 name = "aziot-identityd-config"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-identity-common",
  "http-common",
@@ -142,7 +142,7 @@ dependencies = [
 [[package]]
 name = "aziot-key-client-async"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-key-common",
  "aziot-key-common-http",
@@ -155,7 +155,7 @@ dependencies = [
 [[package]]
 name = "aziot-key-common"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "serde",
 ]
@@ -163,7 +163,7 @@ dependencies = [
 [[package]]
 name = "aziot-key-common-http"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "aziot-key-common",
  "http-common",
@@ -173,7 +173,7 @@ dependencies = [
 [[package]]
 name = "aziot-keyd-config"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "http-common",
  "libc",
@@ -182,8 +182,8 @@ dependencies = [
 
 [[package]]
 name = "azure-iot-sdk"
-version = "0.5.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git?tag=0.5.0#3d2a711ad063821c0f92e7b0766ba95e41ed003f"
+version = "0.5.1"
+source = "git+ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git?tag=0.5.1#9e6bcdd5559d0a9f900141f21ba2e6fe20f8cd44"
 dependencies = [
  "azure-iot-sdk-sys",
  "eis-utils",
@@ -397,8 +397,8 @@ dependencies = [
 
 [[package]]
 name = "eis-utils"
-version = "0.2.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+version = "0.2.1"
+source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.1#24c91a849e2bd46853948b947fc1209e5d61f142"
 dependencies = [
  "aziot-cert-client-async",
  "aziot-cert-common",
@@ -687,7 +687,7 @@ dependencies = [
 [[package]]
 name = "http-common"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.0#9cdd78277bbf2b36563bed9bb8f3d0be4fb6ca5a"
+source = "git+https://git@github.com/Azure/iot-identity-service.git?rev=6af42eefc84351ec7af510213561a40948ed9045#6af42eefc84351ec7af510213561a40948ed9045"
 dependencies = [
  "async-trait",
  "base64",
@@ -915,6 +915,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "308cc39be01b73d0d18f82a0e7b2a3df85245f84af96fdddc5d202d27e47b86a"
 
 [[package]]
+name = "memoffset"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -944,14 +953,15 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.18.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83450fe6a6142ddd95fb064b746083fc4ef1705fe81f64a64e1d4b39f54a1055"
+checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
 dependencies = [
  "bitflags",
  "cc",
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -1013,9 +1023,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da32515d9f6e6e489d7bc9d84c71b060db7247dc035bbe44eac88cf87486d8d5"
+checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
 
 [[package]]
 name = "openssl"
