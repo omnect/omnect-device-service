@@ -1,0 +1,19 @@
+[Unit]
+Description=demo-portal-module service
+After=network-online.target aziot-identityd.service
+Wants=network-online.target aziot-identityd.service
+StartLimitBurst=10
+StartLimitIntervalSec=120
+
+[Service]
+Type=notify
+Restart=always
+RestartSec=5
+User=demo-portal
+Group=demo-portal
+WatchdogSec=30s
+
+ExecStart=/usr/bin/demo-portal-module
+
+[Install]
+WantedBy=multi-user.target

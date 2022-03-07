@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart demo-portal-module
+
+[Timer]
+OnUnitInactiveSec=10min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/factory-reset/systemd-trigger
+Unit=demo-portal-factory-reset.service
+
+[Install]
+WantedBy=paths.target
