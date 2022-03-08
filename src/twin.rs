@@ -32,7 +32,7 @@ pub fn report_factory_reset_result(
         ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
         ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
         ["factory-reset-status", _] => Ok(("failed", true)),
-        _ => Err(("unexpected factory reset result format", false)),
+        _ => Err("unexpected factory reset result format"),
     };
 
     match status {
@@ -54,7 +54,7 @@ pub fn report_factory_reset_result(
         Ok((update_twin, false)) => {
             debug!("{}", update_twin);
         }
-        Err((update_twin, _)) => {
+        Err(update_twin) => {
             warn!("factory reset result: {}", update_twin);
         }
     };
