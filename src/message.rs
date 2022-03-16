@@ -1,5 +1,5 @@
 use crate::Message;
-use azure_iot_sdk::message::*;
+use azure_iot_sdk::client::IotMessage;
 use log::warn;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};

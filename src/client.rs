@@ -1,6 +1,5 @@
-use azure_iot_sdk::{client::*, message::*, twin::Twin, IotError};
+use azure_iot_sdk::client::*;
 use log::debug;
-use std::collections::HashMap;
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -21,7 +20,7 @@ pub enum Message {
 }
 
 struct ClientEventHandler {
-    direct_methods: Option<HashMap<String, DirectMethod>>,
+    direct_methods: Option<DirectMethodMap>,
     tx: Sender<Message>,
 }
 
@@ -54,7 +53,7 @@ impl EventHandler for ClientEventHandler {
         Ok(())
     }
 
-    fn get_direct_methods(&self) -> Option<&HashMap<String, DirectMethod>> {
+    fn get_direct_methods(&self) -> Option<&DirectMethodMap> {
         self.direct_methods.as_ref()
     }
 }
@@ -72,10 +71,11 @@ impl Client {
         }
     }
 
-    pub fn run<T: Twin>(
+    pub fn run(
         &mut self,
+        twin_type: TwinType,
         connection_string: Option<&'static str>,
-        direct_methods: Option<HashMap<String, DirectMethod>>,
+        direct_methods: Option<DirectMethodMap>,
         tx: Sender<Message>,
         rx: Receiver<Message>,
     ) {
@@ -88,8 +88,8 @@ impl Client {
             let event_handler = ClientEventHandler { direct_methods, tx };
 
             let mut client = match connection_string {
-                Some(cs) => IotHubClient::<T>::from_connection_string(cs, event_handler)?,
-                _ => IotHubClient::from_identity_service(event_handler)?,
+                Some(cs) => IotHubClient::from_connection_string(twin_type, cs, event_handler)?,
+                _ => IotHubClient::from_identity_service(twin_type, event_handler)?,
             };
 
             #[cfg(feature = "systemd")]
@@ -122,12 +122,5 @@ impl Client {
         *self.run.lock().unwrap() = false;
 
         self.thread.map_or(Ok(()), |t| t.join().unwrap())
-    }
-
-    pub fn make_direct_method<'a, F>(f: F) -> DirectMethod
-    where
-        F: Fn(serde_json::Value) -> Result<Option<serde_json::Value>, IotError> + 'static + Send,
-    {
-        Box::new(f) as DirectMethod
     }
 }

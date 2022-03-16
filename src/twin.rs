@@ -1,5 +1,5 @@
 use crate::Message;
-use azure_iot_sdk::{client::*, IotError};
+use azure_iot_sdk::client::*;
 use log::{debug, warn};
 use serde_json::json;
 use std::process::Command;
