@@ -8,19 +8,13 @@ compile_error!(
     "Either feature \"device_twin\" xor \"module_twin\" must be enabled for this crate."
 );
 
-#[cfg(feature = "device_twin")]
-type TwinType = DeviceTwin;
-
-#[cfg(feature = "module_twin")]
-type TwinType = ModuleTwin;
-
 pub mod client;
 pub mod direct_methods;
 pub mod message;
 #[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
-use azure_iot_sdk::{twin::*, IotError};
+use azure_iot_sdk::client::*;
 use client::{Client, Message};
 use log::debug;
 use std::sync::{mpsc, Arc, Mutex};
@@ -31,8 +25,9 @@ pub fn run() -> Result<(), IotError> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
+    let twin_type = TwinType::Module;
 
-    client.run::<TwinType>(None, methods, tx_client2app, rx_app2client);
+    client.run(twin_type, None, methods, tx_client2app, rx_app2client);
 
     for msg in rx_client2app {
         match msg {

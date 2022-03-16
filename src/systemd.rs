@@ -1,4 +1,4 @@
-use azure_iot_sdk::IotError;
+use azure_iot_sdk::client::IotError;
 use log::debug;
 use sd_notify::NotifyState;
 use std::sync::Once;
