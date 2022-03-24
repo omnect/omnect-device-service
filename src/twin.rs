@@ -2,6 +2,8 @@ use crate::Message;
 use azure_iot_sdk::client::*;
 use log::{debug, warn};
 use serde_json::json;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -13,7 +15,41 @@ pub fn update(
     _desired: serde_json::Value,
     _tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) {
-    warn!("Received unexpected desired twin properties");
+    if let TwinUpdateState::Partial = _state {
+        let map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_value(_desired).unwrap();
+
+        match map["user_consent"]["swupdate"].as_str() {
+            Some(consent) => {
+                match OpenOptions::new()
+                    .write(true)
+                    .create(false)
+                    .open("/etc/ics_dm/user_consent_conf")
+                {
+                    Ok(mut file) => {
+                        file.set_len(0).unwrap(); // delete file content
+                        file.write("swupdate ".as_bytes()).unwrap();
+                        file.write(consent.as_bytes()).unwrap();
+                        file.write("\n".as_bytes()).unwrap();
+                    }
+                    _ => debug!("write to /etc/ics_dm/user_consent_conf not possible"),
+                }
+            }
+            _ => {
+                debug!("user consent for swupdate not available, clean consent conf file!");
+                match OpenOptions::new()
+                    .write(true)
+                    .create(false)
+                    .open("/etc/ics_dm/user_consent_conf")
+                {
+                    Ok(file) => {
+                        file.set_len(0).unwrap(); // delete file content
+                    }
+                    _ => debug!("clear /etc/ics_dm/user_consent_conf not possible"),
+                }
+            }
+        }
+    }
 }
 
 pub fn report_factory_reset_result(
