@@ -11,43 +11,59 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 pub fn update(
-    _state: TwinUpdateState,
-    _desired: serde_json::Value,
-    _tx_app2client: Arc<Mutex<Sender<Message>>>,
+    state: TwinUpdateState,
+    desired: serde_json::Value,
+    tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) {
-    if let TwinUpdateState::Partial = _state {
-        let map: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_value(_desired).unwrap();
+    let status = match state {
+        TwinUpdateState::Partial => match &desired["general_consent"].as_array() {
+            Some(result) => Ok(json!({ "general_consent": result })),
+            _ => Err(json!({ "general_consent": null })),
+        },
+        TwinUpdateState::Complete => match &desired["desired"]["general_consent"].as_array() {
+            Some(result) => Ok(json!({ "general_consent": result })),
+            _ => Err(json!({ "general_consent": null })),
+        },
+    };
+    match status {
+        Ok(report) => {
+            match OpenOptions::new()
+                .write(true)
+                .create(false)
+                .open("/etc/consent/consent_conf.json")
+            {
+                Ok(mut file) => {
+                    let content = serde_json::to_string_pretty(&report).unwrap();
+                    file.set_len(0).unwrap();
+                    file.write(content.as_bytes()).unwrap();
+                    file.write("\n".as_bytes()).unwrap();
+                }
+                _ => debug!("write to /etc/consent/consent_conf.json not possible"),
+            }
 
-        match map["user_consent"]["swupdate"].as_str() {
-            Some(consent) => {
-                match OpenOptions::new()
-                    .write(true)
-                    .create(false)
-                    .open("/etc/ics_dm/user_consent_conf")
-                {
-                    Ok(mut file) => {
-                        file.set_len(0).unwrap(); // delete file content
-                        file.write("swupdate ".as_bytes()).unwrap();
-                        file.write(consent.as_bytes()).unwrap();
-                        file.write("\n".as_bytes()).unwrap();
-                    }
-                    _ => debug!("write to /etc/ics_dm/user_consent_conf not possible"),
+            tx_app2client
+                .lock()
+                .unwrap()
+                .send(Message::Reported(report))
+                .unwrap();
+        }
+        Err(report) => {
+            match OpenOptions::new()
+                .write(true)
+                .create(false)
+                .open("/etc/consent/consent_conf.json")
+            {
+                Ok(file) => {
+                    file.set_len(0).unwrap();
                 }
+                _ => debug!("write to /etc/consent/consent_conf.json not possible"),
             }
-            _ => {
-                debug!("user consent for swupdate not available, clean consent conf file!");
-                match OpenOptions::new()
-                    .write(true)
-                    .create(false)
-                    .open("/etc/ics_dm/user_consent_conf")
-                {
-                    Ok(file) => {
-                        file.set_len(0).unwrap(); // delete file content
-                    }
-                    _ => debug!("clear /etc/ics_dm/user_consent_conf not possible"),
-                }
-            }
+
+            tx_app2client
+                .lock()
+                .unwrap()
+                .send(Message::Reported(report))
+                .unwrap();
         }
     }
 }

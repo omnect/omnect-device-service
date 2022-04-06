@@ -38,11 +38,28 @@ pub fn reset_to_factory_settings(
     }
 }
 
-pub fn user_consent(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open("/tmp/user_consent_once")?;
+pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+    match &in_json["consent"].as_str() {
+        Some(version) => {
+            match OpenOptions::new()
+                .write(true)
+                .create(false)
+                .open("/etc/consent/swupdate/user_consent.json")
+            {
+                Ok(mut file) => {
+                    let content =
+                        serde_json::to_string_pretty(&json!({ "consent": version })).unwrap();
+                    file.set_len(0).unwrap();
+                    file.write(content.as_bytes()).unwrap();
+                    file.write("\n".as_bytes()).unwrap();
 
-    Ok(Some(json!("Ok")))
+                    Ok(Some(json!("Ok")))
+                }
+                _ => Ok(Some(json!(
+                    "write to /etc/consent/swupdate/user_consent.json not possible"
+                ))),
+            }
+        }
+        _ => Ok(Some(json!("param not supported"))),
+    }
 }
