@@ -25,40 +25,31 @@ pub fn update(
             _ => Err(json!({ "general_consent": null })),
         },
     };
+    let file_handle = OpenOptions::new()
+        .write(true)
+        .create(false)
+        .open("/etc/consent/consent_conf.json");
+
+    match &status {
+        Ok(report) => match file_handle {
+            Ok(mut file) => {
+                let content = serde_json::to_string_pretty(&report).unwrap();
+                file.set_len(0).unwrap();
+                file.write(content.as_bytes()).unwrap();
+                file.write("\n".as_bytes()).unwrap();
+            }
+            _ => debug!("write to /etc/consent/consent_conf.json not possible"),
+        },
+        Err(_report) => match file_handle {
+            Ok(file) => {
+                file.set_len(0).unwrap();
+            }
+            _ => debug!("write to /etc/consent/consent_conf.json not possible"),
+        },
+    }
+
     match status {
-        Ok(report) => {
-            match OpenOptions::new()
-                .write(true)
-                .create(false)
-                .open("/etc/consent/consent_conf.json")
-            {
-                Ok(mut file) => {
-                    let content = serde_json::to_string_pretty(&report).unwrap();
-                    file.set_len(0).unwrap();
-                    file.write(content.as_bytes()).unwrap();
-                    file.write("\n".as_bytes()).unwrap();
-                }
-                _ => debug!("write to /etc/consent/consent_conf.json not possible"),
-            }
-
-            tx_app2client
-                .lock()
-                .unwrap()
-                .send(Message::Reported(report))
-                .unwrap();
-        }
-        Err(report) => {
-            match OpenOptions::new()
-                .write(true)
-                .create(false)
-                .open("/etc/consent/consent_conf.json")
-            {
-                Ok(file) => {
-                    file.set_len(0).unwrap();
-                }
-                _ => debug!("write to /etc/consent/consent_conf.json not possible"),
-            }
-
+        Ok(report) | Err(report) => {
             tx_app2client
                 .lock()
                 .unwrap()
