@@ -109,11 +109,11 @@ pub fn report_factory_reset_result(
 
 pub fn report_user_consent(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-    file_report: PathBuf,
+    report_consent_file: PathBuf,
 ) -> Result<(), IotError> {
-    debug!("report_user_consent: {:?}", file_report);
+    debug!("report_user_consent_file: {:?}", report_consent_file);
 
-    let data = fs::read_to_string(file_report).expect("Unable to read file");
+    let data = fs::read_to_string(report_consent_file).expect("Unable to read file");
     let json: serde_json::Value = serde_json::from_str(&data).expect("JSON was not well-formatted");
 
     tx_app2client

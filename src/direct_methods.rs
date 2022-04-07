@@ -10,7 +10,10 @@ pub fn get_direct_methods(_tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option
     let mut methods = DirectMethodMap::new();
 
     methods.insert(String::from("factory"), Box::new(reset_to_factory_settings));
-    methods.insert(String::from("user_consent"), Box::new(user_consent));
+    methods.insert(
+        String::from("user_consent_swupdate"),
+        Box::new(user_consent_swupdate),
+    );
 
     Some(methods)
 }
@@ -38,7 +41,9 @@ pub fn reset_to_factory_settings(
     }
 }
 
-pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+pub fn user_consent_swupdate(
+    in_json: serde_json::Value,
+) -> Result<Option<serde_json::Value>, IotError> {
     match &in_json["consent"].as_str() {
         Some(version) => {
             match OpenOptions::new()

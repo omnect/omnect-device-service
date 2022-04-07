@@ -32,10 +32,9 @@ pub fn run() -> Result<(), IotError> {
 
     // Create a watcher object, delivering debounced events.
     // The notification back-end is selected based on the platform.
-    let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+    let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
 
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
+    // These files at that given path below will be monitored for changes.
     watcher
         .watch(
             "/etc/consent/request_consent.json",
@@ -72,8 +71,8 @@ pub fn run() -> Result<(), IotError> {
         }
         match rx.recv_timeout(Duration::from_secs(1)) {
             Ok(event) => match event {
-                notify::DebouncedEvent::Write(file_report) => {
-                    twin::report_user_consent(Arc::clone(&tx_app2client), file_report)?
+                notify::DebouncedEvent::Write(report_consent_file) => {
+                    twin::report_user_consent(Arc::clone(&tx_app2client), report_consent_file)?
                 }
                 _ => println!("{:?}", event),
             },
