@@ -2,8 +2,10 @@ use crate::Message;
 use azure_iot_sdk::client::*;
 use log::{debug, warn};
 use serde_json::json;
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -101,6 +103,23 @@ pub fn report_factory_reset_result(
             warn!("factory reset result: {}", update_twin);
         }
     };
+
+    Ok(())
+}
+
+pub fn report_user_consent(
+    tx_app2client: Arc<Mutex<Sender<Message>>>,
+    file_report: PathBuf,
+) -> Result<(), IotError> {
+    debug!("report_user_consent: {:?}", file_report);
+
+    let data = fs::read_to_string(file_report).expect("Unable to read file");
+    let json: serde_json::Value = serde_json::from_str(&data).expect("JSON was not well-formatted");
+
+    tx_app2client
+        .lock()
+        .unwrap()
+        .send(Message::Reported(json))?;
 
     Ok(())
 }
