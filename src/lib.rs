@@ -27,7 +27,11 @@ pub fn run() -> Result<(), IotError> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
-    let twin_type = TwinType::Module;
+    let twin_type = if cfg!(feature = "device_twin") {
+        TwinType::Device
+    } else {
+        TwinType::Module
+    };
     let (tx, rx) = channel();
 
     // Create a watcher object, delivering debounced events.
