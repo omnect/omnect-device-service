@@ -4,61 +4,55 @@ use log::{debug, warn};
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use crate::REQ_CONSENT_JSON_PATH;
 
 pub fn update(
     state: TwinUpdateState,
     desired: serde_json::Value,
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-) {
-    let status = match state {
-        TwinUpdateState::Partial => match &desired["general_consent"].as_array() {
-            Some(result) => Ok(json!({ "general_consent": result })),
-            _ => Err(json!({ "general_consent": null })),
-        },
-        TwinUpdateState::Complete => match &desired["desired"]["general_consent"].as_array() {
-            Some(result) => Ok(json!({ "general_consent": result })),
-            _ => Err(json!({ "general_consent": null })),
-        },
-    };
-    let file_handle = OpenOptions::new()
-        .write(true)
-        .create(false)
-        .open("/etc/consent/consent_conf.json");
-
-    match &status {
-        Ok(report) => match file_handle {
-            Ok(mut file) => {
-                let content = serde_json::to_string_pretty(&report).unwrap();
-                file.set_len(0).unwrap();
-                file.write(content.as_bytes()).unwrap();
-                file.write("\n".as_bytes()).unwrap();
-            }
-            _ => debug!("write to /etc/consent/consent_conf.json not possible"),
-        },
-        Err(_report) => match file_handle {
-            Ok(file) => {
-                file.set_len(0).unwrap();
-            }
-            _ => debug!("write to /etc/consent/consent_conf.json not possible"),
-        },
+) -> Result<(), IotError> {
+    struct Guard {
+        tx_app2client: Arc<Mutex<Sender<Message>>>,
+        result: serde_json::Value,
     }
 
-    match status {
-        Ok(report) | Err(report) => {
-            tx_app2client
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.tx_app2client
                 .lock()
                 .unwrap()
-                .send(Message::Reported(report))
-                .unwrap();
+                .send(Message::Reported(self.result.clone()))
+                .unwrap()
         }
     }
+
+    let mut guard = Guard {
+        tx_app2client,
+        result: json!({ "general_consent": null }),
+    };
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create(false)
+        .open(REQ_CONSENT_JSON_PATH.as_str())?;
+
+    if let Some(consents) = match state {
+        TwinUpdateState::Partial => desired["general_consent"].as_array(),
+        TwinUpdateState::Complete => desired["desired"]["general_consent"].as_array(),
+    } {
+        serde_json::to_writer_pretty(file, consents)?;
+        guard.result = json!({ "general_consent": consents });
+    } else {
+        file.set_len(0)?;
+    }
+
+    Ok(())
 }
 
 pub fn report_factory_reset_result(
@@ -113,8 +107,8 @@ pub fn report_user_consent(
 ) -> Result<(), IotError> {
     debug!("report_user_consent_file: {:?}", report_consent_file);
 
-    let data = fs::read_to_string(report_consent_file).expect("Unable to read file");
-    let json: serde_json::Value = serde_json::from_str(&data).expect("JSON was not well-formatted");
+    let json: serde_json::Value =
+        serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())?;
 
     tx_app2client
         .lock()
