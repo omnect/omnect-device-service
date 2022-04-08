@@ -20,6 +20,7 @@ use notify::{watcher, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
+use std::thread;
 
 pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
@@ -52,7 +53,7 @@ pub fn run() -> Result<(), IotError> {
     client.run(twin_type, None, methods, tx_client2app, rx_app2client);
 
     loop {
-        match rx_client2app.recv_timeout(Duration::from_secs(1)) {
+        match rx_client2app.try_recv() {
             Ok(Message::Authenticated) => {
                 #[cfg(feature = "systemd")]
                 systemd::notify_ready();
@@ -73,7 +74,7 @@ pub fn run() -> Result<(), IotError> {
             }
             _ => {}
         }
-        match rx.recv_timeout(Duration::from_secs(1)) {
+        match rx.try_recv() {
             Ok(event) => match event {
                 notify::DebouncedEvent::Write(report_consent_file) => {
                     twin::report_user_consent(Arc::clone(&tx_app2client), report_consent_file)?
@@ -82,5 +83,7 @@ pub fn run() -> Result<(), IotError> {
             },
             Err(_e) => {}
         }
+
+        thread::sleep(Duration::from_secs(1));
     }
 }
