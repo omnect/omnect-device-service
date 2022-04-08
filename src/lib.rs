@@ -31,6 +31,8 @@ lazy_static! {
         .unwrap_or("/etc/consent/request_consent.json".to_string());
     pub static ref AGREED_CONSENT_JSON_PATH: String = env::var("AGREED_CONSENT_JSON_PATH")
         .unwrap_or("/etc/consent/agreed_consent.json".to_string());
+    pub static ref CONSENT_CONF_JSON_PATH: String = env::var("CONSENT_CONF_JSON_PATH")
+        .unwrap_or("/etc/consent/consent_conf.json".to_string());
 }
 
 pub fn run() -> Result<(), IotError> {

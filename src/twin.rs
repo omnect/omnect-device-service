@@ -1,4 +1,5 @@
 use crate::Message;
+use crate::CONSENT_CONF_JSON_PATH;
 use azure_iot_sdk::client::*;
 use log::{debug, warn};
 use serde_json::json;
@@ -10,7 +11,6 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use crate::REQ_CONSENT_JSON_PATH;
 
 pub fn update(
     state: TwinUpdateState,
@@ -40,7 +40,7 @@ pub fn update(
     let file = OpenOptions::new()
         .write(true)
         .create(false)
-        .open(REQ_CONSENT_JSON_PATH.as_str())?;
+        .open(CONSENT_CONF_JSON_PATH.as_str())?;
 
     if let Some(consents) = match state {
         TwinUpdateState::Partial => desired["general_consent"].as_array(),
@@ -49,7 +49,7 @@ pub fn update(
         serde_json::to_writer_pretty(file, consents)?;
         guard.result = json!({ "general_consent": consents });
     } else {
-        file.set_len(0)?;
+        serde_json::to_writer_pretty(file, r#"{"general_consent": []}"#)?;
     }
 
     Ok(())
