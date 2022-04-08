@@ -53,10 +53,9 @@ pub fn run() -> Result<(), IotError> {
 
     watcher.watch(AGREED_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
 
-    let connection_string = "HostName=iothub-ics-dev.azure-devices.net;DeviceId=joz-adu-debug-02:42:ac:14:00:02;ModuleId=demo-portal-module;SharedAccessKey=3BVbXfXoS3F3PyIJUJD1UNqv04/u0PVdMixPJEMuS3A=";
     client.run(
         twin_type,
-        Some(connection_string),
+        None,
         methods,
         tx_client2app,
         rx_app2client,
