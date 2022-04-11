@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 #[cfg(not(any(feature = "device_twin", feature = "module_twin")))]
 compile_error!(
     "Either feature \"device_twin\" xor \"module_twin\" must be enabled for this crate."
@@ -16,11 +19,21 @@ pub mod systemd;
 pub mod twin;
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
-use notify::{watcher, RecursiveMode, Watcher};
-use std::sync::mpsc::channel;
+use log::error;
+use notify::{RecursiveMode, Watcher};
+use std::env;
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
+
+lazy_static! {
+    pub static ref REQ_CONSENT_JSON_PATH: String = env::var("REQ_CONSENT_JSON_PATH")
+        .unwrap_or("/etc/consent/request_consent.json".to_string());
+    pub static ref AGREED_CONSENT_JSON_PATH: String = env::var("AGREED_CONSENT_JSON_PATH")
+        .unwrap_or("/etc/consent/agreed_consent.json".to_string());
+    pub static ref CONSENT_CONF_JSON_PATH: String = env::var("CONSENT_CONF_JSON_PATH")
+        .unwrap_or("/etc/consent/consent_conf.json".to_string());
+}
 
 pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
@@ -33,24 +46,20 @@ pub fn run() -> Result<(), IotError> {
     } else {
         TwinType::Module
     };
-    let (tx, rx) = channel();
+    let (tx_file_watcher, rx_file_watcher) = mpsc::channel();
+    let mut watcher = notify::watcher(tx_file_watcher, Duration::from_secs(2))?;
 
-    // Create a watcher object, delivering debounced events.
-    // The notification back-end is selected based on the platform.
-    let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
+    watcher.watch(REQ_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
 
-    // These files at that given path below will be monitored for changes.
-    watcher
-        .watch(
-            "/etc/consent/request_consent.json",
-            RecursiveMode::Recursive,
-        )
-        .unwrap();
-    watcher
-        .watch("/etc/consent/agreed_consent.json", RecursiveMode::Recursive)
-        .unwrap();
+    watcher.watch(AGREED_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
 
-    client.run(twin_type, None, methods, tx_client2app, rx_app2client);
+    client.run(
+        twin_type,
+        None,
+        methods,
+        tx_client2app,
+        rx_app2client,
+    );
 
     loop {
         match rx_client2app.try_recv() {
@@ -60,28 +69,25 @@ pub fn run() -> Result<(), IotError> {
                 twin::report_factory_reset_result(Arc::clone(&tx_app2client))?;
             }
             Ok(Message::Unauthenticated(reason)) => {
-                client.stop().unwrap();
+                client.stop()?;
                 return Err(IotError::from(format!(
                     "No connection. Reason: {:?}",
                     reason
                 )));
             }
             Ok(Message::Desired(state, desired)) => {
-                twin::update(state, desired, Arc::clone(&tx_app2client));
+                if let Err(e) = twin::update(state, desired, Arc::clone(&tx_app2client)) {
+                    error!("Couldn't handle twin desired: {}", e);
+                }
             }
             Ok(Message::C2D(msg)) => {
                 message::update(msg, Arc::clone(&tx_app2client));
             }
             _ => {}
         }
-        match rx.try_recv() {
-            Ok(event) => match event {
-                notify::DebouncedEvent::Write(report_consent_file) => {
-                    twin::report_user_consent(Arc::clone(&tx_app2client), report_consent_file)?
-                }
-                _ => println!("{:?}", event),
-            },
-            Err(_e) => {}
+
+        if let Ok(notify::DebouncedEvent::Write(file)) = rx_file_watcher.try_recv() {
+            twin::report_user_consent(Arc::clone(&tx_app2client), file)?
         }
 
         thread::sleep(Duration::from_secs(1));
