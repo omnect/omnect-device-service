@@ -40,17 +40,16 @@ pub fn update(
     let file = OpenOptions::new()
         .write(true)
         .create(false)
+        .truncate(true)
         .open(CONSENT_CONF_JSON_PATH.as_str())?;
 
     if let Some(consents) = match state {
         TwinUpdateState::Partial => desired["general_consent"].as_array(),
         TwinUpdateState::Complete => desired["desired"]["general_consent"].as_array(),
     } {
-        file.set_len(0).unwrap();
         serde_json::to_writer_pretty(file, consents)?;
         guard.result = json!({ "general_consent": consents });
     } else {
-        file.set_len(0).unwrap();
         serde_json::to_writer_pretty(file, &json!({ "general_consent": [] }))?;
     }
 

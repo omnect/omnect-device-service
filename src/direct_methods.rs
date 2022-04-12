@@ -26,6 +26,7 @@ pub fn reset_to_factory_settings(
             match OpenOptions::new()
                 .write(true)
                 .create(false)
+                .truncate(true)
                 .open("/run/factory-reset/systemd-trigger")
             {
                 Ok(mut file) => {
@@ -49,15 +50,13 @@ pub fn user_consent_swupdate(
             match OpenOptions::new()
                 .write(true)
                 .create(false)
+                .truncate(true)
                 .open("/etc/consent/swupdate/user_consent.json")
             {
                 Ok(mut file) => {
                     let content =
                         serde_json::to_string_pretty(&json!({ "consent": version })).unwrap();
-                    file.set_len(0).unwrap();
                     file.write(content.as_bytes()).unwrap();
-                    file.write("\n".as_bytes()).unwrap();
-
                     Ok(Some(json!("Ok")))
                 }
                 _ => Ok(Some(json!(
