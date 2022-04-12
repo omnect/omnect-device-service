@@ -46,10 +46,12 @@ pub fn update(
         TwinUpdateState::Partial => desired["general_consent"].as_array(),
         TwinUpdateState::Complete => desired["desired"]["general_consent"].as_array(),
     } {
+        file.set_len(0).unwrap();
         serde_json::to_writer_pretty(file, consents)?;
         guard.result = json!({ "general_consent": consents });
     } else {
-        serde_json::to_writer_pretty(file, r#"{"general_consent": []}"#)?;
+        file.set_len(0).unwrap();
+        serde_json::to_writer_pretty(file, &json!({ "general_consent": [] }))?;
     }
 
     Ok(())
