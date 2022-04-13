@@ -51,7 +51,7 @@ pub fn user_consent_swupdate(
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/etc/consent/swupdate/user_consent.json")
+                .open("/etc/ics_dm/consent/swupdate/user_consent.json")
             {
                 Ok(mut file) => {
                     let content =
@@ -60,7 +60,7 @@ pub fn user_consent_swupdate(
                     Ok(Some(json!("Ok")))
                 }
                 _ => Ok(Some(json!(
-                    "write to /etc/consent/swupdate/user_consent.json not possible"
+                    "write to /etc/ics_dm/consent/swupdate/user_consent.json not possible"
                 ))),
             }
         }

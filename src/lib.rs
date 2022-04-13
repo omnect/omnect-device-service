@@ -28,11 +28,11 @@ use std::time::Duration;
 
 lazy_static! {
     pub static ref REQ_CONSENT_JSON_PATH: String = env::var("REQ_CONSENT_JSON_PATH")
-        .unwrap_or("/etc/consent/request_consent.json".to_string());
-    pub static ref AGREED_CONSENT_JSON_PATH: String = env::var("AGREED_CONSENT_JSON_PATH")
-        .unwrap_or("/etc/consent/agreed_consent.json".to_string());
+        .unwrap_or("/etc/ics_dm/consent/request_consent.json".to_string());
+    pub static ref HISTORY_CONSENT_JSON_PATH: String = env::var("HISTORY_CONSENT_JSON_PATH")
+        .unwrap_or("/etc/ics_dm/consent/history_consent.json".to_string());
     pub static ref CONSENT_CONF_JSON_PATH: String = env::var("CONSENT_CONF_JSON_PATH")
-        .unwrap_or("/etc/consent/consent_conf.json".to_string());
+        .unwrap_or("/etc/ics_dm/consent/consent_conf.json".to_string());
 }
 
 pub fn run() -> Result<(), IotError> {
@@ -51,7 +51,7 @@ pub fn run() -> Result<(), IotError> {
 
     watcher.watch(REQ_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
 
-    watcher.watch(AGREED_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
+    watcher.watch(HISTORY_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
 
     client.run(
         twin_type,
