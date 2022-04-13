@@ -5,7 +5,7 @@ This module is based on the ICS_DeviceManagement [iot-client-template-rs](https:
 
 
 ## What is demo-portal-module
-This module on the device side is designed to **demonstrate** the  workflow:
+This module on the device side is designed to **demonstrate** the  workflows:
 - factory reset
 - iot-hub-device-update user consent
 
@@ -59,14 +59,14 @@ The following status information is defined:
 
 ### iot-hub-device-update user consent
 
-In our systems we use the service [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) for device firmware update. We have expanded this service to include a "User Consent" functionality, which allows the user to individually approve a new device update for their IoT device.
+In our systems we use the service [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) for device firmware update. We have extended this service to include a "user consent" functionality, which allows the user to individually approve a new device update for his IoT device.
 
 The module itself does not perform a user consent.
 It serves as an interface between the cloud and the built-in user consent from the [ics-dm yocto image](https://github.com/ICS-DeviceManagement/meta-ics-dm).
 
-#### Configure General Consent
+#### Configure general consent
 
-To activate a general consent for the current and subsequent update files enter the following settings in the module twin:
+To enable a general consent for all swupdate based firmware updates configure the following general_consent setting in the module twin:
 
 ```
 "general_consent":
@@ -75,7 +75,7 @@ To activate a general consent for the current and subsequent update files enter 
 ]
 ```
 
-To deactivate a general consent enter the following settings in the module twin:
+To disable the general consent enter the following setting in the module twin:
 
 ```
 "general_consent":
@@ -84,20 +84,22 @@ To deactivate a general consent enter the following settings in the module twin:
 ]
 ```
 
-#### User Consent
+#### User consent
 If there is no general approval for an firmware update, a separate approval must be given for each upcoming update.
 A function was specified for this purpose, a so-called direct method which is described below.
 
-**Direct method: user_consent_swupdate**
+**Direct method: user_consent**
 
 Method Name:
 
-**user_consent_swupdate**
+**user_consent**
 
 Payload:
 ```
 {
-  "consent":"<version>"
+  "swupdate": {
+    "consent":"<version>"
+  }
 }
 ```
 
@@ -112,7 +114,7 @@ In case the method was successful received by the module the return value of the
 
 In all other cases there will be a meaningful error message in the status and payload.
 
-#### Status User Consent
+#### Status user consent
 
 The module reports the status for a required user consent. The module sends for this purpose a request to the cloud as reported property in the module twin.
 
