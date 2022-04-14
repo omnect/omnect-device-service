@@ -1,6 +1,5 @@
 #[macro_use]
-extern crate lazy_static;
-
+extern crate default_env;
 #[cfg(not(any(feature = "device_twin", feature = "module_twin")))]
 compile_error!(
     "Either feature \"device_twin\" xor \"module_twin\" must be enabled for this crate."
@@ -21,19 +20,11 @@ use azure_iot_sdk::client::*;
 use client::{Client, Message};
 use log::error;
 use notify::{RecursiveMode, Watcher};
-use std::env;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-lazy_static! {
-    pub static ref REQ_CONSENT_JSON_PATH: String = env::var("REQ_CONSENT_JSON_PATH")
-        .unwrap_or("/etc/ics_dm/consent/request_consent.json".to_string());
-    pub static ref HISTORY_CONSENT_JSON_PATH: String = env::var("HISTORY_CONSENT_JSON_PATH")
-        .unwrap_or("/etc/ics_dm/consent/history_consent.json".to_string());
-    pub static ref CONSENT_CONF_JSON_PATH: String = env::var("CONSENT_CONF_JSON_PATH")
-        .unwrap_or("/etc/ics_dm/consent/consent_conf.json".to_string());
-}
+pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/ics_dm/consent");
 
 pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
@@ -49,17 +40,17 @@ pub fn run() -> Result<(), IotError> {
     let (tx_file_watcher, rx_file_watcher) = mpsc::channel();
     let mut watcher = notify::watcher(tx_file_watcher, Duration::from_secs(2))?;
 
-    watcher.watch(REQ_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
+    watcher.watch(
+        format!("{CONSENT_DIR_PATH}/request_consent.json"),
+        RecursiveMode::Recursive,
+    )?;
 
-    watcher.watch(HISTORY_CONSENT_JSON_PATH.as_str(), RecursiveMode::Recursive)?;
+    watcher.watch(
+        format!("{CONSENT_DIR_PATH}/history_consent.json"),
+        RecursiveMode::Recursive,
+    )?;
 
-    client.run(
-        twin_type,
-        None,
-        methods,
-        tx_client2app,
-        rx_app2client,
-    );
+    client.run(twin_type, None, methods, tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.try_recv() {
@@ -77,7 +68,7 @@ pub fn run() -> Result<(), IotError> {
             }
             Ok(Message::Desired(state, desired)) => {
                 if let Err(e) = twin::update(state, desired, Arc::clone(&tx_app2client)) {
-                    error!("Couldn't handle twin desired: {}", e);
+                    error!("Couldn't handle twin desired: {e}");
                 }
             }
             Ok(Message::C2D(msg)) => {

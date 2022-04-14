@@ -9,7 +9,7 @@ fn main() {
         Builder::from_env(Env::default().default_filter_or("info")).init();
     }
     if let Err(e) = demo_portal_module::run() {
-        error!("Application error: {}", e);
+        error!("Application error: {e}");
 
         process::exit(1);
     }
