@@ -26,6 +26,9 @@ use std::time::Duration;
 
 pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/ics_dm/consent");
 
+const WATCHER_DELAY: u64 = 2;
+const RX_CLIENT2APP_TIMEOUT: u64 = 1;
+
 pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
@@ -38,7 +41,7 @@ pub fn run() -> Result<(), IotError> {
         TwinType::Module
     };
     let (tx_file_watcher, rx_file_watcher) = mpsc::channel();
-    let mut watcher = notify::watcher(tx_file_watcher, Duration::from_secs(2))?;
+    let mut watcher = notify::watcher(tx_file_watcher, Duration::from_secs(WATCHER_DELAY))?;
 
     watcher.watch(
         format!("{CONSENT_DIR_PATH}/request_consent.json"),
@@ -81,6 +84,6 @@ pub fn run() -> Result<(), IotError> {
             twin::report_user_consent(Arc::clone(&tx_app2client), file)?
         }
 
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT));
     }
 }

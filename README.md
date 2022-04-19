@@ -61,8 +61,7 @@ The following status information is defined:
 
 In our systems we use the service [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) for device firmware update. We have extended this service to include a "user consent" functionality, which allows the user to individually approve a new device update for his IoT device.
 
-The module itself does not perform a user consent.
-It serves as an interface between the cloud and the built-in user consent from the [ics-dm yocto image](https://github.com/ICS-DeviceManagement/meta-ics-dm).
+The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [ics-dm yocto image](https://github.com/ICS-DeviceManagement/meta-ics-dm).
 
 #### Configure general consent
 
@@ -85,8 +84,8 @@ To disable the general consent enter the following setting in the module twin:
 ```
 
 #### User consent
-If there is no general approval for an firmware update, a separate approval must be given for each upcoming update.
-A function was specified for this purpose, a so-called direct method which is described below.
+If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
+A direct method was specified for this purpose which is described below.
 
 **Direct method: user_consent**
 
@@ -97,9 +96,7 @@ Method Name:
 Payload:
 ```
 {
-  "swupdate": {
-    "consent":"<version>"
-  }
+  "swupdate":"<version>"
 }
 ```
 
@@ -141,6 +138,7 @@ As soon as the consent for a new update has been granted via the direct method "
 Licensed under either of
 * Apache License, Version 2.0, (./LICENSE-APACHE or <http://www.apache.org/licenses/LICENSE-2.0>)
 * MIT license (./LICENSE-MIT or <http://opensource.org/licenses/MIT>)
+
 at your option.
 
 ## Contribution
