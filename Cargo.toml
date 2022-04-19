@@ -17,7 +17,7 @@ log = "0.4"
 sd-notify = { git = "ssh://git@github.com/ICS-DeviceManagement/sd-notify.git", tag = "v0.5.0", optional = true }
 time = { version = "0.3.7", features =["formatting"] }
 notify = "4.0.17"
-lazy_static = "1.4.0"
+default-env = "0.1.1"
 
 [features]
 # select either "device_twin" or "module_twin" functionality

@@ -1,5 +1,5 @@
 use crate::Message;
-use crate::CONSENT_CONF_JSON_PATH;
+use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
 use log::{debug, warn};
 use serde_json::json;
@@ -41,7 +41,7 @@ pub fn update(
         .write(true)
         .create(false)
         .truncate(true)
-        .open(CONSENT_CONF_JSON_PATH.as_str())?;
+        .open(format!("{CONSENT_DIR_PATH}/consent_conf.json"))?;
 
     if let Some(consents) = match state {
         TwinUpdateState::Partial => desired["general_consent"].as_array(),
@@ -90,12 +90,14 @@ pub fn report_factory_reset_result(
                 .arg("-c")
                 .arg("fw_setenv factory-reset-status")
                 .output()?;
+
+            debug!("factory reset result: {update_twin}");
         }
         Ok((update_twin, false)) => {
-            debug!("{}", update_twin);
+            debug!("factory reset result: {update_twin}");
         }
         Err(update_twin) => {
-            warn!("factory reset result: {}", update_twin);
+            warn!("factory reset result: {update_twin}");
         }
     };
 
