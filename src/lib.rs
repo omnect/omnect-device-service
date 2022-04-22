@@ -44,12 +44,12 @@ pub fn run() -> Result<(), IotError> {
     let mut watcher = notify::watcher(tx_file_watcher, Duration::from_secs(WATCHER_DELAY))?;
 
     watcher.watch(
-        format!("{CONSENT_DIR_PATH}/request_consent.json"),
+        format!("{}/request_consent.json", CONSENT_DIR_PATH),
         RecursiveMode::Recursive,
     )?;
 
     watcher.watch(
-        format!("{CONSENT_DIR_PATH}/history_consent.json"),
+        format!("{}/history_consent.json", CONSENT_DIR_PATH),
         RecursiveMode::Recursive,
     )?;
 
@@ -71,7 +71,7 @@ pub fn run() -> Result<(), IotError> {
             }
             Ok(Message::Desired(state, desired)) => {
                 if let Err(e) = twin::update(state, desired, Arc::clone(&tx_app2client)) {
-                    error!("Couldn't handle twin desired: {e}");
+                    error!("Couldn't handle twin desired: {}", e);
                 }
             }
             Ok(Message::C2D(msg)) => {

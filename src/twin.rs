@@ -41,7 +41,7 @@ pub fn update(
         .write(true)
         .create(false)
         .truncate(true)
-        .open(format!("{CONSENT_DIR_PATH}/consent_conf.json"))?;
+        .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
     if let Some(consents) = match state {
         TwinUpdateState::Partial => desired["general_consent"].as_array(),
@@ -59,47 +59,50 @@ pub fn update(
 pub fn report_factory_reset_result(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) -> Result<(), IotError> {
-    let output = Command::new("sh")
+    if let Ok(output) = Command::new("sh")
         .arg("-c")
         .arg("fw_printenv factory-reset-status")
-        .output()?;
+        .output()
+    {
+        let status = String::from_utf8(output.stdout)?;
+        let vec: Vec<&str> = status.split("=").collect();
 
-    let status = String::from_utf8(output.stdout)?;
-    let vec: Vec<&str> = status.split("=").collect();
+        let status = match vec[..] {
+            ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
+            ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
+            ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
+            ["factory-reset-status", _] => Ok(("failed", true)),
+            _ => Err("unexpected factory reset result format"),
+        };
 
-    let status = match vec[..] {
-        ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
-        ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
-        ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
-        ["factory-reset-status", _] => Ok(("failed", true)),
-        _ => Err("unexpected factory reset result format"),
-    };
+        match status {
+            Ok((update_twin, true)) => {
+                tx_app2client
+                    .lock()
+                    .unwrap()
+                    .send(Message::Reported(json!({
+                        "factory_reset_status": {
+                            "status": update_twin,
+                            "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
+                        }
+                    })))?;
+                Command::new("sh")
+                    .arg("-c")
+                    .arg("fw_setenv factory-reset-status")
+                    .output()?;
 
-    match status {
-        Ok((update_twin, true)) => {
-            tx_app2client
-                .lock()
-                .unwrap()
-                .send(Message::Reported(json!({
-                    "factory_reset_status": {
-                        "status": update_twin,
-                        "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
-                    }
-                })))?;
-            Command::new("sh")
-                .arg("-c")
-                .arg("fw_setenv factory-reset-status")
-                .output()?;
-
-            debug!("factory reset result: {update_twin}");
-        }
-        Ok((update_twin, false)) => {
-            debug!("factory reset result: {update_twin}");
-        }
-        Err(update_twin) => {
-            warn!("factory reset result: {update_twin}");
-        }
-    };
+                debug!("factory reset result: {}", update_twin);
+            }
+            Ok((update_twin, false)) => {
+                debug!("factory reset result: {}", update_twin);
+            }
+            Err(update_twin) => {
+                warn!("factory reset result: {}", update_twin);
+            }
+        };
+    } else {
+        warn!("fw_printenv command not supported");
+    }
 
     Ok(())
 }

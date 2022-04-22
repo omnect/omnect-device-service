@@ -44,7 +44,7 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
             let (component, version) = map.iter().next().unwrap();
-            let file_path = format!("{CONSENT_DIR_PATH}/{component}/user_consent.json");
+            let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
 
             match OpenOptions::new()
                 .write(true)
@@ -58,7 +58,7 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
                     file.write(content.as_bytes()).unwrap();
                     Ok(Some(json!("Ok")))
                 }
-                _ => Ok(Some(json!(format!("couldn't write to {file_path}")))),
+                _ => Ok(Some(json!(format!("couldn't write to {}", file_path)))),
             }
         }
         _ => Ok(Some(json!("unexpected parameter format"))),
@@ -68,11 +68,11 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
 #[test]
 fn user_consent_test() {
     let component = "swupdate";
-    let file_path = format!("{CONSENT_DIR_PATH}/{component}/user_consent.json");
+    let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
 
     assert_eq!(
         user_consent(json!({component: "1.0.0"})).unwrap(),
-        Some(json!(format!("couldn't write to {file_path}")))
+        Some(json!(format!("couldn't write to {}", file_path)))
     );
 
     assert_eq!(
