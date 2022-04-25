@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - bumped to latest azure-iot-sdk 0.5.5
  - firmware_reset_trigger_file: delete file content with OpenOptions "truncate"
  - catch error message if fw_printenv command is not supported on the used platform
- - rollback placeholder handling for formatting string, due to compatible with rust toolchain < 1.56
+ - rollback placeholder handling for formatting string, due to compatibility with rust toolchain < 1.56
 
 ## [0.2.0] Q1 2022
  - bumped to latest azure-iot-sdk 0.5.3
