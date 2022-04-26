@@ -1,6 +1,6 @@
 [package]
 name = "demo-portal-module"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
 repository = "git@github.com:ICS-DeviceManagement/demo-portal-module.git"
@@ -9,13 +9,15 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-azure-iot-sdk = { git = "ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git", tag = "0.5.3"}
+azure-iot-sdk = { git = "ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git", tag = "0.5.5"}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 env_logger = "0.8"
 log = "0.4"
 sd-notify = { git = "ssh://git@github.com/ICS-DeviceManagement/sd-notify.git", tag = "v0.5.0", optional = true }
 time = { version = "0.3.7", features =["formatting"] }
+notify = "4.0.17"
+default-env = "0.1.1"
 
 [features]
 # select either "device_twin" or "module_twin" functionality
