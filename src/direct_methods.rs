@@ -18,10 +18,7 @@ pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<
         }),
     );
 
-    methods.insert(
-        String::from("user_consent"),
-        IotHubClient::make_direct_method(move |in_json| user_consent(in_json)),
-    );
+    methods.insert(String::from("user_consent"), Box::new(user_consent));
 
     Some(methods)
 }
