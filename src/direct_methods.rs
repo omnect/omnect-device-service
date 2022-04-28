@@ -37,7 +37,7 @@ pub fn reset_to_factory_settings(
             {
                 Ok(mut file) => {
                     file.write(reset_type.as_bytes())?;
-                    twin::report_factory_reset_in_progress(tx)?;
+                    twin::report_factory_reset_status(tx, "in_progress")?;
                     Ok(Some(json!("Ok")))
                 }
                 _ => Ok(Some(json!(

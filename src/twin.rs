@@ -67,15 +67,16 @@ pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Res
     Ok(())
 }
 
-pub fn report_factory_reset_in_progress(
+pub fn report_factory_reset_status(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
+    status: &str
 ) -> Result<(), IotError> {
     tx_app2client
         .lock()
         .unwrap()
         .send(Message::Reported(json!({
             "factory_reset_status": {
-                "status": "in_progress",
+                "status": status,
                 "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
             }
         })))?;
