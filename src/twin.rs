@@ -105,15 +105,7 @@ pub fn report_factory_reset_result(
 
         match status {
             Ok((update_twin, true)) => {
-                tx_app2client
-                    .lock()
-                    .unwrap()
-                    .send(Message::Reported(json!({
-                        "factory_reset_status": {
-                            "status": update_twin,
-                            "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
-                        }
-                    })))?;
+                report_factory_reset_status(tx_app2client, update_twin)?;
                 Command::new("sh")
                     .arg("-c")
                     .arg("fw_setenv factory-reset-status")
