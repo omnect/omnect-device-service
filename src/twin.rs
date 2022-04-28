@@ -33,7 +33,7 @@ pub fn update(
     }
 
     let mut guard = Guard {
-        tx_app2client,
+        tx_app2client: Arc::clone(&tx_app2client),
         result: json!({ "general_consent": null }),
     };
 
@@ -52,6 +52,33 @@ pub fn update(
     } else {
         serde_json::to_writer_pretty(file, &json!({ "general_consent": [] }))?;
     }
+
+    report_general_consent(Arc::clone(&tx_app2client))
+}
+
+pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
+    let file = OpenOptions::new().open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
+
+    tx_app2client
+        .lock()
+        .unwrap()
+        .send(Message::Reported(serde_json::from_reader(file)?))?;
+
+    Ok(())
+}
+
+pub fn report_factory_reset_in_progress(
+    tx_app2client: Arc<Mutex<Sender<Message>>>,
+) -> Result<(), IotError> {
+    tx_app2client
+        .lock()
+        .unwrap()
+        .send(Message::Reported(json!({
+            "factory_reset_status": {
+                "status": "in_progress",
+                "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
+            }
+        })))?;
 
     Ok(())
 }
