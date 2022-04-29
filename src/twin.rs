@@ -84,7 +84,7 @@ pub fn report_factory_reset_status(
     Ok(())
 }
 
-pub fn report_factory_reset_result(
+pub fn update_factory_reset_result(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) -> Result<(), IotError> {
     if let Ok(output) = Command::new("sh")
