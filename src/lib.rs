@@ -60,7 +60,8 @@ pub fn run() -> Result<(), IotError> {
             Ok(Message::Authenticated) => {
                 #[cfg(feature = "systemd")]
                 systemd::notify_ready();
-                twin::report_factory_reset_result(Arc::clone(&tx_app2client))?;
+                twin::report_general_consent(Arc::clone(&tx_app2client))?;
+                twin::update_factory_reset_result(Arc::clone(&tx_app2client))?;
             }
             Ok(Message::Unauthenticated(reason)) => {
                 client.stop()?;

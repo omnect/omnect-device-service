@@ -1,3 +1,4 @@
+use crate::twin;
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
@@ -7,10 +8,16 @@ use std::io::Write;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-pub fn get_direct_methods(_tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
+pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
     let mut methods = DirectMethodMap::new();
 
-    methods.insert(String::from("factory"), Box::new(reset_to_factory_settings));
+    methods.insert(
+        String::from("factory"),
+        IotHubClient::make_direct_method(move |in_json| {
+            reset_to_factory_settings(in_json, Arc::clone(&tx_app2client))
+        }),
+    );
+
     methods.insert(String::from("user_consent"), Box::new(user_consent));
 
     Some(methods)
@@ -18,6 +25,7 @@ pub fn get_direct_methods(_tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option
 
 pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
+    tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>, IotError> {
     match &in_json["reset"].as_str() {
         Some(reset_type) => {
@@ -29,6 +37,7 @@ pub fn reset_to_factory_settings(
             {
                 Ok(mut file) => {
                     file.write(reset_type.as_bytes())?;
+                    twin::report_factory_reset_status(tx, "in_progress")?;
                     Ok(Some(json!("Ok")))
                 }
                 _ => Ok(Some(json!(
