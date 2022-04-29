@@ -52,6 +52,7 @@ Performing a factory reset also triggers a device restart. The restart time of a
 ```
 
 The following status information is defined:
+ - "in_progress"
  - "succeeded"
  - "failed"
  - "unexpected factory reset type"
@@ -82,6 +83,8 @@ To disable the general consent enter the following setting in the module twin:
 
 ]
 ```
+
+The current general consent status is also exposed to he cloud as reported property.
 
 #### User consent
 If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
@@ -121,7 +124,7 @@ The module reports the status for a required user consent. The module sends for 
 }
 ```
 
-As soon as the consent for a new update has been granted via the direct method "user_consent_swupdate", this status is reported via the user_consent_history reported property in the module twin.
+As soon as the consent for a new update has been granted via the direct method "user_consent", this status is reported via the user_consent_history reported property in the module twin.
 
 ```
 "user_consent_history":{

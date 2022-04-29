@@ -69,7 +69,7 @@ pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Res
 
 pub fn report_factory_reset_status(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-    status: &str
+    status: &str,
 ) -> Result<(), IotError> {
     tx_app2client
         .lock()
