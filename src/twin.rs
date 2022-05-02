@@ -1,6 +1,7 @@
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
+use log::info;
 use log::{debug, warn};
 use serde_json::json;
 use std::fs;
@@ -17,52 +18,85 @@ pub fn update(
     desired: serde_json::Value,
     tx_app2client: Arc<Mutex<Sender<Message>>>,
 ) -> Result<(), IotError> {
+    desired_general_consent(state, desired, tx_app2client)
+}
+
+fn desired_general_consent(
+    state: TwinUpdateState,
+    desired: serde_json::Value,
+    tx_app2client: Arc<Mutex<Sender<Message>>>,
+) -> Result<(), IotError> {
     struct Guard {
         tx_app2client: Arc<Mutex<Sender<Message>>>,
-        result: serde_json::Value,
+        report_default: bool,
     }
 
     impl Drop for Guard {
         fn drop(&mut self) {
-            self.tx_app2client
-                .lock()
-                .unwrap()
-                .send(Message::Reported(self.result.clone()))
-                .unwrap()
+            if self.report_default {
+                self.tx_app2client
+                    .lock()
+                    .unwrap()
+                    .send(Message::Reported(json!({ "general_consent": null })))
+                    .unwrap()
+            }
         }
     }
 
     let mut guard = Guard {
         tx_app2client: Arc::clone(&tx_app2client),
-        result: json!({ "general_consent": null }),
+        report_default: true,
     };
-
-    let file = OpenOptions::new()
-        .write(true)
-        .create(false)
-        .truncate(true)
-        .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
     if let Some(consents) = match state {
         TwinUpdateState::Partial => desired["general_consent"].as_array(),
         TwinUpdateState::Complete => desired["desired"]["general_consent"].as_array(),
     } {
-        serde_json::to_writer_pretty(file, consents)?;
-        guard.result = json!({ "general_consent": consents });
+        let file = OpenOptions::new()
+            .write(true)
+            .create(false)
+            .truncate(true)
+            .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
+
+        serde_json::to_writer_pretty(file, &json!({ "general_consent": consents }))?;
     } else {
-        serde_json::to_writer_pretty(file, &json!({ "general_consent": [] }))?;
+        info!("no general consent defined in desired properties");
     }
 
-    report_general_consent(Arc::clone(&tx_app2client))
+    report_general_consent(Arc::clone(&tx_app2client))?;
+
+    guard.report_default = false;
+
+    Ok(())
 }
 
 pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
-    let file = OpenOptions::new().open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
+    let file = OpenOptions::new()
+        .read(true)
+        .create(false)
+        .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
     tx_app2client
         .lock()
         .unwrap()
         .send(Message::Reported(serde_json::from_reader(file)?))?;
+
+    Ok(())
+}
+
+pub fn report_user_consent(
+    tx_app2client: Arc<Mutex<Sender<Message>>>,
+    report_consent_file: PathBuf,
+) -> Result<(), IotError> {
+    debug!("report_user_consent_file: {:?}", report_consent_file);
+
+    let json: serde_json::Value =
+        serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())?;
+
+    tx_app2client
+        .lock()
+        .unwrap()
+        .send(Message::Reported(json))?;
 
     Ok(())
 }
@@ -123,23 +157,6 @@ pub fn update_factory_reset_result(
     } else {
         warn!("fw_printenv command not supported");
     }
-
-    Ok(())
-}
-
-pub fn report_user_consent(
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-    report_consent_file: PathBuf,
-) -> Result<(), IotError> {
-    debug!("report_user_consent_file: {:?}", report_consent_file);
-
-    let json: serde_json::Value =
-        serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())?;
-
-    tx_app2client
-        .lock()
-        .unwrap()
-        .send(Message::Reported(json))?;
 
     Ok(())
 }
