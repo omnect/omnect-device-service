@@ -60,8 +60,14 @@ pub fn run() -> Result<(), IotError> {
             Ok(Message::Authenticated) => {
                 #[cfg(feature = "systemd")]
                 systemd::notify_ready();
-                twin::report_general_consent(Arc::clone(&tx_app2client))?;
-                twin::update_factory_reset_result(Arc::clone(&tx_app2client))?;
+
+                if let Err(e) = twin::report_general_consent(Arc::clone(&tx_app2client)) {
+                    error!("Couldn't report general consent: {}", e);
+                }
+
+                if let Err(e) = twin::update_factory_reset_result(Arc::clone(&tx_app2client)) {
+                    error!("Couldn't update factory reset result: {}", e);
+                }
             }
             Ok(Message::Unauthenticated(reason)) => {
                 client.stop()?;
