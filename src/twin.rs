@@ -58,7 +58,7 @@ fn desired_general_consent(
             .truncate(true)
             .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
-        serde_json::to_writer_pretty(file, consents)?;
+        serde_json::to_writer_pretty(file, &json!({ "general_consent": consents }))?;
     } else {
         info!("no general consent defined in desired properties");
     }
