@@ -4,7 +4,6 @@ use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
 use lazy_static::__Deref;
 use lazy_static::lazy_static;
-use log::error;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -51,7 +50,7 @@ pub fn reset_to_factory_settings(
                 if SETTINGS_MAP.contains_key(s) {
                     paths.push(SETTINGS_MAP.get(s).unwrap().deref());
                 } else {
-                    return Ok(Some(json!("unknown restore setting received")))
+                    return Ok(Some(json!("unknown restore setting received")));
                 }
             }
 
