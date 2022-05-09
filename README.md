@@ -17,27 +17,37 @@ A function was specified for this purpose, a so-called direct method which is de
 
 **Direct method: factory reset**
 
-Method Name:
-
-**factory**
+Method Name: `factory_reset`
 
 Payload:
 ```
 {
-  "reset":"<factory reset type>"
+  "type": "<factory reset type>"
+  "restore_settings":
+  [
+      "wifi"
+  ]
 }
 ```
 
 Result:
-{"status": <HTTP-Statusode>,"payload":"<result>"}
+{
+  "status": <HTTP-Statusode>,
+  "payload":"<result>"
+}
 
 
-The supported "factory reset type" and the documentation in general about the factory reset can be found in the [meta-ics-dm layer](https://github.com/ICS-DeviceManagement/meta-ics-dm#factory-reset).
+The supported reset `type` and the documentation in general can be found in the [meta-ics-dm layer](https://github.com/ICS-DeviceManagement/meta-ics-dm#factory-reset).
+
+The optional `restore_settings` array can be used to define user settings that must be restored after wiping device storage. Currently only `wifi` settings in `wpa_supplicant.conf` can be restored.
 
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
-{"status":200,"payload":"Ok"}
+{
+  "status":200,
+  "payload":"Ok"
+}
 ```
 
 In all other cases there will be a meaningful error message in the status and payload.
@@ -45,7 +55,8 @@ In all other cases there will be a meaningful error message in the status and pa
 Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
 
 ```
-"factory_reset_status": {
+"factory_reset_status":
+{
     "date": "<UTC time of the factory reset status>",
     "status": "<status>"
 }
@@ -87,14 +98,13 @@ To disable the general consent enter the following setting in the module twin:
 The current general consent status is also exposed to he cloud as reported property.
 
 #### User consent
+
 If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
 A direct method was specified for this purpose which is described below.
 
 **Direct method: user_consent**
 
-Method Name:
-
-**user_consent**
+Method Name: `user_consent`
 
 Payload:
 ```
@@ -104,12 +114,18 @@ Payload:
 ```
 
 Result:
-{"status": <HTTP-Statusode>,"payload":"<result>"}
+{
+  "status": <HTTP-Statusode>,
+  "payload":"<result>"
+}
 
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
-{"status":200,"payload":"Ok"}
+{
+  "status":200,
+  "payload":"Ok"
+}
 ```
 
 In all other cases there will be a meaningful error message in the status and payload.
@@ -119,7 +135,8 @@ In all other cases there will be a meaningful error message in the status and pa
 The module reports the status for a required user consent. The module sends for this purpose a request to the cloud as reported property in the module twin.
 
 ```
-"user_consent_request":{
+"user_consent_request":
+{
   "swupdate":"<version>"
 }
 ```
@@ -127,14 +144,14 @@ The module reports the status for a required user consent. The module sends for 
 As soon as the consent for a new update has been granted via the direct method "user_consent", this status is reported via the user_consent_history reported property in the module twin.
 
 ```
-"user_consent_history":{
-  "swupdate":[
+"user_consent_history":
+{
+  "swupdate":
+  [
     "<version>"
   ]
 }
 ```
-
-
 
 ## License
 

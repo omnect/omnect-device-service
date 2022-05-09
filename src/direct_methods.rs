@@ -2,17 +2,29 @@ use crate::twin;
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
+use lazy_static::__Deref;
+use lazy_static::lazy_static;
+use log::error;
 use serde_json::json;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
+lazy_static! {
+    static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
+        let mut map = HashMap::new();
+        map.insert("wifi", "/path/to/wpa_supplicant.conf");
+        map
+    };
+}
+
 pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
     let mut methods = DirectMethodMap::new();
 
     methods.insert(
-        String::from("factory"),
+        String::from("factory_reset"),
         IotHubClient::make_direct_method(move |in_json| {
             reset_to_factory_settings(in_json, Arc::clone(&tx_app2client))
         }),
@@ -27,7 +39,28 @@ pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>, IotError> {
-    match &in_json["reset"].as_str() {
+    let restore_paths = match &in_json["restore_settings"].as_str() {
+        Some(settings) => {
+            let mut settings: Vec<&str> = serde_json::from_str(settings)?;
+            let mut paths = vec![];
+
+            settings.sort();
+            settings.dedup();
+
+            while let Some(s) = settings.pop() {
+                if SETTINGS_MAP.contains_key(s) {
+                    paths.push(SETTINGS_MAP.get(s).unwrap().deref());
+                } else {
+                    return Ok(Some(json!("unknown restore setting received")))
+                }
+            }
+
+            paths
+        }
+        _ => vec![],
+    };
+
+    match &in_json["type"].as_str() {
         Some(reset_type) => {
             match OpenOptions::new()
                 .write(true)
@@ -37,6 +70,11 @@ pub fn reset_to_factory_settings(
             {
                 Ok(mut file) => {
                     file.write(reset_type.as_bytes())?;
+
+                    for p in restore_paths {
+                        file.write(p.as_bytes())?;
+                    }
+
                     twin::report_factory_reset_status(tx, "in_progress")?;
                     Ok(Some(json!("Ok")))
                 }

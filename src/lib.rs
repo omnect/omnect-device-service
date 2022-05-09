@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate default_env;
+extern crate lazy_static;
 #[cfg(not(any(feature = "device_twin", feature = "module_twin")))]
 compile_error!(
     "Either feature \"device_twin\" xor \"module_twin\" must be enabled for this crate."
