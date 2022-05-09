@@ -6,15 +6,18 @@ use lazy_static::__Deref;
 use lazy_static::lazy_static;
 use serde_json::json;
 use std::collections::HashMap;
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(test)]
+use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 lazy_static! {
     static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
         let mut map = HashMap::new();
-        map.insert("wifi", "/path/to/wpa_supplicant.conf");
+        map.insert("wifi", "/etc/wpa_supplicant/wpa_supplicant-wlan0.conf");
         map
     };
 }
@@ -38,11 +41,12 @@ pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>, IotError> {
-    let restore_paths = match &in_json["restore_settings"].as_str() {
+    let restore_paths = match in_json["restore_settings"].as_array() {
         Some(settings) => {
-            let mut settings: Vec<&str> = serde_json::from_str(settings)?;
             let mut paths = vec![];
+            let mut settings: Vec<&str> = settings.iter().map(|v| v.as_str().unwrap()).collect();
 
+            // enforce a value exists only once
             settings.sort();
             settings.dedup();
 
@@ -54,35 +58,19 @@ pub fn reset_to_factory_settings(
                 }
             }
 
-            paths
+            paths.join(";")
         }
-        _ => vec![],
+        _ => String::from(""),
     };
 
     match &in_json["type"].as_str() {
         Some(reset_type) => {
-            match OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open("/run/factory-reset/systemd-trigger")
-            {
-                Ok(mut file) => {
-                    file.write(reset_type.as_bytes())?;
-
-                    for p in restore_paths {
-                        file.write(p.as_bytes())?;
-                    }
-
-                    twin::report_factory_reset_status(tx, "in_progress")?;
-                    Ok(Some(json!("Ok")))
-                }
-                _ => Ok(Some(json!(
-                    "write to /run/factory-reset/systemd-trigger not possible"
-                ))),
-            }
+            File::create("/run/factory-reset/restore-list")?.write_all(restore_paths.as_bytes())?;
+            File::create("/run/factory-reset/systemd-trigger")?.write_all(reset_type.as_bytes())?;
+            twin::report_factory_reset_status(tx, "in_progress")?;
+            Ok(Some(json!("Ok")))
         }
-        _ => Ok(Some(json!("param not supported"))),
+        _ => Ok(Some(json!("reset type missing or not supported"))),
     }
 }
 
@@ -92,34 +80,76 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
             let (component, version) = map.iter().next().unwrap();
             let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
 
-            match OpenOptions::new()
+            let mut file = OpenOptions::new()
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open(&file_path)
-            {
-                Ok(mut file) => {
-                    let content =
-                        serde_json::to_string_pretty(&json!({ "consent": version })).unwrap();
-                    file.write(content.as_bytes()).unwrap();
-                    Ok(Some(json!("Ok")))
-                }
-                _ => Ok(Some(json!(format!("couldn't write to {}", file_path)))),
-            }
+                .open(&file_path)?;
+            let content = serde_json::to_string_pretty(&json!({ "consent": version }))?;
+            file.write(content.as_bytes())?;
+            Ok(Some(json!("Ok")))
         }
         _ => Ok(Some(json!("unexpected parameter format"))),
     }
 }
 
 #[test]
-fn user_consent_test() {
-    let component = "swupdate";
-    let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
+fn factory_reset_test() {
+    let (tx_app2client, _) = mpsc::channel();
+    let tx: Arc<Mutex<Sender<Message>>> = Arc::new(Mutex::new(tx_app2client));
+    assert!(reset_to_factory_settings(
+        json!({
+            "type": "1",
+            "restore_settings": ["wifi"]
+        }),
+        Arc::clone(&tx)
+    )
+    .unwrap_err()
+    .to_string()
+    .starts_with("No such file or directory"));
+
+    assert!(reset_to_factory_settings(
+        json!({
+            "type": "1",
+        }),
+        Arc::clone(&tx)
+    )
+    .unwrap_err()
+    .to_string()
+    .starts_with("No such file or directory"));
 
     assert_eq!(
-        user_consent(json!({component: "1.0.0"})).unwrap(),
-        Some(json!(format!("couldn't write to {}", file_path)))
+        reset_to_factory_settings(
+            json!({
+                "restore_settings": ["wifi"]
+            }),
+            Arc::clone(&tx)
+        )
+        .unwrap(),
+        Some(json!(format!("reset type missing or not supported")))
     );
+
+    assert_eq!(
+        reset_to_factory_settings(
+            json!({
+                "type": "1",
+                "restore_settings": ["unknown"]
+            }),
+            Arc::clone(&tx)
+        )
+        .unwrap(),
+        Some(json!(format!("unknown restore setting received")))
+    );
+}
+
+#[test]
+fn user_consent_test() {
+    let component = "swupdate";
+
+    assert!(user_consent(json!({component: "1.0.0"}))
+        .unwrap_err()
+        .to_string()
+        .starts_with("No such file or directory"));
 
     assert_eq!(
         user_consent(json!({})).unwrap(),

@@ -132,6 +132,7 @@ pub fn update_factory_reset_result(
         let status = match vec[..] {
             ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
             ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
+            ["factory-reset-status", "2:-\n"] => Ok(("unexpected restore setting", true)),
             ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
             ["factory-reset-status", _] => Ok(("failed", true)),
             _ => Err("unexpected factory reset result format"),
