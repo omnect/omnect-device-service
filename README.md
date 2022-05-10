@@ -22,7 +22,7 @@ Method Name: `factory_reset`
 Payload:
 ```
 {
-  "type": "<factory reset type>"
+  "type": <factory reset type number>
   "restore_settings":
   [
       "wifi"
@@ -39,7 +39,7 @@ Result:
 
 The supported reset `type` and the documentation in general can be found in the [meta-ics-dm layer](https://github.com/ICS-DeviceManagement/meta-ics-dm#factory-reset).
 
-The optional `restore_settings` array can be used to define user settings that must be restored after wiping device storage. Currently only `wifi` settings in `wpa_supplicant.conf` can be restored.
+The **optional** `restore_settings` array can be used to define user settings that must be restored after wiping device storage. Currently only `wifi` settings in `wpa_supplicant.conf` can be restored.
 
 In case the method was successful received by the module the return value of the method looks like this:
 

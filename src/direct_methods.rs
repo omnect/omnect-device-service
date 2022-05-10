@@ -2,7 +2,7 @@ use crate::twin;
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
-use lazy_static::{lazy_static, __Deref};
+use lazy_static::{__Deref, lazy_static};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::File;
@@ -53,7 +53,7 @@ pub fn reset_to_factory_settings(
                 if SETTINGS_MAP.contains_key(s) {
                     paths.push(SETTINGS_MAP.get(s).unwrap().deref());
                 } else {
-                    return Ok(Some(json!("unknown restore setting received")));
+                    return Err(IotError::from("unknown restore setting received"));
                 }
             }
 
@@ -62,14 +62,15 @@ pub fn reset_to_factory_settings(
         _ => String::from(""),
     };
 
-    match &in_json["type"].as_str() {
+    match &in_json["type"].as_u64() {
         Some(reset_type) => {
             File::create("/run/factory-reset/restore-list")?.write_all(restore_paths.as_bytes())?;
-            File::create("/run/factory-reset/systemd-trigger")?.write_all(reset_type.as_bytes())?;
+            File::create("/run/factory-reset/systemd-trigger")?
+                .write_all(reset_type.to_string().as_bytes())?;
             twin::report_factory_reset_status(tx, "in_progress")?;
-            Ok(Some(json!("Ok")))
+            Ok(None)
         }
-        _ => Ok(Some(json!("reset type missing or not supported"))),
+        _ => Err(IotError::from("reset type missing or not supported")),
     }
 }
 
@@ -86,9 +87,9 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
                 .open(&file_path)?;
             let content = serde_json::to_string_pretty(&json!({ "consent": version }))?;
             file.write(content.as_bytes())?;
-            Ok(Some(json!("Ok")))
+            Ok(None)
         }
-        _ => Ok(Some(json!("unexpected parameter format"))),
+        _ => Err(IotError::from("unexpected parameter format")),
     }
 }
 
@@ -98,7 +99,7 @@ fn factory_reset_test() {
     let tx: Arc<Mutex<Sender<Message>>> = Arc::new(Mutex::new(tx_app2client));
     assert!(reset_to_factory_settings(
         json!({
-            "type": "1",
+            "type": 1,
             "restore_settings": ["wifi"]
         }),
         Arc::clone(&tx)
@@ -109,7 +110,7 @@ fn factory_reset_test() {
 
     assert!(reset_to_factory_settings(
         json!({
-            "type": "1",
+            "type": 1,
         }),
         Arc::clone(&tx)
     )
@@ -124,20 +125,22 @@ fn factory_reset_test() {
             }),
             Arc::clone(&tx)
         )
-        .unwrap(),
-        Some(json!(format!("reset type missing or not supported")))
+        .unwrap_err()
+        .to_string(),
+        "reset type missing or not supported"
     );
 
     assert_eq!(
         reset_to_factory_settings(
             json!({
-                "type": "1",
+                "type": 1,
                 "restore_settings": ["unknown"]
             }),
             Arc::clone(&tx)
         )
-        .unwrap(),
-        Some(json!(format!("unknown restore setting received")))
+        .unwrap_err()
+        .to_string(),
+        "unknown restore setting received"
     );
 }
 
@@ -151,12 +154,14 @@ fn user_consent_test() {
         .starts_with("No such file or directory"));
 
     assert_eq!(
-        user_consent(json!({})).unwrap(),
-        Some(json!(format!("unexpected parameter format")))
+        user_consent(json!({})).unwrap_err().to_string(),
+        "unexpected parameter format"
     );
 
     assert_eq!(
-        user_consent(json!({component: "1.0.0", "another_component": "1.2.3"})).unwrap(),
-        Some(json!(format!("unexpected parameter format")))
+        user_consent(json!({component: "1.0.0", "another_component": "1.2.3"}))
+            .unwrap_err()
+            .to_string(),
+        "unexpected parameter format"
     );
 }
