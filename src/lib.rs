@@ -36,6 +36,7 @@ pub fn run() -> Result<(), IotError> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
+    let result;
     let twin_type = if cfg!(feature = "device_twin") {
         TwinType::Device
     } else {
@@ -71,11 +72,12 @@ pub fn run() -> Result<(), IotError> {
                 }
             }
             Ok(Message::Unauthenticated(reason)) => {
-                client.stop()?;
-                return Err(IotError::from(format!(
+                result = Err(IotError::from(format!(
                     "No connection. Reason: {:?}",
                     reason
                 )));
+
+                break;
             }
             Ok(Message::Desired(state, desired)) => {
                 if let Err(e) = twin::update(state, desired, Arc::clone(&tx_app2client)) {
@@ -84,6 +86,12 @@ pub fn run() -> Result<(), IotError> {
             }
             Ok(Message::C2D(msg)) => {
                 message::update(msg, Arc::clone(&tx_app2client));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                error!("iot channel unexpectedly closed by client");
+                result = Err(Box::new(mpsc::TryRecvError::Disconnected));
+
+                break;
             }
             _ => {}
         }
@@ -94,4 +102,8 @@ pub fn run() -> Result<(), IotError> {
 
         thread::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT));
     }
+
+    client.stop()?;
+
+    result
 }

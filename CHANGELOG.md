@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] Q2 2022
 - factory reset: optional restore wifi settings
+- direct methods: return with error in case of file system failures
+- fix bug in main loop when channel is closed by sender
 
 ## [0.4.1] Q2 2022
 - general:
