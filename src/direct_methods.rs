@@ -5,7 +5,6 @@ use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 #[cfg(test)]
@@ -64,10 +63,22 @@ pub fn reset_to_factory_settings(
 
     match &in_json["type"].as_u64() {
         Some(reset_type) => {
-            File::create("/run/factory-reset/restore-list")?.write_all(restore_paths.as_bytes())?;
-            File::create("/run/factory-reset/systemd-trigger")?
+            OpenOptions::new()
+                .write(true)
+                .create(false)
+                .truncate(true)
+                .open("/run/factory-reset/restore-list")?
+                .write_all(restore_paths.as_bytes())?;
+
+            OpenOptions::new()
+                .write(true)
+                .create(false)
+                .truncate(true)
+                .open("/run/factory-reset/systemd-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
+
             twin::report_factory_reset_status(tx, "in_progress")?;
+
             Ok(None)
         }
         _ => Err(IotError::from("reset type missing or not supported")),
