@@ -183,6 +183,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.6.0"
+source = "git+ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git?tag=0.6.0#357d64cf3a1a7912cde0cc5bcabacbfc49a05bc1"
 dependencies = [
  "azure-iot-sdk-sys",
  "eis-utils",

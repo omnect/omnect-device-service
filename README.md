@@ -22,7 +22,7 @@ Method Name: `factory_reset`
 Payload:
 ```
 {
-  "type": <factory reset type number>
+  "type": <factory reset type number>,
   "restore_settings":
   [
       "wifi"
@@ -33,7 +33,7 @@ Payload:
 Result:
 {
   "status": <HTTP-Statusode>,
-  "payload":"<result>"
+  "payload": "<result>"
 }
 
 
@@ -45,12 +45,18 @@ In case the method was successful received by the module the return value of the
 
 ```
 {
-  "status":200,
-  "payload":"Ok"
+  "status": 200,
+  "payload": {}
 }
 ```
 
-In all other cases there will be a meaningful error message in the status and payload.
+In all other cases there will be an error status and a meaningful message in the payload:
+```
+{
+  "status": 401,
+  "payload": "error message
+}
+```
 
 Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
 
@@ -109,26 +115,32 @@ Method Name: `user_consent`
 Payload:
 ```
 {
-  "swupdate":"<version>"
+  "swupdate": "<version>"
 }
 ```
 
 Result:
 {
   "status": <HTTP-Statusode>,
-  "payload":"<result>"
+  "payload": "<result>"
 }
 
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
 {
-  "status":200,
-  "payload":"Ok"
+  "status": 200,
+  "payload": {}
 }
 ```
 
-In all other cases there will be a meaningful error message in the status and payload.
+In all other cases there will be an error status and a meaningful message in the payload:
+```
+{
+  "status": 401,
+  "payload": "error message
+}
+```
 
 #### Status user consent
 
@@ -137,7 +149,7 @@ The module reports the status for a required user consent. The module sends for 
 ```
 "user_consent_request":
 {
-  "swupdate":"<version>"
+  "swupdate": "<version>"
 }
 ```
 
