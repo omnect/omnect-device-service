@@ -70,6 +70,17 @@ fn desired_general_consent(
     Ok(())
 }
 
+pub fn report_version(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
+    tx_app2client
+        .lock()
+        .unwrap()
+        .send(Message::Reported(json!({
+            "module-version": env!("CARGO_PKG_VERSION")
+        })))?;
+
+    Ok(())
+}
+
 pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
     let file = OpenOptions::new()
         .read(true)

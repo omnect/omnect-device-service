@@ -34,16 +34,16 @@ pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
+    let (tx_file2app, rx_file2app) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
+    let mut watcher = notify::watcher(tx_file2app, Duration::from_secs(WATCHER_DELAY))?;
     let result;
     let twin_type = if cfg!(feature = "device_twin") {
         TwinType::Device
     } else {
         TwinType::Module
     };
-    let (tx_file_watcher, rx_file_watcher) = mpsc::channel();
-    let mut watcher = notify::watcher(tx_file_watcher, Duration::from_secs(WATCHER_DELAY))?;
 
     watcher.watch(
         format!("{}/request_consent.json", CONSENT_DIR_PATH),
@@ -62,6 +62,10 @@ pub fn run() -> Result<(), IotError> {
             Ok(Message::Authenticated) => {
                 #[cfg(feature = "systemd")]
                 systemd::notify_ready();
+
+                if let Err(e) = twin::report_version(Arc::clone(&tx_app2client)) {
+                    error!("Couldn't report version: {}", e);
+                }
 
                 if let Err(e) = twin::report_general_consent(Arc::clone(&tx_app2client)) {
                     error!("Couldn't report general consent: {}", e);
@@ -96,7 +100,7 @@ pub fn run() -> Result<(), IotError> {
             _ => {}
         }
 
-        if let Ok(notify::DebouncedEvent::Write(file)) = rx_file_watcher.try_recv() {
+        if let Ok(notify::DebouncedEvent::Write(file)) = rx_file2app.try_recv() {
             twin::report_user_consent(Arc::clone(&tx_app2client), file)?
         }
 
