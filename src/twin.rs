@@ -6,7 +6,6 @@ use log::{debug, warn};
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -97,7 +96,7 @@ pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Res
 
 pub fn report_user_consent(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-    report_consent_file: PathBuf,
+    report_consent_file: &str,
 ) -> Result<(), IotError> {
     debug!("report_user_consent_file: {:?}", report_consent_file);
 
