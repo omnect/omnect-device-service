@@ -33,7 +33,7 @@ Payload:
 Result:
 {
   "status": <HTTP-Statusode>,
-  "payload": "<result>"
+  "payload": {"<result>"}
 }
 
 
@@ -54,7 +54,7 @@ In all other cases there will be an error status and a meaningful message in the
 ```
 {
   "status": 401,
-  "payload": "error message
+  "payload": {"error message"}
 }
 ```
 
@@ -122,7 +122,7 @@ Payload:
 Result:
 {
   "status": <HTTP-Statusode>,
-  "payload": "<result>"
+  "payload": {"<result>"}
 }
 
 In case the method was successful received by the module the return value of the method looks like this:
@@ -138,7 +138,7 @@ In all other cases there will be an error status and a meaningful message in the
 ```
 {
   "status": 401,
-  "payload": "error message
+  "payload": {"error message"}
 }
 ```
 
