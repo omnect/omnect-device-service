@@ -2,17 +2,29 @@ use crate::twin;
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
+use lazy_static::{__Deref, lazy_static};
 use serde_json::json;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(test)]
+use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+
+lazy_static! {
+    static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
+        let mut map = HashMap::new();
+        map.insert("wifi", "/etc/wpa_supplicant/wpa_supplicant-wlan0.conf");
+        map
+    };
+}
 
 pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
     let mut methods = DirectMethodMap::new();
 
     methods.insert(
-        String::from("factory"),
+        String::from("factory_reset"),
         IotHubClient::make_direct_method(move |in_json| {
             reset_to_factory_settings(in_json, Arc::clone(&tx_app2client))
         }),
@@ -27,25 +39,49 @@ pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>, IotError> {
-    match &in_json["reset"].as_str() {
+    let restore_paths = match in_json["restore_settings"].as_array() {
+        Some(settings) => {
+            let mut paths = vec![];
+            let mut settings: Vec<&str> = settings.iter().map(|v| v.as_str().unwrap()).collect();
+
+            // enforce a value exists only once
+            settings.sort();
+            settings.dedup();
+
+            while let Some(s) = settings.pop() {
+                if SETTINGS_MAP.contains_key(s) {
+                    paths.push(SETTINGS_MAP.get(s).unwrap().deref());
+                } else {
+                    return Err(IotError::from("unknown restore setting received"));
+                }
+            }
+
+            paths.join(";")
+        }
+        _ => String::from(""),
+    };
+
+    match &in_json["type"].as_u64() {
         Some(reset_type) => {
-            match OpenOptions::new()
+            OpenOptions::new()
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/factory-reset/systemd-trigger")
-            {
-                Ok(mut file) => {
-                    file.write(reset_type.as_bytes())?;
-                    twin::report_factory_reset_status(tx, "in_progress")?;
-                    Ok(Some(json!("Ok")))
-                }
-                _ => Ok(Some(json!(
-                    "write to /run/factory-reset/systemd-trigger not possible"
-                ))),
-            }
+                .open("/run/factory-reset/restore-list")?
+                .write_all(restore_paths.as_bytes())?;
+
+            OpenOptions::new()
+                .write(true)
+                .create(false)
+                .truncate(true)
+                .open("/run/factory-reset/systemd-trigger")?
+                .write_all(reset_type.to_string().as_bytes())?;
+
+            twin::report_factory_reset_status(tx, "in_progress")?;
+
+            Ok(None)
         }
-        _ => Ok(Some(json!("param not supported"))),
+        _ => Err(IotError::from("reset type missing or not supported")),
     }
 }
 
@@ -55,42 +91,88 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
             let (component, version) = map.iter().next().unwrap();
             let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
 
-            match OpenOptions::new()
+            let mut file = OpenOptions::new()
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open(&file_path)
-            {
-                Ok(mut file) => {
-                    let content =
-                        serde_json::to_string_pretty(&json!({ "consent": version })).unwrap();
-                    file.write(content.as_bytes()).unwrap();
-                    Ok(Some(json!("Ok")))
-                }
-                _ => Ok(Some(json!(format!("couldn't write to {}", file_path)))),
-            }
+                .open(&file_path)?;
+            let content = serde_json::to_string_pretty(&json!({ "consent": version }))?;
+            file.write(content.as_bytes())?;
+            Ok(None)
         }
-        _ => Ok(Some(json!("unexpected parameter format"))),
+        _ => Err(IotError::from("unexpected parameter format")),
     }
+}
+
+#[test]
+fn factory_reset_test() {
+    let (tx_app2client, _) = mpsc::channel();
+    let tx: Arc<Mutex<Sender<Message>>> = Arc::new(Mutex::new(tx_app2client));
+    assert!(reset_to_factory_settings(
+        json!({
+            "type": 1,
+            "restore_settings": ["wifi"]
+        }),
+        Arc::clone(&tx)
+    )
+    .unwrap_err()
+    .to_string()
+    .starts_with("No such file or directory"));
+
+    assert!(reset_to_factory_settings(
+        json!({
+            "type": 1,
+        }),
+        Arc::clone(&tx)
+    )
+    .unwrap_err()
+    .to_string()
+    .starts_with("No such file or directory"));
+
+    assert_eq!(
+        reset_to_factory_settings(
+            json!({
+                "restore_settings": ["wifi"]
+            }),
+            Arc::clone(&tx)
+        )
+        .unwrap_err()
+        .to_string(),
+        "reset type missing or not supported"
+    );
+
+    assert_eq!(
+        reset_to_factory_settings(
+            json!({
+                "type": 1,
+                "restore_settings": ["unknown"]
+            }),
+            Arc::clone(&tx)
+        )
+        .unwrap_err()
+        .to_string(),
+        "unknown restore setting received"
+    );
 }
 
 #[test]
 fn user_consent_test() {
     let component = "swupdate";
-    let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
+
+    assert!(user_consent(json!({component: "1.0.0"}))
+        .unwrap_err()
+        .to_string()
+        .starts_with("No such file or directory"));
 
     assert_eq!(
-        user_consent(json!({component: "1.0.0"})).unwrap(),
-        Some(json!(format!("couldn't write to {}", file_path)))
+        user_consent(json!({})).unwrap_err().to_string(),
+        "unexpected parameter format"
     );
 
     assert_eq!(
-        user_consent(json!({})).unwrap(),
-        Some(json!(format!("unexpected parameter format")))
-    );
-
-    assert_eq!(
-        user_consent(json!({component: "1.0.0", "another_component": "1.2.3"})).unwrap(),
-        Some(json!(format!("unexpected parameter format")))
+        user_consent(json!({component: "1.0.0", "another_component": "1.2.3"}))
+            .unwrap_err()
+            .to_string(),
+        "unexpected parameter format"
     );
 }

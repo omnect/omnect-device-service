@@ -6,7 +6,6 @@ use log::{debug, warn};
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -70,6 +69,17 @@ fn desired_general_consent(
     Ok(())
 }
 
+pub fn report_version(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
+    tx_app2client
+        .lock()
+        .unwrap()
+        .send(Message::Reported(json!({
+            "module-version": env!("CARGO_PKG_VERSION")
+        })))?;
+
+    Ok(())
+}
+
 pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
     let file = OpenOptions::new()
         .read(true)
@@ -86,7 +96,7 @@ pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Res
 
 pub fn report_user_consent(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-    report_consent_file: PathBuf,
+    report_consent_file: &str,
 ) -> Result<(), IotError> {
     debug!("report_user_consent_file: {:?}", report_consent_file);
 
@@ -132,6 +142,7 @@ pub fn update_factory_reset_result(
         let status = match vec[..] {
             ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
             ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
+            ["factory-reset-status", "2:-\n"] => Ok(("unexpected restore settings error", true)),
             ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
             ["factory-reset-status", _] => Ok(("failed", true)),
             _ => Err("unexpected factory reset result format"),
