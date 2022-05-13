@@ -147,10 +147,11 @@ In all other cases there will be an error status and a meaningful message in the
 The module reports the status for a required user consent. The module sends for this purpose a request to the cloud as reported property in the module twin.
 
 ```
-"user_consent_request":
-{
-  "swupdate": "<version>"
-}
+"user_consent_request": [
+    {
+        "swupdate": "<version>"
+    }
+]
 ```
 
 As soon as the consent for a new update has been granted via the direct method "user_consent", this status is reported via the user_consent_history reported property in the module twin.
