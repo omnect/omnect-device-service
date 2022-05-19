@@ -39,16 +39,11 @@ pub fn run() -> Result<(), IotError> {
     let request_consent_path = format!("{}/request_consent.json", CONSENT_DIR_PATH);
     let history_consent_path = format!("{}/history_consent.json", CONSENT_DIR_PATH);
     let result;
-    let twin_type = if cfg!(feature = "device_twin") {
-        TwinType::Device
-    } else {
-        TwinType::Module
-    };
 
     watcher.watch(&request_consent_path, RecursiveMode::Recursive)?;
     watcher.watch(&history_consent_path, RecursiveMode::Recursive)?;
 
-    client.run(twin_type, None, methods, tx_client2app, rx_app2client);
+    client.run(None, methods, tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.try_recv() {
