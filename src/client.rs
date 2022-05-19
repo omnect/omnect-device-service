@@ -92,15 +92,15 @@ impl Client {
             #[cfg(feature = "systemd")]
             wdt.init()?;
 
-            let mut client = match IotHubClient::get_twin_type() {
+            let mut client = match IotHubClient::get_client_type() {
                 _ if connection_string.is_some() => IotHubClient::from_connection_string(
                     connection_string.unwrap(),
                     event_handler,
                 )?,
-                TwinType::Device | TwinType::Module => {
+                ClientType::Device | ClientType::Module => {
                     IotHubClient::from_identity_service(event_handler)?
                 }
-                TwinType::Edge => IotHubClient::from_edge_environment(event_handler)?,
+                ClientType::Edge => IotHubClient::from_edge_environment(event_handler)?,
             };
 
             while *running.lock().unwrap() {
