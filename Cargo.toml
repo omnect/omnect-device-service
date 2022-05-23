@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 #azure-iot-sdk = { git = "ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git", tag = "0.8.0", features = ["module_client"] }
-azure-iot-sdk = { path = "../azure-iot-sdk", features = ["module_client"] }
+azure-iot-sdk = { git = "ssh://git@github.com/JanZachmann/azure-iot-sdk.git", features = ["module_client"] }
 sd-notify = { git = "ssh://git@github.com/ICS-DeviceManagement/sd-notify.git", tag = "v0.5.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
