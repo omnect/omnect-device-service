@@ -21,9 +21,7 @@
       },
       "args": [],
       "cwd": "${workspaceFolder}",
-      "env": {
-        "LD_LIBRARY_PATH": "${workspaceFolder}/target/debug/build/azure-iot-sdk-sys-726138fc8dcf64a8/out/lib"
-      }
+      "env": { "RUST_BACKTRACE": "1" }
     },
     {
       "type": "lldb",
