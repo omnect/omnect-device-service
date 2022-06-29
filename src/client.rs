@@ -1,8 +1,7 @@
 use azure_iot_sdk::client::*;
 use log::debug;
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
+use tokio::task::JoinHandle;
 use std::time;
 
 #[cfg(feature = "systemd")]
@@ -82,7 +81,7 @@ impl Client {
 
         let running = Arc::clone(&self.run);
 
-        self.thread = Some(thread::spawn(move || -> Result<(), IotError> {
+        self.thread = Some(tokio::spawn(async move {
             let hundred_millis = time::Duration::from_millis(100);
             let event_handler = ClientEventHandler { direct_methods, tx };
 
@@ -123,9 +122,10 @@ impl Client {
             Ok(())
         }));
     }
-    pub fn stop(self) -> Result<(), IotError> {
-        *self.run.lock().unwrap() = false;
 
-        self.thread.map_or(Ok(()), |t| t.join().unwrap())
+    pub async fn stop(self) -> Result<(), IotError> {
+        *self.run.lock().unwrap() = false;
+        
+        self.thread.unwrap().await?
     }
 }

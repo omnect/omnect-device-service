@@ -10,7 +10,7 @@ use default_env::default_env;
 use log::error;
 use notify::{RecursiveMode, Watcher};
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
+use tokio::time;
 use std::time::Duration;
 
 pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/ics_dm/consent");
@@ -18,7 +18,8 @@ pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/e
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
 
-pub fn run() -> Result<(), IotError> {
+#[tokio::main]
+pub async fn run() -> Result<(), IotError> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
@@ -100,10 +101,10 @@ pub fn run() -> Result<(), IotError> {
             }
         }
 
-        thread::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT));
+        time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;
     }
 
-    client.stop()?;
+    client.stop().await?;
 
     result
 }
