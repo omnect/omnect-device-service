@@ -10,8 +10,8 @@ use default_env::default_env;
 use log::error;
 use notify::{RecursiveMode, Watcher};
 use std::sync::{mpsc, Arc, Mutex};
-use tokio::time;
 use std::time::Duration;
+use tokio::time;
 
 pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/ics_dm/consent");
 
@@ -29,7 +29,6 @@ pub async fn run() -> Result<(), IotError> {
     let mut watcher = notify::watcher(tx_file2app, Duration::from_secs(WATCHER_DELAY))?;
     let request_consent_path = format!("{}/request_consent.json", CONSENT_DIR_PATH);
     let history_consent_path = format!("{}/history_consent.json", CONSENT_DIR_PATH);
-    let result;
 
     watcher.watch(&request_consent_path, RecursiveMode::Recursive)?;
     watcher.watch(&history_consent_path, RecursiveMode::Recursive)?;
@@ -67,12 +66,13 @@ pub async fn run() -> Result<(), IotError> {
                 }
             }
             Ok(Message::Unauthenticated(reason)) => {
-                result = Err(IotError::from(format!(
-                    "No connection. Reason: {:?}",
-                    reason
-                )));
-
-                break;
+                if !matches!(reason, UnauthenticatedReason::ExpiredSasToken) {
+                    client.stop().await.unwrap();
+                    return Err(IotError::from(format!(
+                        "No connection. Reason: {:?}",
+                        reason
+                    )));
+                }
             }
             Ok(Message::Desired(state, desired)) => {
                 if let Err(e) = twin::update(state, desired, Arc::clone(&tx_app2client)) {
@@ -83,28 +83,19 @@ pub async fn run() -> Result<(), IotError> {
                 message::update(msg, Arc::clone(&tx_app2client));
             }
             Err(mpsc::TryRecvError::Disconnected) => {
-                error!("iot channel unexpectedly closed by client");
-                result = Err(Box::new(mpsc::TryRecvError::Disconnected));
-
-                break;
+                client.stop().await.unwrap();
+                return Err(IotError::from("iot channel unexpectedly closed by client"));
             }
             _ => {}
         }
 
         if let Ok(notify::DebouncedEvent::Write(file)) = rx_file2app.try_recv() {
             let path = file.to_str().unwrap();
-            if let Err(e) = twin::report_user_consent(
-                Arc::clone(&tx_app2client),
-                path,
-            ) {
+            if let Err(e) = twin::report_user_consent(Arc::clone(&tx_app2client), path) {
                 error!("Couldn't update {}: {}", path, e);
             }
         }
 
         time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;
     }
-
-    client.stop().await?;
-
-    result
 }
