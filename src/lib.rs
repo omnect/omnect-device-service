@@ -9,9 +9,12 @@ use client::{Client, Message};
 use default_env::default_env;
 use log::error;
 use notify::{RecursiveMode, Watcher};
+use std::sync::Once;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use tokio::time;
+
+static INIT: Once = Once::new();
 
 pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/ics_dm/consent");
 
@@ -38,32 +41,34 @@ pub async fn run() -> Result<(), IotError> {
     loop {
         match rx_client2app.try_recv() {
             Ok(Message::Authenticated) => {
-                #[cfg(feature = "systemd")]
-                systemd::notify_ready();
+                INIT.call_once(|| {
+                    #[cfg(feature = "systemd")]
+                    systemd::notify_ready();
 
-                if let Err(e) = twin::report_version(Arc::clone(&tx_app2client)) {
-                    error!("Couldn't report version: {}", e);
-                }
+                    if let Err(e) = twin::report_version(Arc::clone(&tx_app2client)) {
+                        error!("Couldn't report version: {}", e);
+                    }
 
-                if let Err(e) = twin::report_general_consent(Arc::clone(&tx_app2client)) {
-                    error!("Couldn't report general consent: {}", e);
-                }
+                    if let Err(e) = twin::report_general_consent(Arc::clone(&tx_app2client)) {
+                        error!("Couldn't report general consent: {}", e);
+                    }
 
-                if let Err(e) =
-                    twin::report_user_consent(Arc::clone(&tx_app2client), &request_consent_path)
-                {
-                    error!("Couldn't update {}: {}", request_consent_path, e);
-                }
+                    if let Err(e) =
+                        twin::report_user_consent(Arc::clone(&tx_app2client), &request_consent_path)
+                    {
+                        error!("Couldn't update {}: {}", request_consent_path, e);
+                    }
 
-                if let Err(e) =
-                    twin::report_user_consent(Arc::clone(&tx_app2client), &history_consent_path)
-                {
-                    error!("Couldn't update {}: {}", history_consent_path, e);
-                }
+                    if let Err(e) =
+                        twin::report_user_consent(Arc::clone(&tx_app2client), &history_consent_path)
+                    {
+                        error!("Couldn't update {}: {}", history_consent_path, e);
+                    }
 
-                if let Err(e) = twin::update_factory_reset_result(Arc::clone(&tx_app2client)) {
-                    error!("Couldn't update factory reset result: {}", e);
-                }
+                    if let Err(e) = twin::update_factory_reset_result(Arc::clone(&tx_app2client)) {
+                        error!("Couldn't update factory reset result: {}", e);
+                    }
+                });
             }
             Ok(Message::Unauthenticated(reason)) => {
                 if !matches!(reason, UnauthenticatedReason::ExpiredSasToken) {
