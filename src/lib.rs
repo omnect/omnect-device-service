@@ -72,7 +72,6 @@ pub async fn run() -> Result<(), IotError> {
             }
             Ok(Message::Unauthenticated(reason)) => {
                 if !matches!(reason, UnauthenticatedReason::ExpiredSasToken) {
-                    client.stop().await.unwrap();
                     return Err(IotError::from(format!(
                         "No connection. Reason: {:?}",
                         reason
@@ -88,7 +87,6 @@ pub async fn run() -> Result<(), IotError> {
                 message::update(msg, Arc::clone(&tx_app2client));
             }
             Err(mpsc::TryRecvError::Disconnected) => {
-                client.stop().await.unwrap();
                 return Err(IotError::from("iot channel unexpectedly closed by client"));
             }
             _ => {}
