@@ -1,7 +1,7 @@
 [Unit]
 Description=demo-portal-module service
-After=network-online.target aziot-identityd.service
-Wants=network-online.target aziot-identityd.service
+After=network-online.target time-sync.target aziot-identityd.service
+Wants=network-online.target time-sync.target aziot-identityd.service
 StartLimitBurst=10
 StartLimitIntervalSec=120
 
