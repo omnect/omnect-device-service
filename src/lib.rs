@@ -45,7 +45,7 @@ pub async fn run() -> Result<(), IotError> {
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();
 
-                    if let Err(e) = twin::report_version(Arc::clone(&tx_app2client)) {
+                    if let Err(e) = twin::report_versions(Arc::clone(&tx_app2client)) {
                         error!("Couldn't report version: {}", e);
                     }
 
