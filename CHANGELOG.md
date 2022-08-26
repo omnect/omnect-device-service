@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] Q3 2022
+ - report azure-sdk-version in twin
+ - log info message for azure-sdk-version
+ - bump to azure-iot-sdk 0.8.4
+
 ## [0.5.7] Q3 2022
  - start service after time-sync target to avoid time jumps during service start
  - added info message for logging the package version
