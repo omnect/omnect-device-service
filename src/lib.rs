@@ -98,16 +98,14 @@ pub async fn run() -> Result<(), IotError> {
             _ => {}
         }
 
-        if let Ok(Ok(events)) = rx_file2app.try_recv() {
-            for ev in events {
+        if let Ok(events) = rx_file2app.try_recv() {
+            events.unwrap_or(vec![]).iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
                     if let Err(e) = twin::report_user_consent(Arc::clone(&tx_app2client), path) {
-                        error!("Report user consent: couldn't update {}: {}", path, e);
+                        error!("Couldn't report user from {}: {}", path, e);
                     }
                 }
-            }
-        } else {
-            error!("Received erroneous DebouncedEvent");
+            })
         }
 
         time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;
