@@ -1,6 +1,6 @@
 [package]
 name = "demo-portal-module"
-version = "0.5.8"
+version = "0.5.9"
 edition = "2021"
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
 repository = "git@github.com:ICS-DeviceManagement/demo-portal-module.git"
@@ -10,13 +10,14 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 azure-iot-sdk = { git = "ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git", tag = "0.8.4", features = ["module_client"] }
-sd-notify = { git = "ssh://git@github.com/ICS-DeviceManagement/sd-notify.git", tag = "v0.5.0", optional = true }
+sd-notify = { version = "0.4.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 env_logger = "0.8"
 log = "0.4"
 time = { version = "0.3", features = ["formatting"] }
-notify = "4.0"
+notify = "5.0"
+notify-debouncer-mini = "0.2"
 default-env = "0.1"
 lazy_static = "1.4"
 tokio = { version = "1.19.2", features = ["full"] }

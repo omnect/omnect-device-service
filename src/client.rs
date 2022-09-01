@@ -1,5 +1,5 @@
 use azure_iot_sdk::client::*;
-use log::debug;
+use log::info;
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use tokio::task::JoinHandle;
 use std::time;
@@ -109,7 +109,7 @@ impl Client {
                         client.send_d2c_message(telemetry).map(|_| ())?
                     }
                     Ok(Message::Terminate) => return Ok(()),
-                    Ok(_) => debug!("Client received unhandled message"),
+                    Ok(_) => info!("Client received unhandled message"),
                     Err(_) => (),
                 };
 
@@ -125,7 +125,7 @@ impl Client {
 
     pub async fn stop(self) -> Result<(), IotError> {
         *self.run.lock().unwrap() = false;
-        
+
         self.thread.unwrap().await?
     }
 }
