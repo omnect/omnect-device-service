@@ -8,10 +8,10 @@ use azure_iot_sdk::client::*;
 use client::{Client, Message};
 use default_env::default_env;
 use log::error;
-use notify::{RecursiveMode, Watcher};
-use std::sync::Once;
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use notify::RecursiveMode;
+use notify_debouncer_mini::new_debouncer;
+use std::sync::{mpsc, Arc, Mutex, Once};
+use std::{path::Path, time::Duration};
 use tokio::time;
 
 static INIT: Once = Once::new();
@@ -29,12 +29,18 @@ pub async fn run() -> Result<(), IotError> {
     let (tx_file2app, rx_file2app) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
-    let mut watcher = notify::watcher(tx_file2app, Duration::from_secs(WATCHER_DELAY))?;
+    let mut debouncer =
+        new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
     let request_consent_path = format!("{}/request_consent.json", CONSENT_DIR_PATH);
     let history_consent_path = format!("{}/history_consent.json", CONSENT_DIR_PATH);
 
-    watcher.watch(&request_consent_path, RecursiveMode::Recursive)?;
-    watcher.watch(&history_consent_path, RecursiveMode::Recursive)?;
+    debouncer
+        .watcher()
+        .watch(Path::new(&request_consent_path), RecursiveMode::Recursive)?;
+
+    debouncer
+        .watcher()
+        .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)?;
 
     client.run(None, methods, tx_client2app, rx_app2client);
 
@@ -92,11 +98,14 @@ pub async fn run() -> Result<(), IotError> {
             _ => {}
         }
 
-        if let Ok(notify::DebouncedEvent::Write(file)) = rx_file2app.try_recv() {
-            let path = file.to_str().unwrap();
-            if let Err(e) = twin::report_user_consent(Arc::clone(&tx_app2client), path) {
-                error!("Couldn't update {}: {}", path, e);
-            }
+        if let Ok(events) = rx_file2app.try_recv() {
+            events.unwrap_or(vec![]).iter().for_each(|ev| {
+                if let Some(path) = ev.path.to_str() {
+                    if let Err(e) = twin::report_user_consent(Arc::clone(&tx_app2client), path) {
+                        error!("Couldn't report user from {}: {}", path, e);
+                    }
+                }
+            })
         }
 
         time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;

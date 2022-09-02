@@ -1,8 +1,7 @@
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
-use log::info;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
@@ -75,7 +74,7 @@ pub fn report_versions(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(),
         .unwrap()
         .send(Message::Reported(json!({
             "module-version": env!("CARGO_PKG_VERSION"),
-            "azure sdk version": IotHubClient::get_sdk_version_string()
+            "azure-sdk-version": IotHubClient::get_sdk_version_string()
         })))?;
 
     Ok(())
@@ -99,8 +98,6 @@ pub fn report_user_consent(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
     report_consent_file: &str,
 ) -> Result<(), IotError> {
-    debug!("report_user_consent_file: {:?}", report_consent_file);
-
     let json: serde_json::Value =
         serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())?;
 
@@ -108,6 +105,8 @@ pub fn report_user_consent(
         .lock()
         .unwrap()
         .send(Message::Reported(json))?;
+
+    info!("reported user consent file: {}", report_consent_file);
 
     Ok(())
 }
@@ -157,7 +156,7 @@ pub fn update_factory_reset_result(
                     .arg("fw_setenv factory-reset-status")
                     .output()?;
 
-                debug!("factory reset result: {}", update_twin);
+                info!("factory reset result: {}", update_twin);
             }
             Ok((update_twin, false)) => {
                 debug!("factory reset result: {}", update_twin);
