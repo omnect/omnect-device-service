@@ -4,6 +4,8 @@ use log::{info, error};
 use std::process;
 
 fn main() {
+    log_panics::init();
+    
     if cfg!(debug_assertions) {
         Builder::from_env(Env::default().default_filter_or("debug")).init();
     } else {

@@ -1,6 +1,6 @@
 [package]
 name = "demo-portal-module"
-version = "0.5.9"
+version = "0.5.10"
 edition = "2021"
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
 repository = "git@github.com:ICS-DeviceManagement/demo-portal-module.git"
@@ -21,6 +21,7 @@ notify-debouncer-mini = "0.2"
 default-env = "0.1"
 lazy_static = "1.4"
 tokio = { version = "1.19.2", features = ["full"] }
+log-panics = { version = "2", features = ["with-backtrace"]}
 
 [features]
 # select if systemd ready and watchdog should be enabled
