@@ -104,7 +104,5 @@ pub async fn run() -> Result<(), IotError> {
                 }
             })
         }
-
-        //time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;
     }
 }

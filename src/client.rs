@@ -133,10 +133,14 @@ impl Client {
     }
 
     pub fn stop(&mut self) -> Result<(), IotError> {
-        block_on(async {
-            *self.run.lock().unwrap() = false;
-            self.thread.as_mut().unwrap().await?
-        })
+        if self.thread.is_some() {
+            return block_on(async {
+                *self.run.lock().unwrap() = false;
+                self.thread.take().as_mut().unwrap().await?
+            });
+        }
+
+        Ok(())
     }
 }
 
