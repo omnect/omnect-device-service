@@ -12,7 +12,6 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::{path::Path, time::Duration};
-use tokio::time;
 
 static INIT: Once = Once::new();
 
@@ -21,8 +20,7 @@ pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/e
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
 
-#[tokio::main]
-pub async fn run() -> Result<(), IotError> {
+pub fn run() -> Result<(), IotError> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
@@ -45,7 +43,7 @@ pub async fn run() -> Result<(), IotError> {
     client.run(None, methods, tx_client2app, rx_app2client);
 
     loop {
-        match rx_client2app.try_recv() {
+        match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
                     #[cfg(feature = "systemd")]
@@ -92,9 +90,6 @@ pub async fn run() -> Result<(), IotError> {
             Ok(Message::C2D(msg)) => {
                 message::update(msg, Arc::clone(&tx_app2client));
             }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                return Err(IotError::from("iot channel unexpectedly closed by client"));
-            }
             _ => {}
         }
 
@@ -108,6 +103,6 @@ pub async fn run() -> Result<(), IotError> {
             })
         }
 
-        time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;
+        //time::sleep(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)).await;
     }
 }

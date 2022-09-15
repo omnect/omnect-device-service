@@ -1,8 +1,9 @@
 use azure_iot_sdk::client::*;
+use futures_executor::block_on;
 use log::{info, warn};
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
-use tokio::task::JoinHandle;
 use std::time;
+use tokio::task::JoinHandle;
 
 #[cfg(feature = "systemd")]
 use crate::systemd::WatchdogHandler;
@@ -29,11 +30,16 @@ impl EventHandler for ClientEventHandler {
 
         let res = match auth_status {
             AuthenticationStatus::Authenticated => self.tx.send(Message::Authenticated),
-            AuthenticationStatus::Unauthenticated(reason) => self.tx.send(Message::Unauthenticated(reason))
+            AuthenticationStatus::Unauthenticated(reason) => {
+                self.tx.send(Message::Unauthenticated(reason))
+            }
         };
 
         if let Err(e) = res {
-            warn!("Couldn't send AuthenticationStatus since the receiver was closed: {}", e.to_string())
+            warn!(
+                "Couldn't send AuthenticationStatus since the receiver was closed: {}",
+                e.to_string()
+            )
         }
     }
 
@@ -96,10 +102,9 @@ impl Client {
             wdt.init()?;
 
             let mut client = match IotHubClient::get_client_type() {
-                _ if connection_string.is_some() => IotHubClient::from_connection_string(
-                    connection_string.unwrap(),
-                    event_handler,
-                )?,
+                _ if connection_string.is_some() => {
+                    IotHubClient::from_connection_string(connection_string.unwrap(), event_handler)?
+                }
                 ClientType::Device | ClientType::Module => {
                     IotHubClient::from_identity_service(event_handler)?
                 }
@@ -127,9 +132,16 @@ impl Client {
         }));
     }
 
-    pub async fn stop(self) -> Result<(), IotError> {
-        *self.run.lock().unwrap() = false;
+    pub fn stop(&mut self) -> Result<(), IotError> {
+        block_on(async {
+            *self.run.lock().unwrap() = false;
+            self.thread.as_mut().unwrap().await?
+        })
+    }
+}
 
-        self.thread.unwrap().await?
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.stop().unwrap();
     }
 }

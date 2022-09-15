@@ -420,6 +420,7 @@ dependencies = [
  "azure-iot-sdk",
  "default-env",
  "env_logger 0.8.4",
+ "futures-executor",
  "lazy_static",
  "log",
  "log-panics",
