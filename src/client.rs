@@ -1,6 +1,6 @@
 use azure_iot_sdk::client::*;
 use futures_executor::block_on;
-use log::{info, warn};
+use log::{error, info, warn};
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use std::time;
 use tokio::task::JoinHandle;
@@ -146,6 +146,8 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        self.stop().unwrap();
+        if let Err(e) = self.stop() {
+            error!("Client thread returned with: {}", e);
+        }
     }
 }
