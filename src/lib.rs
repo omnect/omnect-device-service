@@ -20,7 +20,9 @@ pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/e
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
 
-pub fn run() -> Result<(), IotError> {
+
+#[tokio::main]
+pub async fn run() -> Result<(), IotError> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
