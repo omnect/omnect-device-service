@@ -20,7 +20,6 @@ pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/e
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
 
-
 #[tokio::main]
 pub async fn run() -> Result<(), IotError> {
     let mut client = Client::new();
@@ -91,6 +90,9 @@ pub async fn run() -> Result<(), IotError> {
             }
             Ok(Message::C2D(msg)) => {
                 message::update(msg, Arc::clone(&tx_app2client));
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(IotError::from("iot channel unexpectedly closed by client"));
             }
             _ => {}
         }

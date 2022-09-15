@@ -114,7 +114,11 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
 pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
     info!("reboot requested");
 
-    OpenOptions::new().write(true).create(true);
+    OpenOptions::new()
+        .write(true)
+        .create(false)
+        .truncate(true)
+        .open("/run/reboot/systemd-trigger")?;
 
     Ok(None)
 }
