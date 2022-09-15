@@ -3,6 +3,7 @@ use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
+use log::info;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -41,6 +42,8 @@ pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>, IotError> {
+    info!("factory reset requested");
+
     let restore_paths = match in_json["restore_settings"].as_array() {
         Some(settings) => {
             let mut paths = vec![];
@@ -88,6 +91,8 @@ pub fn reset_to_factory_settings(
 }
 
 pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+    info!("user concent requested");
+
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
             let (component, version) = map.iter().next().unwrap();
@@ -107,9 +112,9 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
 }
 
 pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
-    OpenOptions::new()
-        .write(true)
-        .create(true);
+    info!("reboot requested");
+
+    OpenOptions::new().write(true).create(true);
 
     Ok(None)
 }
