@@ -1,5 +1,5 @@
 use azure_iot_sdk::client::*;
-use log::info;
+use log::{info, warn};
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use tokio::task::JoinHandle;
 use std::time;
@@ -25,11 +25,15 @@ struct ClientEventHandler {
 
 impl EventHandler for ClientEventHandler {
     fn handle_connection_status(&self, auth_status: AuthenticationStatus) {
-        match auth_status {
-            AuthenticationStatus::Authenticated => self.tx.send(Message::Authenticated).unwrap(),
-            AuthenticationStatus::Unauthenticated(reason) => {
-                self.tx.send(Message::Unauthenticated(reason)).unwrap()
-            }
+        info!("new AuthenticationStatus: {:?}", auth_status);
+
+        let res = match auth_status {
+            AuthenticationStatus::Authenticated => self.tx.send(Message::Authenticated),
+            AuthenticationStatus::Unauthenticated(reason) => self.tx.send(Message::Unauthenticated(reason))
+        };
+
+        if let Err(e) = res {
+            warn!("Couldn't send AuthenticationStatus since the receiver was closed: {}", e.to_string())
         }
     }
 

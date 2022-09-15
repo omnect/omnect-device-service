@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/reboot/systemd-trigger
+Unit=demo-portal-reboot.service
+
+[Install]
+WantedBy=paths.target

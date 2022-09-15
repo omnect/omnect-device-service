@@ -32,6 +32,8 @@ pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<
 
     methods.insert(String::from("user_consent"), Box::new(user_consent));
 
+    methods.insert(String::from("reboot"), Box::new(reboot));
+
     Some(methods)
 }
 
@@ -102,6 +104,14 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
         }
         _ => Err(IotError::from("unexpected parameter format")),
     }
+}
+
+pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+    OpenOptions::new()
+        .write(true)
+        .create(true);
+
+    Ok(None)
 }
 
 #[test]

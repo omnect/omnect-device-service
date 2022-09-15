@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "demo-portal-module"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "azure-iot-sdk",
  "default-env",

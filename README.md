@@ -166,6 +166,43 @@ As soon as the consent for a new update has been granted via the direct method "
 }
 ```
 
+#### Reboot
+
+bla
+
+**Direct method: reboot**
+
+Method Name: `reboot`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+{
+  "status": <HTTP-Statusode>,
+  "payload": {"<result>"}
+}
+
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status and a meaningful message in the payload:
+```
+{
+  "status": 401,
+  "payload": {"error message"}
+}
+```
+
 ## License
 
 Licensed under either of
