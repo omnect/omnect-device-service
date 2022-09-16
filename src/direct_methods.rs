@@ -79,7 +79,7 @@ pub fn reset_to_factory_settings(
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/factory-reset/systemd-trigger")?
+                .open("/run/demo-portal-module/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
             twin::report_factory_reset_status(tx, "in_progress")?;
@@ -91,7 +91,7 @@ pub fn reset_to_factory_settings(
 }
 
 pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
-    info!("user concent requested");
+    info!("user consent requested");
 
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
@@ -118,7 +118,7 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, 
         .write(true)
         .create(false)
         .truncate(true)
-        .open("/run/reboot/systemd-trigger")?;
+        .open("/run/demo-portal-module/reboot-trigger")?;
 
     Ok(None)
 }

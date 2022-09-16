@@ -3,7 +3,7 @@
 Before=paths.target
 
 [Path]
-PathChanged=/run/reboot/systemd-trigger
+PathChanged=/run/demo-portal-module/reboot-trigger
 Unit=demo-portal-reboot.service
 
 [Install]
