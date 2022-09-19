@@ -415,11 +415,12 @@ dependencies = [
 
 [[package]]
 name = "demo-portal-module"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "azure-iot-sdk",
  "default-env",
  "env_logger 0.8.4",
+ "futures-executor",
  "lazy_static",
  "log",
  "log-panics",

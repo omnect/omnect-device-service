@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/demo-portal-module/reboot-trigger
+Unit=demo-portal-reboot.service
+
+[Install]
+WantedBy=paths.target

@@ -3,6 +3,7 @@ use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
+use log::info;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -32,6 +33,8 @@ pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<
 
     methods.insert(String::from("user_consent"), Box::new(user_consent));
 
+    methods.insert(String::from("reboot"), Box::new(reboot));
+
     Some(methods)
 }
 
@@ -39,6 +42,8 @@ pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>, IotError> {
+    info!("factory reset requested");
+
     let restore_paths = match in_json["restore_settings"].as_array() {
         Some(settings) => {
             let mut paths = vec![];
@@ -67,14 +72,14 @@ pub fn reset_to_factory_settings(
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/factory-reset/restore-list")?
+                .open("/run/demo-portal-module/factory-reset-restore-list")?
                 .write_all(restore_paths.as_bytes())?;
 
             OpenOptions::new()
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/factory-reset/systemd-trigger")?
+                .open("/run/demo-portal-module/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
             twin::report_factory_reset_status(tx, "in_progress")?;
@@ -86,6 +91,8 @@ pub fn reset_to_factory_settings(
 }
 
 pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+    info!("user consent requested");
+
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
             let (component, version) = map.iter().next().unwrap();
@@ -102,6 +109,18 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
         }
         _ => Err(IotError::from("unexpected parameter format")),
     }
+}
+
+pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+    info!("reboot requested");
+
+    OpenOptions::new()
+        .write(true)
+        .create(false)
+        .truncate(true)
+        .open("/run/demo-portal-module/reboot-trigger")?;
+
+    Ok(None)
 }
 
 #[test]

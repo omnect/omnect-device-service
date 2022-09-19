@@ -1,8 +1,9 @@
 use azure_iot_sdk::client::*;
-use log::info;
+use futures_executor::block_on;
+use log::{error, info, warn};
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
-use tokio::task::JoinHandle;
 use std::time;
+use tokio::task::JoinHandle;
 
 #[cfg(feature = "systemd")]
 use crate::systemd::WatchdogHandler;
@@ -25,11 +26,20 @@ struct ClientEventHandler {
 
 impl EventHandler for ClientEventHandler {
     fn handle_connection_status(&self, auth_status: AuthenticationStatus) {
-        match auth_status {
-            AuthenticationStatus::Authenticated => self.tx.send(Message::Authenticated).unwrap(),
+        info!("new AuthenticationStatus: {:?}", auth_status);
+
+        let res = match auth_status {
+            AuthenticationStatus::Authenticated => self.tx.send(Message::Authenticated),
             AuthenticationStatus::Unauthenticated(reason) => {
-                self.tx.send(Message::Unauthenticated(reason)).unwrap()
+                self.tx.send(Message::Unauthenticated(reason))
             }
+        };
+
+        if let Err(e) = res {
+            warn!(
+                "Couldn't send AuthenticationStatus since the receiver was closed: {}",
+                e.to_string()
+            )
         }
     }
 
@@ -92,10 +102,9 @@ impl Client {
             wdt.init()?;
 
             let mut client = match IotHubClient::get_client_type() {
-                _ if connection_string.is_some() => IotHubClient::from_connection_string(
-                    connection_string.unwrap(),
-                    event_handler,
-                )?,
+                _ if connection_string.is_some() => {
+                    IotHubClient::from_connection_string(connection_string.unwrap(), event_handler)?
+                }
                 ClientType::Device | ClientType::Module => {
                     IotHubClient::from_identity_service(event_handler)?
                 }
@@ -123,9 +132,22 @@ impl Client {
         }));
     }
 
-    pub async fn stop(self) -> Result<(), IotError> {
-        *self.run.lock().unwrap() = false;
+    pub fn stop(&mut self) -> Result<(), IotError> {
+        if self.thread.is_some() {
+            return block_on(async {
+                *self.run.lock().unwrap() = false;
+                self.thread.take().as_mut().unwrap().await?
+            });
+        }
 
-        self.thread.unwrap().await?
+        Ok(())
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        if let Err(e) = self.stop() {
+            error!("Client thread returned with: {}", e);
+        }
     }
 }

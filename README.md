@@ -120,10 +120,12 @@ Payload:
 ```
 
 Result:
+```
 {
   "status": <HTTP-Statusode>,
   "payload": {"<result>"}
 }
+```
 
 In case the method was successful received by the module the return value of the method looks like this:
 
@@ -163,6 +165,44 @@ As soon as the consent for a new update has been granted via the direct method "
   [
     "<version>"
   ]
+}
+```
+
+#### Reboot
+
+A direct method to trigger a device reboot.
+
+**Direct method: reboot**
+
+Method Name: `reboot`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
 }
 ```
 
