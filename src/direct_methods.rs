@@ -72,7 +72,7 @@ pub fn reset_to_factory_settings(
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/remote-features-moduledule/factory-reset-restore-list")?
+                .open("/run/remote-features-module/factory-reset-restore-list")?
                 .write_all(restore_paths.as_bytes())?;
 
             OpenOptions::new()
