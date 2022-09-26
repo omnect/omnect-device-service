@@ -72,14 +72,14 @@ pub fn reset_to_factory_settings(
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/demo-portal-module/factory-reset-restore-list")?
+                .open("/run/remote-features-moduledule/factory-reset-restore-list")?
                 .write_all(restore_paths.as_bytes())?;
 
             OpenOptions::new()
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/demo-portal-module/factory-reset-trigger")?
+                .open("/run/remote-features-module/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
             twin::report_factory_reset_status(tx, "in_progress")?;
@@ -118,7 +118,7 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, 
         .write(true)
         .create(false)
         .truncate(true)
-        .open("/run/demo-portal-module/reboot-trigger")?;
+        .open("/run/remote-features-module/reboot-trigger")?;
 
     Ok(None)
 }

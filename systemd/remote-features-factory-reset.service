@@ -1,0 +1,6 @@
+[Unit]
+Description=factory reset
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /run/remote-features-module/factory-reset-trigger /run/remote-features-module/factory-reset-restore-list'

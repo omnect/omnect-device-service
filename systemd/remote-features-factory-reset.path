@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/remote-features-module/factory-reset-trigger
+Unit=remote-features-factory-reset.service
+
+[Install]
+WantedBy=paths.target

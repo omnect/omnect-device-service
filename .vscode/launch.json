@@ -7,35 +7,37 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'demo-portal-module'",
+      "name": "Debug executable 'remote-features-module'",
       "cargo": {
         "args": [
           "build",
-          "--bin=demo-portal-module",
-          "--package=demo-portal-module"
+          "--bin=remote-features-module",
+          "--package=remote-features-module"
         ],
         "filter": {
-          "name": "demo-portal-module",
+          "name": "remote-features-module",
           "kind": "bin"
         }
       },
       "args": [],
       "cwd": "${workspaceFolder}",
-      "env": { "RUST_BACKTRACE": "1" }
+      "env": {
+        "RUST_BACKTRACE": "1"
+      }
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'demo-portal-module'",
+      "name": "Debug unit tests in executable 'remote-features-module'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=demo-portal-module",
-          "--package=demo-portal-module"
+          "--bin=remote-features-module",
+          "--package=remote-features-module"
         ],
         "filter": {
-          "name": "demo-portal-module",
+          "name": "remote-features-module",
           "kind": "bin"
         }
       },

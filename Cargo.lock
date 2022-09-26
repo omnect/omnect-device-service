@@ -414,26 +414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "demo-portal-module"
-version = "0.5.11"
-dependencies = [
- "azure-iot-sdk",
- "default-env",
- "env_logger 0.8.4",
- "futures-executor",
- "lazy_static",
- "log",
- "log-panics",
- "notify",
- "notify-debouncer-mini",
- "sd-notify",
- "serde",
- "serde_json",
- "time",
- "tokio",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1352,6 +1332,26 @@ name = "regex-syntax"
 version = "0.6.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3f87b73ce11b1619a3c6332f45341e0047173771e8b8b73f87bfeefb7b56244"
+
+[[package]]
+name = "remote-features-module"
+version = "0.6.1"
+dependencies = [
+ "azure-iot-sdk",
+ "default-env",
+ "env_logger 0.8.4",
+ "futures-executor",
+ "lazy_static",
+ "log",
+ "log-panics",
+ "notify",
+ "notify-debouncer-mini",
+ "sd-notify",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+]
 
 [[package]]
 name = "rustc-demangle"

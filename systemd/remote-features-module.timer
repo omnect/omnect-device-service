@@ -1,5 +1,5 @@
 [Unit]
-Description=Restart demo-portal-module
+Description=Restart remote-features-module
 
 [Timer]
 OnUnitInactiveSec=10min
