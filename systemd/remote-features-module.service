@@ -9,8 +9,8 @@ StartLimitIntervalSec=120
 Type=notify
 Restart=always
 RestartSec=5
-User=remote-features
-Group=remote-features
+User=remote_features
+Group=remote_features
 WatchdogSec=30s
 
 ExecStart=/usr/bin/remote-features-module
