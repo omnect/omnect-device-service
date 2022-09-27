@@ -1,5 +1,5 @@
 [Unit]
-Description=Restart remote-features-module
+Description=Restart icsdm-device-service
 
 [Timer]
 OnUnitInactiveSec=10min

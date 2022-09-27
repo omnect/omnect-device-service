@@ -3,8 +3,8 @@
 Before=paths.target
 
 [Path]
-PathChanged=/run/remote-features-module/reboot-trigger
-Unit=remote-features-reboot.service
+PathChanged=/run/icsdm-device-service/reboot-trigger
+Unit=icsdm-device-reboot.service
 
 [Install]
 WantedBy=paths.target

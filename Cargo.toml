@@ -1,9 +1,9 @@
 [package]
-name = "remote-features-module"
+name = "icsdm-device-service"
 version = "0.6.0"
 edition = "2021"
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
-repository = "git@github.com:ICS-DeviceManagement/remote-features-module.git"
+repository = "git@github.com:ICS-DeviceManagement/icsdm-device-service.git"
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

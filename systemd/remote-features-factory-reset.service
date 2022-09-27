@@ -3,4 +3,4 @@ Description=factory reset
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /run/remote-features-module/factory-reset-trigger /run/remote-features-module/factory-reset-restore-list'
+ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /run/icsdm-device-service/factory-reset-trigger /run/icsdm-device-service/factory-reset-restore-list'

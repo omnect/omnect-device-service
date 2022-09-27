@@ -7,15 +7,15 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'remote-features-module'",
+      "name": "Debug executable 'icsdm-device-service'",
       "cargo": {
         "args": [
           "build",
-          "--bin=remote-features-module",
-          "--package=remote-features-module"
+          "--bin=icsdm-device-service",
+          "--package=icsdm-device-service"
         ],
         "filter": {
-          "name": "remote-features-module",
+          "name": "icsdm-device-service",
           "kind": "bin"
         }
       },
@@ -28,16 +28,16 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'remote-features-module'",
+      "name": "Debug unit tests in executable 'icsdm-device-service'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=remote-features-module",
-          "--package=remote-features-module"
+          "--bin=icsdm-device-service",
+          "--package=icsdm-device-service"
         ],
         "filter": {
-          "name": "remote-features-module",
+          "name": "icsdm-device-service",
           "kind": "bin"
         }
       },
