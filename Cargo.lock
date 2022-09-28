@@ -414,26 +414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "demo-portal-module"
-version = "0.5.11"
-dependencies = [
- "azure-iot-sdk",
- "default-env",
- "env_logger 0.8.4",
- "futures-executor",
- "lazy_static",
- "log",
- "log-panics",
- "notify",
- "notify-debouncer-mini",
- "sd-notify",
- "serde",
- "serde_json",
- "time",
- "tokio",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -877,6 +857,26 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-io-timeout",
+]
+
+[[package]]
+name = "icsdm-device-service"
+version = "0.6.0"
+dependencies = [
+ "azure-iot-sdk",
+ "default-env",
+ "env_logger 0.8.4",
+ "futures-executor",
+ "lazy_static",
+ "log",
+ "log-panics",
+ "notify",
+ "notify-debouncer-mini",
+ "sd-notify",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
 ]
 
 [[package]]

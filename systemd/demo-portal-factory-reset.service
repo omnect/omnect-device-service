@@ -1,6 +1,0 @@
-[Unit]
-Description=factory reset
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /run/demo-portal-module/factory-reset-trigger /run/demo-portal-module/factory-reset-restore-list'

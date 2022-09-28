@@ -7,35 +7,37 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'demo-portal-module'",
+      "name": "Debug executable 'icsdm-device-service'",
       "cargo": {
         "args": [
           "build",
-          "--bin=demo-portal-module",
-          "--package=demo-portal-module"
+          "--bin=icsdm-device-service",
+          "--package=icsdm-device-service"
         ],
         "filter": {
-          "name": "demo-portal-module",
+          "name": "icsdm-device-service",
           "kind": "bin"
         }
       },
       "args": [],
       "cwd": "${workspaceFolder}",
-      "env": { "RUST_BACKTRACE": "1" }
+      "env": {
+        "RUST_BACKTRACE": "1"
+      }
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'demo-portal-module'",
+      "name": "Debug unit tests in executable 'icsdm-device-service'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=demo-portal-module",
-          "--package=demo-portal-module"
+          "--bin=icsdm-device-service",
+          "--package=icsdm-device-service"
         ],
         "filter": {
-          "name": "demo-portal-module",
+          "name": "icsdm-device-service",
           "kind": "bin"
         }
       },

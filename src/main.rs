@@ -5,7 +5,7 @@ use std::process;
 
 fn main() {
     log_panics::init();
-    
+
     if cfg!(debug_assertions) {
         Builder::from_env(Env::default().default_filter_or("debug")).init();
     } else {
@@ -15,7 +15,7 @@ fn main() {
     info!("module version: {}", env!("CARGO_PKG_VERSION"));
     info!("azure sdk version: {}", IotHubClient::get_sdk_version_string());
 
-    if let Err(e) = demo_portal_module::run() {
+    if let Err(e) = icsdm_device_service::run() {
         error!("Application error: {}", e);
 
         process::exit(1);

@@ -1,13 +1,14 @@
-# demo-portal-module
+# icsdm-device-service
 
 ## Instruction
 This module is based on the ICS_DeviceManagement [iot-client-template-rs](https://github.com/ICS-DeviceManagement/iot-client-template-rs). All information you need to build the project can be found there.
 
 
-## What is demo-portal-module
-This module on the device side is designed to **demonstrate** the  workflows:
+## What is icsdm-device-service
+This module implements the device part for the following end to end workflows:
 - factory reset
 - iot-hub-device-update user consent
+- reboot
 
 ### Factory reset
 The module itself does not perform a factory reset.

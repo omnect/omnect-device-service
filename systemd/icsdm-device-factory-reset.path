@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/icsdm-device-service/factory-reset-trigger
+Unit=icsdm-device-factory-reset.service
+
+[Install]
+WantedBy=paths.target

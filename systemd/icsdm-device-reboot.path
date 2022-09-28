@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/icsdm-device-service/reboot-trigger
+Unit=icsdm-device-reboot.service
+
+[Install]
+WantedBy=paths.target
