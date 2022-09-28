@@ -1,7 +1,7 @@
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use azure_iot_sdk::client::*;
-use log::{debug, info, warn};
+use log::{info, warn};
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
@@ -159,7 +159,7 @@ pub fn update_factory_reset_result(
                 info!("factory reset result: {}", update_twin);
             }
             Ok((update_twin, false)) => {
-                debug!("factory reset result: {}", update_twin);
+                info!("factory reset result: {}", update_twin);
             }
             Err(update_twin) => {
                 warn!("factory reset result: {}", update_twin);

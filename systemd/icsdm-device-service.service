@@ -1,5 +1,5 @@
 [Unit]
-Description=icsdm-device-service service
+Description=icsdm-device-service
 After=network-online.target time-sync.target aziot-identityd.service
 Wants=network-online.target time-sync.target aziot-identityd.service
 StartLimitBurst=10
