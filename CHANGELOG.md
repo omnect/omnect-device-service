@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.1] Q3 2022
  - updated `azure-iot-sdk` to 0.9.0
+ - refactored dependency handling so that a build process can override
+   azure-iot-sdk features
 
 ## [0.6.0] Q3 2022
  - renamed crate from demo-portal-module to icsdm-device-service
