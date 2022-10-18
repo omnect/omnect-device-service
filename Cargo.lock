@@ -198,7 +198,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.8.4"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git?tag=0.8.4#17030b2a5f0b5bd317e437f4d37cae16c084d949"
+source = "git+ssh://git@github.com/omnect/azure-iot-sdk.git?tag=0.8.4#17030b2a5f0b5bd317e437f4d37cae16c084d949"
 dependencies = [
  "azure-iot-sdk-sys",
  "eis-utils",
@@ -210,7 +210,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk-sys"
 version = "0.5.2"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk-sys.git?tag=0.5.2#283d2f0a6ad5a8cf5ab43eb64ffb6af4455f4d57"
+source = "git+ssh://git@github.com/omnect/azure-iot-sdk-sys.git?tag=0.5.2#283d2f0a6ad5a8cf5ab43eb64ffb6af4455f4d57"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -426,7 +426,7 @@ dependencies = [
 [[package]]
 name = "eis-utils"
 version = "0.2.2"
-source = "git+ssh://git@github.com/ICS-DeviceManagement/eis-utils.git?tag=0.2.2#aca6c68ca99764d638ac34638e5fe839f2064f03"
+source = "git+ssh://git@github.com/omnect/eis-utils.git?tag=0.2.2#aca6c68ca99764d638ac34638e5fe839f2064f03"
 dependencies = [
  "aziot-cert-client-async",
  "aziot-cert-common",

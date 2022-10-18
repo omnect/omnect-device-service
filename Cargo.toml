@@ -3,13 +3,13 @@ name = "icsdm-device-service"
 version = "0.6.0"
 edition = "2021"
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
-repository = "git@github.com:ICS-DeviceManagement/icsdm-device-service.git"
+repository = "git@github.com:omnect/icsdm-device-service.git"
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-azure-iot-sdk = { git = "ssh://git@github.com/ICS-DeviceManagement/azure-iot-sdk.git", tag = "0.8.4", features = ["module_client"] }
+azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "0.8.4", features = ["module_client"] }
 sd-notify = { version = "0.4.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
