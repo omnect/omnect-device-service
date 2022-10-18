@@ -1,7 +1,7 @@
 # icsdm-device-service
 
 ## Instruction
-This module is based on the ICS_DeviceManagement [iot-client-template-rs](https://github.com/omnectt can be found there.
+This module is based on the ICS_DeviceManagement [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
 
 
 ## What is icsdm-device-service
