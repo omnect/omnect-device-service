@@ -1,0 +1,6 @@
+[Unit]
+Description=factory reset
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '/usr/bin/factory_reset.sh /run/omnect-device-service/factory-reset-trigger /run/omnect-device-service/factory-reset-restore-list'

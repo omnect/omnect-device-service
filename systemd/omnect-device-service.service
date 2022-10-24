@@ -1,5 +1,5 @@
 [Unit]
-Description=icsdm-device-service
+Description=omnect-device-service
 After=network-online.target time-sync.target aziot-identityd.service
 Wants=network-online.target time-sync.target aziot-identityd.service
 StartLimitBurst=10
@@ -9,11 +9,11 @@ StartLimitIntervalSec=120
 Type=notify
 Restart=always
 RestartSec=5
-User=icsdm_device_service
-Group=icsdm_device_service
+User=omnect_device_service
+Group=omnect_device_service
 WatchdogSec=30s
 
-ExecStart=/usr/bin/icsdm-device-service
+ExecStart=/usr/bin/omnect-device-service
 
 [Install]
 WantedBy=multi-user.target

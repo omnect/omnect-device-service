@@ -15,7 +15,7 @@ fn main() {
     info!("module version: {}", env!("CARGO_PKG_VERSION"));
     info!("azure sdk version: {}", IotHubClient::get_sdk_version_string());
 
-    if let Err(e) = icsdm_device_service::run() {
+    if let Err(e) = omnect_device_service::run() {
         error!("Application error: {}", e);
 
         process::exit(1);

@@ -15,7 +15,7 @@ use std::{path::Path, time::Duration};
 
 static INIT: Once = Once::new();
 
-pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/ics_dm/consent");
+pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/omne/consent");
 
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
