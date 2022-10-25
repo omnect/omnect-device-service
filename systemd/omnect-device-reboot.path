@@ -1,0 +1,10 @@
+
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/omnect-device-service/reboot-trigger
+Unit=omnect-device-reboot.service
+
+[Install]
+WantedBy=paths.target

@@ -7,15 +7,15 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'icsdm-device-service'",
+      "name": "Debug executable 'omnect-device-service'",
       "cargo": {
         "args": [
           "build",
-          "--bin=icsdm-device-service",
-          "--package=icsdm-device-service"
+          "--bin=omnect-device-service",
+          "--package=omnect-device-service"
         ],
         "filter": {
-          "name": "icsdm-device-service",
+          "name": "omnect-device-service",
           "kind": "bin"
         }
       },
@@ -28,16 +28,16 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'icsdm-device-service'",
+      "name": "Debug unit tests in executable 'omnect-device-service'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=icsdm-device-service",
-          "--package=icsdm-device-service"
+          "--bin=omnect-device-service",
+          "--package=omnect-device-service"
         ],
         "filter": {
-          "name": "icsdm-device-service",
+          "name": "omnect-device-service",
           "kind": "bin"
         }
       },

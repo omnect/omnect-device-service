@@ -72,14 +72,14 @@ pub fn reset_to_factory_settings(
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/icsdm-device-service/factory-reset-restore-list")?
+                .open("/run/omnect-device-service/factory-reset-restore-list")?
                 .write_all(restore_paths.as_bytes())?;
 
             OpenOptions::new()
                 .write(true)
                 .create(false)
                 .truncate(true)
-                .open("/run/icsdm-device-service/factory-reset-trigger")?
+                .open("/run/omnect-device-service/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
             twin::report_factory_reset_status(tx, "in_progress")?;
@@ -118,7 +118,7 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, 
         .write(true)
         .create(false)
         .truncate(true)
-        .open("/run/icsdm-device-service/reboot-trigger")?;
+        .open("/run/omnect-device-service/reboot-trigger")?;
 
     Ok(None)
 }

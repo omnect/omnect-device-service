@@ -1,11 +1,12 @@
 [package]
-name = "icsdm-device-service"
-version = "0.6.1"
+name = "omnect-device-service"
+version = "0.6.2"
 edition = "2021"
+description = "This service allows remote features like user fw update consent, factory reset and reboot."
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
-repository = "git@github.com:omnect/icsdm-device-service.git"
+repository = "git@github.com:omnect/omnect-device-service.git"
 license = "MIT OR Apache-2.0"
-
+readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

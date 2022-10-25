@@ -1,10 +1,10 @@
-# icsdm-device-service
+# omnect-device-service
 
 ## Instruction
-This module is based on the ICS_DeviceManagement [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
+This module is based on the omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
 
 
-## What is icsdm-device-service
+## What is omnect-device-service
 This module implements the device part for the following end to end workflows:
 - factory reset
 - iot-hub-device-update user consent
@@ -12,7 +12,7 @@ This module implements the device part for the following end to end workflows:
 
 ### Factory reset
 The module itself does not perform a factory reset.
-It serves as an interface between the cloud and the built-in factory reset from the [ics-dm yocto image](https://github.com/omnect/meta-ics-dm).
+It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
 A function was specified for this purpose, a so-called direct method which is described below.
 
@@ -38,7 +38,7 @@ Result:
 }
 
 
-The supported reset `type` and the documentation in general can be found in the [meta-ics-dm layer](https://github.com/omnect/meta-ics-dm#factory-reset).
+The supported reset `type` and the documentation in general can be found in the [meta-omnect layer](https://github.com/omnect/meta-omnect#factory-reset).
 
 The **optional** `restore_settings` array can be used to define user settings that must be restored after wiping device storage. Currently only `wifi` settings in `wpa_supplicant.conf` can be restored.
 
@@ -80,7 +80,7 @@ The following status information is defined:
 
 In our systems we use the service [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) for device firmware update. We have extended this service to include a "user consent" functionality, which allows the user to individually approve a new device update for his IoT device.
 
-The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [ics-dm yocto image](https://github.com/omnect/meta-ics-dm).
+The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
 #### Configure general consent
 
