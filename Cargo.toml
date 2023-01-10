@@ -1,6 +1,6 @@
 [package]
 name = "omnect-device-service"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 description = "This service allows remote features like user fw update consent, factory reset and reboot."
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
@@ -21,7 +21,7 @@ notify = "5.0"
 notify-debouncer-mini = "0.2"
 default-env = "0.1"
 lazy_static = "1.4"
-tokio = { version = "1.19.2", features = ["full"] }
+tokio = { version = "1.23", features = ["full"] }
 log-panics = { version = "2", features = ["with-backtrace"]}
 futures-executor = "0.3"
 
