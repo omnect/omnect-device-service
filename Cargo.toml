@@ -11,14 +11,15 @@ readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
-azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "0.9.0", features = ["module_client"] }
+#azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "0.9.0", features = ["module_client"] }
+azure-iot-sdk = { path = "../azure-iot-sdk", features = ["module_client"] }
 default-env = "0.1"
 env_logger = "0.8"
 futures-executor = "0.3"
 lazy_static = "1.4"
 log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"]}
-notify = "5.0"
+notify = "5.1"
 notify-debouncer-mini = "0.2"
 sd-notify = { version = "0.4.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
