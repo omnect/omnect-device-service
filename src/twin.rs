@@ -1,5 +1,6 @@
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
+use anyhow::Result;
 use azure_iot_sdk::client::*;
 use log::{info, warn};
 use serde_json::json;
@@ -15,7 +16,7 @@ pub fn update(
     state: TwinUpdateState,
     desired: serde_json::Value,
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), IotError> {
+) -> Result<()> {
     desired_general_consent(state, desired, tx_app2client)
 }
 
@@ -23,7 +24,7 @@ fn desired_general_consent(
     state: TwinUpdateState,
     desired: serde_json::Value,
     tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), IotError> {
+) -> Result<()> {
     struct Guard {
         tx_app2client: Arc<Mutex<Sender<Message>>>,
         report_default: bool,
@@ -68,7 +69,7 @@ fn desired_general_consent(
     Ok(())
 }
 
-pub fn report_versions(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
+pub fn report_versions(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<()> {
     tx_app2client
         .lock()
         .unwrap()
@@ -80,7 +81,7 @@ pub fn report_versions(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(),
     Ok(())
 }
 
-pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
+pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<()> {
     let file = OpenOptions::new()
         .read(true)
         .create(false)
@@ -97,7 +98,7 @@ pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Res
 pub fn report_user_consent(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
     report_consent_file: &str,
-) -> Result<(), IotError> {
+) -> Result<()> {
     let json: serde_json::Value =
         serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())?;
 
@@ -114,7 +115,7 @@ pub fn report_user_consent(
 pub fn report_factory_reset_status(
     tx_app2client: Arc<Mutex<Sender<Message>>>,
     status: &str,
-) -> Result<(), IotError> {
+) -> Result<()> {
     tx_app2client
         .lock()
         .unwrap()
@@ -128,9 +129,7 @@ pub fn report_factory_reset_status(
     Ok(())
 }
 
-pub fn update_factory_reset_result(
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), IotError> {
+pub fn update_factory_reset_result(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<()> {
     if let Ok(output) = Command::new("sh")
         .arg("-c")
         .arg("fw_printenv factory-reset-status")

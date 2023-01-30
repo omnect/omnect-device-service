@@ -4,6 +4,7 @@ pub mod message;
 #[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
+use anyhow::Result;
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
 use default_env::default_env;
@@ -21,7 +22,7 @@ const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
 
 #[tokio::main]
-pub async fn run() -> Result<(), IotError> {
+pub async fn run() -> Result<()> {
     let mut client = Client::new();
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
@@ -77,10 +78,7 @@ pub async fn run() -> Result<(), IotError> {
             }
             Ok(Message::Unauthenticated(reason)) => {
                 if !matches!(reason, UnauthenticatedReason::ExpiredSasToken) {
-                    return Err(IotError::from(format!(
-                        "No connection. Reason: {:?}",
-                        reason
-                    )));
+                    anyhow::bail!("No connection. Reason: {:?}", reason);
                 }
             }
             Ok(Message::Desired(state, desired)) => {
@@ -92,7 +90,7 @@ pub async fn run() -> Result<(), IotError> {
                 message::update(msg, Arc::clone(&tx_app2client));
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(IotError::from("iot channel unexpectedly closed by client"));
+                anyhow::bail!("iot channel unexpectedly closed by client");
             }
             _ => {}
         }

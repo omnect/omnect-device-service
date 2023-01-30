@@ -1,6 +1,7 @@
 use crate::twin;
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
+use anyhow::Result;
 use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
 use log::info;
@@ -41,7 +42,7 @@ pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<
 pub fn reset_to_factory_settings(
     in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
-) -> Result<Option<serde_json::Value>, IotError> {
+) -> Result<Option<serde_json::Value>> {
     info!("factory reset requested");
 
     let restore_paths = match in_json["restore_settings"].as_array() {
@@ -57,7 +58,7 @@ pub fn reset_to_factory_settings(
                 if SETTINGS_MAP.contains_key(s) {
                     paths.push(SETTINGS_MAP.get(s).unwrap().deref());
                 } else {
-                    return Err(IotError::from("unknown restore setting received"));
+                    anyhow::bail!("unknown restore setting received");
                 }
             }
 
@@ -86,11 +87,11 @@ pub fn reset_to_factory_settings(
 
             Ok(None)
         }
-        _ => Err(IotError::from("reset type missing or not supported")),
+        _ => anyhow::bail!("reset type missing or not supported"),
     }
 }
 
-pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("user consent requested");
 
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
@@ -107,11 +108,11 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
             file.write(content.as_bytes())?;
             Ok(None)
         }
-        _ => Err(IotError::from("unexpected parameter format")),
+        _ => anyhow::bail!("unexpected parameter format"),
     }
 }
 
-pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>, IotError> {
+pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("reboot requested");
 
     OpenOptions::new()

@@ -1,3 +1,4 @@
+use anyhow::Result;
 use azure_iot_sdk::client::*;
 use futures_executor::block_on;
 use log::{error, info, warn};
@@ -43,7 +44,7 @@ impl EventHandler for ClientEventHandler {
         }
     }
 
-    fn handle_c2d_message(&self, message: IotMessage) -> Result<(), IotError> {
+    fn handle_c2d_message(&self, message: IotMessage) -> Result<()> {
         self.tx.send(Message::C2D(message))?;
         Ok(())
     }
@@ -56,7 +57,7 @@ impl EventHandler for ClientEventHandler {
         &self,
         state: TwinUpdateState,
         desired: serde_json::Value,
-    ) -> Result<(), IotError> {
+    ) -> Result<()> {
         self.tx.send(Message::Desired(state, desired))?;
 
         Ok(())
@@ -68,7 +69,7 @@ impl EventHandler for ClientEventHandler {
 }
 
 pub struct Client {
-    thread: Option<JoinHandle<Result<(), IotError>>>,
+    thread: Option<JoinHandle<Result<()>>>,
     run: Arc<Mutex<bool>>,
 }
 
@@ -132,7 +133,7 @@ impl Client {
         }));
     }
 
-    pub fn stop(&mut self) -> Result<(), IotError> {
+    pub fn stop(&mut self) -> Result<()> {
         if self.thread.is_some() {
             return block_on(async {
                 *self.run.lock().unwrap() = false;
