@@ -18,6 +18,7 @@ futures-executor = "0.3"
 lazy_static = "1.4"
 log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"]}
+network-interface = "0.1"
 notify = "5.1"
 notify-debouncer-mini = "0.2"
 sd-notify = { version = "0.4", optional = true }

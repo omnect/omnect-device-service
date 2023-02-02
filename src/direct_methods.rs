@@ -13,6 +13,7 @@ use std::io::Write;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+use twin::{ReportProperty, Twin};
 
 lazy_static! {
     static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
@@ -83,7 +84,7 @@ pub fn reset_to_factory_settings(
                 .open("/run/omnect-device-service/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
-            twin::report_factory_reset_status(tx, "in_progress")?;
+            Twin::new(tx).report(ReportProperty::FactoryResetStatus("in_progress"))?;
 
             Ok(None)
         }

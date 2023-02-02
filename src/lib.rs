@@ -13,6 +13,7 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::{path::Path, time::Duration};
+use twin::{ReportProperty, Twin};
 
 static INIT: Once = Once::new();
 
@@ -28,6 +29,7 @@ pub async fn run() -> Result<()> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let (tx_file2app, rx_file2app) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
+    let mut twin = Twin::new(Arc::clone(&tx_app2client));
     let methods = direct_methods::get_direct_methods(Arc::clone(&tx_app2client));
     let mut debouncer =
         new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
@@ -51,40 +53,30 @@ pub async fn run() -> Result<()> {
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();
 
-                    if let Err(e) = twin::report_versions(Arc::clone(&tx_app2client)) {
-                        error!("Couldn't report version: {}", e);
-                    }
+                    let properties = vec![
+                        ReportProperty::Versions,
+                        ReportProperty::GeneralConsent,
+                        ReportProperty::UserConsent(&request_consent_path),
+                        ReportProperty::UserConsent(&history_consent_path),
+                        ReportProperty::FactoryResetResult,
+                        ReportProperty::NetworkStatus,
+                    ];
 
-                    if let Err(e) = twin::report_general_consent(Arc::clone(&tx_app2client)) {
-                        error!("Couldn't report general consent: {}", e);
-                    }
-
-                    if let Err(e) =
-                        twin::report_user_consent(Arc::clone(&tx_app2client), &request_consent_path)
-                    {
-                        error!("Couldn't update {}: {}", request_consent_path, e);
-                    }
-
-                    if let Err(e) =
-                        twin::report_user_consent(Arc::clone(&tx_app2client), &history_consent_path)
-                    {
-                        error!("Couldn't update {}: {}", history_consent_path, e);
-                    }
-
-                    if let Err(e) = twin::update_factory_reset_result(Arc::clone(&tx_app2client)) {
-                        error!("Couldn't update factory reset result: {}", e);
+                    for p in properties {
+                        twin.report(p).unwrap_or_else(|e| error!("{:#?}", e));
                     }
                 });
             }
             Ok(Message::Unauthenticated(reason)) => {
-                if !matches!(reason, UnauthenticatedReason::ExpiredSasToken) {
-                    anyhow::bail!("No connection. Reason: {:?}", reason);
-                }
+                anyhow::ensure!(
+                    !matches!(reason, UnauthenticatedReason::ExpiredSasToken),
+                    "No connection. Reason: {:?}",
+                    reason
+                );
             }
             Ok(Message::Desired(state, desired)) => {
-                if let Err(e) = twin::update(state, desired, Arc::clone(&tx_app2client)) {
-                    error!("Couldn't handle twin desired: {}", e);
-                }
+                twin.update(state, desired)
+                    .unwrap_or_else(|e| error!("{:#?}", e));
             }
             Ok(Message::C2D(msg)) => {
                 message::update(msg, Arc::clone(&tx_app2client));
@@ -98,9 +90,8 @@ pub async fn run() -> Result<()> {
         if let Ok(events) = rx_file2app.try_recv() {
             events.unwrap_or(vec![]).iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
-                    if let Err(e) = twin::report_user_consent(Arc::clone(&tx_app2client), path) {
-                        error!("Couldn't report user from {}: {}", path, e);
-                    }
+                    twin.report(ReportProperty::UserConsent(path))
+                        .unwrap_or_else(|e| error!("{:#?}", e));
                 }
             })
         }
