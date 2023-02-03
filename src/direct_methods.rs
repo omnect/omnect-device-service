@@ -39,7 +39,7 @@ pub fn get_direct_methods(tx: Arc<Mutex<Sender<Message>>>) -> Option<DirectMetho
     methods.insert(
         String::from("refresh_network_status"),
         IotHubClient::make_direct_method(move |in_json| {
-            reset_to_factory_settings(in_json, Arc::clone(&tx2))
+            refresh_network_status(in_json, Arc::clone(&tx2))
         }),
     );
 
@@ -131,7 +131,7 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> 
     Ok(None)
 }
 
-pub fn network_status(
+pub fn refresh_network_status(
     _in_json: serde_json::Value,
     tx: Arc<Mutex<Sender<Message>>>,
 ) -> Result<Option<serde_json::Value>> {
