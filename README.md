@@ -83,6 +83,12 @@ In our systems we use the service [iot-hub-device-update](https://github.com/Azu
 
 The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
+Adapt the following environment variable in order to configure the directory used for consent files at compile time:
+```
+# use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
+CONSENT_DIR_PATH: "/my/path"
+```
+
 #### Configure general consent
 
 To enable a general consent for all swupdate based firmware updates configure the following general_consent setting in the module twin:
@@ -222,6 +228,11 @@ The module reports the status of network adapters. For this purpose the module s
     "mac":  "<mac address>",
   },
 ]
+```
+In order to filter network adapters by name the following environment variable might be used at compile time:
+```
+# only report adapters starting with one of strings (defaults to "eth wlan"), e.g. ethernet adapter only:
+NETWORK_NAME_FILTER "eth"
 ```
 
 #### Refresh Network status
