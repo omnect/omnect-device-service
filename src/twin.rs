@@ -202,7 +202,7 @@ impl Twin {
 
     fn report_network_status(&mut self) -> Result<()> {
         #[derive(Serialize, Deserialize, Debug)]
-        struct ReportNetwork {
+        struct NetworkReport {
             name: String,
             addr: String,
             mac: String,
@@ -215,14 +215,14 @@ impl Twin {
                     .split_whitespace()
                     .any(|f| i.name.starts_with(f))
             })
-            .map(|i| ReportNetwork {
+            .map(|i| NetworkReport {
                 name: i.name.clone(),
                 addr: i
                     .addr
                     .map_or("none".to_string(), |addr| addr.ip().to_string()),
                 mac: i.mac_addr.clone().unwrap_or("none".to_string()),
             })
-            .collect::<Vec<ReportNetwork>>();
+            .collect::<Vec<NetworkReport>>();
 
         let t = json!({ "NetworksInterfaces": json!(reported_interfaces) });
 
