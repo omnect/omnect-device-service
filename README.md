@@ -9,6 +9,7 @@ This module implements the device part for the following end to end workflows:
 - factory reset
 - iot-hub-device-update user consent
 - reboot
+- report network status
 
 ### Factory reset
 The module itself does not perform a factory reset.
@@ -102,7 +103,7 @@ To disable the general consent enter the following setting in the module twin:
 ]
 ```
 
-The current general consent status is also exposed to he cloud as reported property.
+The current general consent status is also exposed to the cloud as reported property.
 
 #### User consent
 
@@ -145,9 +146,9 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
-#### Status user consent
+#### Current reported user consent status
 
-The module reports the status for a required user consent. The module sends for this purpose a request to the cloud as reported property in the module twin.
+The module reports the status for a required user consent. For this purpose the module sends a reported property to the cloud.
 
 ```
 "user_consent_request": [
@@ -169,13 +170,67 @@ As soon as the consent for a new update has been granted via the direct method "
 }
 ```
 
-#### Reboot
+### Reboot
 
 A direct method to trigger a device reboot.
 
 **Direct method: reboot**
 
 Method Name: `reboot`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+### Network stautus
+
+#### Current reported network status
+
+The module reports the status of network adapters. For this purpose the module sends a reported property to the cloud.
+
+```
+"NetworksInterfaces": [
+  {
+    "name": "<adapter name>",
+    "addr": "<ipv4/ipv6 address>",
+    "mac":  "<mac address>",
+  },
+]
+```
+
+#### Refresh Network status
+
+A direct method to refresh and report current network status.
+
+**Direct method: refresh_network_status**
+
+Method Name: `refresh_network_status`
 
 Payload:
 ```

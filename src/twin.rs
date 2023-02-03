@@ -3,6 +3,7 @@ use crate::CONSENT_DIR_PATH;
 use anyhow::Context;
 use anyhow::Result;
 use azure_iot_sdk::client::*;
+use default_env::default_env;
 use log::{info, warn};
 use network_interface::NetworkInterface;
 use network_interface::NetworkInterfaceConfig;
@@ -15,6 +16,8 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+
+pub static NETWORK_NAME_FILTER: &'static str = default_env!("NETWORK_NAME_FILTER", "eth wlan");
 
 pub struct Twin {
     tx: Arc<Mutex<Sender<Message>>>,
@@ -204,20 +207,22 @@ impl Twin {
             addr: String,
             mac: String,
         }
-        let interfaces = NetworkInterface::show()?;
-        let mut reported_interfaces: Vec<serde_json::Value> = vec![];
 
-        for i in interfaces {
-            let rn = ReportNetwork {
-                name: i.name,
+        let reported_interfaces = NetworkInterface::show()?
+            .iter()
+            .filter(|i| {
+                NETWORK_NAME_FILTER
+                    .split_whitespace()
+                    .any(|f| i.name.starts_with(f))
+            })
+            .map(|i| ReportNetwork {
+                name: i.name.clone(),
                 addr: i
                     .addr
                     .map_or("none".to_string(), |addr| addr.ip().to_string()),
-                mac: i.mac_addr.unwrap_or("none".to_string()),
-            };
-
-            reported_interfaces.push(serde_json::to_value(&rn)?);
-        }
+                mac: i.mac_addr.clone().unwrap_or("none".to_string()),
+            })
+            .collect::<Vec<ReportNetwork>>();
 
         let t = json!({ "NetworksInterfaces": json!(reported_interfaces) });
 

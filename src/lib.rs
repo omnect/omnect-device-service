@@ -4,7 +4,7 @@ pub mod message;
 #[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
 use default_env::default_env;
@@ -38,13 +38,16 @@ pub async fn run() -> Result<()> {
 
     debouncer
         .watcher()
-        .watch(Path::new(&request_consent_path), RecursiveMode::Recursive)?;
+        .watch(Path::new(&request_consent_path), RecursiveMode::Recursive)
+        .context("debouncer request_consent_path")?;
 
     debouncer
         .watcher()
-        .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)?;
+        .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)
+        .context("debouncer history_consent_path")?;
 
-    client.run(None, methods, tx_client2app, rx_app2client);
+    //client.run(None, methods, tx_client2app, rx_app2client);
+    client.run(Some("HostName=omnect-cp-dev-iot-hub.azure-devices.net;DeviceId=jza-bmss-test;ModuleId=omnect-device-service;SharedAccessKey=XKK4x4PcJ4jf0Ss28C/8QqINBS1e0SWzGeHHpYX/JXs="), methods, tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {

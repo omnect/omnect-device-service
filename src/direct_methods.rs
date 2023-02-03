@@ -23,19 +23,25 @@ lazy_static! {
     };
 }
 
-pub fn get_direct_methods(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
+pub fn get_direct_methods(tx: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
     let mut methods = DirectMethodMap::new();
+    let tx1 = Arc::clone(&tx);
+    let tx2 = Arc::clone(&tx);
 
     methods.insert(
         String::from("factory_reset"),
         IotHubClient::make_direct_method(move |in_json| {
-            reset_to_factory_settings(in_json, Arc::clone(&tx_app2client))
+            reset_to_factory_settings(in_json, Arc::clone(&tx1))
         }),
     );
-
     methods.insert(String::from("user_consent"), Box::new(user_consent));
-
     methods.insert(String::from("reboot"), Box::new(reboot));
+    methods.insert(
+        String::from("refresh_network_status"),
+        IotHubClient::make_direct_method(move |in_json| {
+            reset_to_factory_settings(in_json, Arc::clone(&tx2))
+        }),
+    );
 
     Some(methods)
 }
@@ -121,6 +127,17 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> 
         .create(false)
         .truncate(true)
         .open("/run/omnect-device-service/reboot-trigger")?;
+
+    Ok(None)
+}
+
+pub fn network_status(
+    _in_json: serde_json::Value,
+    tx: Arc<Mutex<Sender<Message>>>,
+) -> Result<Option<serde_json::Value>> {
+    info!("network status requested");
+
+    Twin::new(tx).report(ReportProperty::NetworkStatus)?;
 
     Ok(None)
 }
