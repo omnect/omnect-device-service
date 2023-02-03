@@ -41,7 +41,7 @@ impl Twin {
         self.desired_general_consent(state, desired)
     }
 
-    pub fn report(&mut self, property: ReportProperty) -> Result<()> {
+    pub fn report(&mut self, property: &ReportProperty) -> Result<()> {
         match property {
             ReportProperty::Versions => self.report_versions().context("Couldn't report version"),
             ReportProperty::GeneralConsent => self

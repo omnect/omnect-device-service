@@ -90,7 +90,7 @@ pub fn reset_to_factory_settings(
                 .open("/run/omnect-device-service/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
-            Twin::new(tx).report(ReportProperty::FactoryResetStatus("in_progress"))?;
+            Twin::new(tx).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
 
             Ok(None)
         }
@@ -137,7 +137,7 @@ pub fn refresh_network_status(
 ) -> Result<Option<serde_json::Value>> {
     info!("network status requested");
 
-    Twin::new(tx).report(ReportProperty::NetworkStatus)?;
+    Twin::new(tx).report(&ReportProperty::NetworkStatus)?;
 
     Ok(None)
 }

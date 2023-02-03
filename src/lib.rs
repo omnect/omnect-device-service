@@ -55,18 +55,16 @@ pub async fn run() -> Result<()> {
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();
 
-                    let properties = vec![
+                    vec![
                         ReportProperty::Versions,
                         ReportProperty::GeneralConsent,
                         ReportProperty::UserConsent(&request_consent_path),
                         ReportProperty::UserConsent(&history_consent_path),
                         ReportProperty::FactoryResetResult,
                         ReportProperty::NetworkStatus,
-                    ];
-
-                    for p in properties {
-                        twin.report(p).unwrap_or_else(|e| error!("{:#?}", e));
-                    }
+                    ]
+                    .iter()
+                    .for_each(|p| twin.report(p).unwrap_or_else(|e| error!("{:#?}", e)));
                 });
             }
             Ok(Message::Unauthenticated(reason)) => {
@@ -92,7 +90,7 @@ pub async fn run() -> Result<()> {
         if let Ok(events) = rx_file2app.try_recv() {
             events.unwrap_or(vec![]).iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
-                    twin.report(ReportProperty::UserConsent(path))
+                    twin.report(&ReportProperty::UserConsent(path))
                         .unwrap_or_else(|e| error!("{:#?}", e));
                 }
             })
