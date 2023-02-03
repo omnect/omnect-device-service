@@ -1,6 +1,6 @@
 [package]
 name = "omnect-device-service"
-version = "0.6.5"
+version = "0.7.0"
 edition = "2021"
 description = "This service allows remote features like user fw update consent, factory reset and reboot."
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
