@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - bumped to azure-iot-sdk 0.9.0
  - switched to anyhow based errors
  - report network status
+ - general user consent:
+   - only handle if list changed
+   - list items are case insensitive
 
 ## [0.6.4] Q1 2023
  - introduce rust-toolchain.toml to enforce same rust version as used by kirkstone

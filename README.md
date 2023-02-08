@@ -89,9 +89,9 @@ Adapt the following environment variable in order to configure the directory use
 CONSENT_DIR_PATH: "/my/path"
 ```
 
-#### Configure general consent
+#### Configure current desired general consent
 
-To enable a general consent for all swupdate based firmware updates configure the following general_consent setting in the module twin:
+To enable a general consent for all swupdate based firmware updates, configure the following general_consent setting in the module twin (the setting is case insensitive):
 
 ```
 "general_consent":
@@ -111,7 +111,7 @@ To disable the general consent enter the following setting in the module twin:
 
 The current general consent status is also exposed to the cloud as reported property.
 
-#### User consent
+#### Grant user consent
 
 If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
 A direct method was specified for this purpose which is described below.
@@ -221,7 +221,7 @@ In all other cases there will be an error status:
 The module reports the status of network adapters. For this purpose the module sends a reported property to the cloud.
 
 ```
-"NetworksInterfaces": [
+"network_interfaces": [
   {
     "name": "<adapter name>",
     "addr": "<ipv4/ipv6 address>",
@@ -229,10 +229,17 @@ The module reports the status of network adapters. For this purpose the module s
   },
 ]
 ```
-In order to filter network adapters by name the following environment variable might be used at compile time:
+
+#### Configure current desired exclude network filter
+
+In order to filter network adapters by name the following desired property can be used to exclude network from reporting. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
 ```
-# only report adapters starting with one of strings (defaults to "eth wlan"), e.g. ethernet adapter only:
-NETWORK_NAME_FILTER "eth"
+"exclude_network_filter":
+[
+  "docker*",
+  "veth*",
+  "wlan0",
+]
 ```
 
 #### Refresh Network status

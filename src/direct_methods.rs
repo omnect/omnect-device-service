@@ -1,5 +1,4 @@
 use crate::twin;
-use crate::Message;
 use crate::CONSENT_DIR_PATH;
 use anyhow::Result;
 use azure_iot_sdk::client::*;
@@ -9,11 +8,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-#[cfg(test)]
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
-use twin::{ReportProperty, Twin};
+use twin::{ReportProperty, TWIN};
 
 lazy_static! {
     static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
@@ -23,33 +18,23 @@ lazy_static! {
     };
 }
 
-pub fn get_direct_methods(tx: Arc<Mutex<Sender<Message>>>) -> Option<DirectMethodMap> {
+pub fn get_direct_methods() -> Option<DirectMethodMap> {
     let mut methods = DirectMethodMap::new();
-    let tx1 = Arc::clone(&tx);
-    let tx2 = Arc::clone(&tx);
-
     methods.insert(
         String::from("factory_reset"),
-        IotHubClient::make_direct_method(move |in_json| {
-            reset_to_factory_settings(in_json, Arc::clone(&tx1))
-        }),
+        IotHubClient::make_direct_method(move |in_json| reset_to_factory_settings(in_json)),
     );
     methods.insert(String::from("user_consent"), Box::new(user_consent));
     methods.insert(String::from("reboot"), Box::new(reboot));
     methods.insert(
         String::from("refresh_network_status"),
-        IotHubClient::make_direct_method(move |in_json| {
-            refresh_network_status(in_json, Arc::clone(&tx2))
-        }),
+        IotHubClient::make_direct_method(move |in_json| refresh_network_status(in_json)),
     );
 
     Some(methods)
 }
 
-pub fn reset_to_factory_settings(
-    in_json: serde_json::Value,
-    tx: Arc<Mutex<Sender<Message>>>,
-) -> Result<Option<serde_json::Value>> {
+pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("factory reset requested");
 
     let restore_paths = match in_json["restore_settings"].as_array() {
@@ -90,7 +75,9 @@ pub fn reset_to_factory_settings(
                 .open("/run/omnect-device-service/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
-            Twin::new(tx).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
+            TWIN.lock()
+                .unwrap()
+                .report(&ReportProperty::FactoryResetStatus("in_progress"))?;
 
             Ok(None)
         }
@@ -131,62 +118,47 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> 
     Ok(None)
 }
 
-pub fn refresh_network_status(
-    _in_json: serde_json::Value,
-    tx: Arc<Mutex<Sender<Message>>>,
-) -> Result<Option<serde_json::Value>> {
+pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("network status requested");
 
-    Twin::new(tx).report(&ReportProperty::NetworkStatus)?;
+    TWIN.lock()
+        .unwrap()
+        .report(&ReportProperty::NetworkStatus)?;
 
     Ok(None)
 }
 
 #[test]
 fn factory_reset_test() {
-    let (tx_app2client, _) = mpsc::channel();
-    let tx: Arc<Mutex<Sender<Message>>> = Arc::new(Mutex::new(tx_app2client));
-    assert!(reset_to_factory_settings(
-        json!({
-            "type": 1,
-            "restore_settings": ["wifi"]
-        }),
-        Arc::clone(&tx)
-    )
+    assert!(reset_to_factory_settings(json!({
+        "type": 1,
+        "restore_settings": ["wifi"]
+    }),)
     .unwrap_err()
     .to_string()
     .starts_with("No such file or directory"));
 
-    assert!(reset_to_factory_settings(
-        json!({
-            "type": 1,
-        }),
-        Arc::clone(&tx)
-    )
+    assert!(reset_to_factory_settings(json!({
+        "type": 1,
+    }),)
     .unwrap_err()
     .to_string()
     .starts_with("No such file or directory"));
 
     assert_eq!(
-        reset_to_factory_settings(
-            json!({
-                "restore_settings": ["wifi"]
-            }),
-            Arc::clone(&tx)
-        )
+        reset_to_factory_settings(json!({
+            "restore_settings": ["wifi"]
+        }),)
         .unwrap_err()
         .to_string(),
         "reset type missing or not supported"
     );
 
     assert_eq!(
-        reset_to_factory_settings(
-            json!({
-                "type": 1,
-                "restore_settings": ["unknown"]
-            }),
-            Arc::clone(&tx)
-        )
+        reset_to_factory_settings(json!({
+            "type": 1,
+            "restore_settings": ["unknown"]
+        }),)
         .unwrap_err()
         .to_string(),
         "unknown restore setting received"
