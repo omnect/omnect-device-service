@@ -47,8 +47,7 @@ pub async fn run() -> Result<()> {
         .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)
         .context("debouncer history_consent_path")?;
 
-    //client.run(None, methods, tx_client2app, rx_app2client);
-    client.run(Some("HostName=omnect-cp-dev-iot-hub.azure-devices.net;DeviceId=jza-gateway-devel-test;ModuleId=omnect-device-service;SharedAccessKey=fdZKNYG7M5NkHzfHF7ldj/18v8FJVD+Ej2PhuHaS7J8="), methods, tx_client2app, rx_app2client);
+    client.run(None, methods, tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
