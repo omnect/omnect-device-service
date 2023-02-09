@@ -9,6 +9,7 @@ This module implements the device part for the following end to end workflows:
 - factory reset
 - iot-hub-device-update user consent
 - reboot
+- report network status
 
 ### Factory reset
 The module itself does not perform a factory reset.
@@ -82,9 +83,15 @@ In our systems we use the service [iot-hub-device-update](https://github.com/Azu
 
 The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
-#### Configure general consent
+Adapt the following environment variable in order to configure the directory used for consent files at compile time:
+```
+# use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
+CONSENT_DIR_PATH: "/my/path"
+```
 
-To enable a general consent for all swupdate based firmware updates configure the following general_consent setting in the module twin:
+#### Configure current desired general consent
+
+To enable a general consent for all swupdate based firmware updates, configure the following general_consent setting in the module twin (the setting is case insensitive):
 
 ```
 "general_consent":
@@ -102,9 +109,9 @@ To disable the general consent enter the following setting in the module twin:
 ]
 ```
 
-The current general consent status is also exposed to he cloud as reported property.
+The current general consent status is also exposed to the cloud as reported property.
 
-#### User consent
+#### Grant user consent
 
 If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
 A direct method was specified for this purpose which is described below.
@@ -145,9 +152,9 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
-#### Status user consent
+#### Current reported user consent status
 
-The module reports the status for a required user consent. The module sends for this purpose a request to the cloud as reported property in the module twin.
+The module reports the status for a required user consent. For this purpose the module sends a reported property to the cloud.
 
 ```
 "user_consent_request": [
@@ -169,13 +176,79 @@ As soon as the consent for a new update has been granted via the direct method "
 }
 ```
 
-#### Reboot
+### Reboot
 
 A direct method to trigger a device reboot.
 
 **Direct method: reboot**
 
 Method Name: `reboot`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+### Network stautus
+
+#### Current reported network status
+
+The module reports the status of network adapters. For this purpose the module sends a reported property to the cloud.
+
+```
+"network_interfaces": [
+  {
+    "name": "<adapter name>",
+    "addr": "<ipv4/ipv6 address>",
+    "mac":  "<mac address>",
+  },
+]
+```
+
+#### Configure current desired exclude network filter
+
+In order to filter network adapters by name the following desired property can be used to exclude network from reporting. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
+```
+"exclude_network_filter":
+[
+  "docker*",
+  "veth*",
+  "wlan0",
+]
+```
+
+#### Refresh Network status
+
+A direct method to refresh and report current network status.
+
+**Direct method: refresh_network_status**
+
+Method Name: `refresh_network_status`
 
 Payload:
 ```

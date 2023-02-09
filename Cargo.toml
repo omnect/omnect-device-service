@@ -1,8 +1,8 @@
 [package]
 name = "omnect-device-service"
-version = "0.6.4"
+version = "0.7.0"
 edition = "2021"
-description = "This service allows remote features like user fw update consent, factory reset and reboot."
+description = "This service allows remote features like: user fw update consent, factory reset, network adapter status and reboot."
 authors = ["Joerg Zeidler <joerg.zeidler@conplement.de>", "Jan Zachmann <jan.zachmann@conplement.de>"]
 repository = "git@github.com:omnect/omnect-device-service.git"
 license = "MIT OR Apache-2.0"
@@ -10,20 +10,23 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "0.8.5", features = ["module_client"] }
-sd-notify = { version = "0.4.1", optional = true }
+anyhow = "1.0"
+azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "0.9.0", features = ["module_client"] }
+default-env = "0.1"
+env_logger = "0.8"
+futures-executor = "0.3"
+lazy_static = "1.4"
+log = "0.4"
+log-panics = { version = "2", features = ["with-backtrace"]}
+network-interface = "0.1"
+notify = "5.1"
+notify-debouncer-mini = "0.2"
+once_cell = "1.17"
+sd-notify = { version = "0.4", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-env_logger = "0.8"
-log = "0.4"
 time = { version = "0.3", features = ["formatting"] }
-notify = "5.0"
-notify-debouncer-mini = "0.2"
-default-env = "0.1"
-lazy_static = "1.4"
-tokio = { version = "1.23", features = ["full"] }
-log-panics = { version = "2", features = ["with-backtrace"]}
-futures-executor = "0.3"
+tokio = { version = "1.25", features = ["full"] }
 
 [features]
 # select if systemd ready and watchdog should be enabled

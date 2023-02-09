@@ -1,7 +1,13 @@
 use crate::Message;
 use crate::CONSENT_DIR_PATH;
+use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Result;
 use azure_iot_sdk::client::*;
-use log::{info, warn};
+use log::{error, info, warn};
+use network_interface::{NetworkInterface, NetworkInterfaceConfig};
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
@@ -11,163 +17,364 @@ use std::sync::{Arc, Mutex};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-pub fn update(
-    state: TwinUpdateState,
-    desired: serde_json::Value,
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), IotError> {
-    desired_general_consent(state, desired, tx_app2client)
+pub static TWIN: Lazy<Mutex<Twin>> = Lazy::new(|| {
+    Mutex::new(Twin {
+        ..Default::default()
+    })
+});
+
+#[derive(Default)]
+pub struct Twin {
+    tx: Option<Arc<Mutex<Sender<Message>>>>,
+    exclude_network_filter: Vec<String>,
 }
 
-fn desired_general_consent(
-    state: TwinUpdateState,
-    desired: serde_json::Value,
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), IotError> {
-    struct Guard {
-        tx_app2client: Arc<Mutex<Sender<Message>>>,
-        report_default: bool,
+pub enum ReportProperty<'a> {
+    Versions,
+    GeneralConsent,
+    UserConsent(&'a str),
+    FactoryResetStatus(&'a str),
+    FactoryResetResult,
+    NetworkStatus,
+}
+
+impl Twin {
+    pub fn set_sender(&mut self, tx: Arc<Mutex<Sender<Message>>>) {
+        self.tx = Some(tx);
     }
 
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            if self.report_default {
-                self.tx_app2client
-                    .lock()
-                    .unwrap()
-                    .send(Message::Reported(json!({ "general_consent": null })))
-                    .unwrap()
+    pub fn update(&mut self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
+        match state {
+            TwinUpdateState::Partial => {
+                self.update_general_consent(desired["general_consent"].as_array())?;
+                self.update_exclude_network_filter(desired["exclude_network_filter"].as_array())
+            }
+            TwinUpdateState::Complete => {
+                self.update_general_consent(desired["desired"]["general_consent"].as_array())?;
+                self.update_exclude_network_filter(
+                    desired["desired"]["exclude_network_filter"].as_array(),
+                )
             }
         }
     }
 
-    let mut guard = Guard {
-        tx_app2client: Arc::clone(&tx_app2client),
-        report_default: true,
-    };
+    pub fn report(&mut self, property: &ReportProperty) -> Result<()> {
+        match property {
+            ReportProperty::Versions => self.report_versions().context("Couldn't report version"),
+            ReportProperty::GeneralConsent => self
+                .report_general_consent()
+                .context("Couldn't report general consent"),
+            ReportProperty::UserConsent(file) => self
+                .report_user_consent(file)
+                .context("Couldn't report user consent"),
+            ReportProperty::FactoryResetStatus(status) => self
+                .report_factory_reset_status(status)
+                .context("Couldn't report factory reset status"),
+            ReportProperty::FactoryResetResult => self
+                .report_factory_reset_result()
+                .context("Couldn't report factory reset result"),
+            ReportProperty::NetworkStatus => self
+                .report_network_status()
+                .context("Couldn't report network status"),
+        }
+    }
 
-    if let Some(consents) = match state {
-        TwinUpdateState::Partial => desired["general_consent"].as_array(),
-        TwinUpdateState::Complete => desired["desired"]["general_consent"].as_array(),
-    } {
+    fn update_general_consent(
+        &mut self,
+        new_consents: Option<&Vec<serde_json::Value>>,
+    ) -> Result<()> {
+        struct Guard {
+            tx: Arc<Mutex<Sender<Message>>>,
+            report_default: bool,
+        }
+
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                if self.report_default {
+                    self.tx
+                        .lock()
+                        .unwrap()
+                        .send(Message::Reported(json!({ "general_consent": null })))
+                        .unwrap()
+                }
+            }
+        }
+
+        let mut guard = Guard {
+            tx: Arc::clone(
+                &self
+                    .tx
+                    .as_ref()
+                    .ok_or(anyhow::anyhow!("sender missing").context("update_general_consent"))?
+                    .to_owned(),
+            ),
+            report_default: true,
+        };
+
+        let mut new_consents = if new_consents.is_some() {
+            new_consents
+                .unwrap()
+                .iter()
+                .filter(|e| {
+                    if !e.is_string() {
+                        error!(
+                            "unexpected format in desired general_consent. ignore: {}",
+                            e.to_string()
+                        );
+                    }
+                    e.is_string()
+                })
+                .map(|e| {
+                    if let Some(s) = e.as_str() {
+                        Ok(s.to_string().to_lowercase())
+                    } else {
+                        Err(anyhow!("cannot parse str from new_consents json.")
+                            .context("update_general_consent"))
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            info!("no or malformed general consent defined in desired properties. default to empty array.");
+            vec![]
+        };
+
+        // enforce entries only exists once
+        new_consents.sort_by_key(|name| name.to_string());
+        new_consents.dedup();
+
+        let saved_consents: serde_json::Value = serde_json::from_reader(
+            OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))
+                .context("update_general_consent")?,
+        )?;
+
+        let saved_consents: Vec<&str> = saved_consents["general_consent"]
+            .as_array()
+            .context("update_general_consent: general_consent array malformed")?
+            .iter()
+            .map(|e| {
+                e.as_str().ok_or_else(|| {
+                    anyhow::anyhow!("cannot parse str from saved_consents json.")
+                        .context("update_general_consent")
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // check if consents changed (current desired vs. saved)
+        if !new_consents.eq(&saved_consents) {
+            serde_json::to_writer_pretty(
+                OpenOptions::new()
+                    .write(true)
+                    .create(false)
+                    .truncate(true)
+                    .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))
+                    .context("update_general_consent")?,
+                &json!({ "general_consent": new_consents }),
+            )?;
+
+            self.report_general_consent()?;
+        } else {
+            info!("desired general_consent didn't change")
+        }
+
+        guard.report_default = false;
+
+        Ok(())
+    }
+
+    fn report_versions(&mut self) -> Result<()> {
+        self.tx
+            .as_ref()
+            .ok_or(anyhow::anyhow!("sender missing").context("report_versions"))?
+            .lock()
+            .unwrap()
+            .send(Message::Reported(json!({
+                "module-version": env!("CARGO_PKG_VERSION"),
+                "azure-sdk-version": IotHubClient::get_sdk_version_string()
+            })))?;
+
+        Ok(())
+    }
+
+    fn report_general_consent(&mut self) -> Result<()> {
         let file = OpenOptions::new()
-            .write(true)
+            .read(true)
             .create(false)
-            .truncate(true)
             .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
-        serde_json::to_writer_pretty(file, &json!({ "general_consent": consents }))?;
-    } else {
-        info!("no general consent defined in desired properties");
+        self.tx
+            .as_ref()
+            .ok_or(anyhow::anyhow!("sender missing").context("report_general_consent"))?
+            .lock()
+            .unwrap()
+            .send(Message::Reported(
+                serde_json::from_reader(file).context("report_general_consent")?,
+            ))?;
+
+        Ok(())
     }
 
-    report_general_consent(Arc::clone(&tx_app2client))?;
+    fn report_user_consent(&mut self, report_consent_file: &str) -> Result<()> {
+        let json: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())
+                .context("report_user_consent")?;
 
-    guard.report_default = false;
+        self.tx
+            .as_ref()
+            .ok_or(anyhow::anyhow!("sender missing").context("report_user_consent"))?
+            .lock()
+            .unwrap()
+            .send(Message::Reported(json))
+            .context("report_user_consent")?;
 
-    Ok(())
-}
+        info!("reported user consent file: {}", report_consent_file);
 
-pub fn report_versions(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
-    tx_app2client
-        .lock()
-        .unwrap()
-        .send(Message::Reported(json!({
-            "module-version": env!("CARGO_PKG_VERSION"),
-            "azure-sdk-version": IotHubClient::get_sdk_version_string()
-        })))?;
-
-    Ok(())
-}
-
-pub fn report_general_consent(tx_app2client: Arc<Mutex<Sender<Message>>>) -> Result<(), IotError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .create(false)
-        .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
-
-    tx_app2client
-        .lock()
-        .unwrap()
-        .send(Message::Reported(serde_json::from_reader(file)?))?;
-
-    Ok(())
-}
-
-pub fn report_user_consent(
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-    report_consent_file: &str,
-) -> Result<(), IotError> {
-    let json: serde_json::Value =
-        serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())?;
-
-    tx_app2client
-        .lock()
-        .unwrap()
-        .send(Message::Reported(json))?;
-
-    info!("reported user consent file: {}", report_consent_file);
-
-    Ok(())
-}
-
-pub fn report_factory_reset_status(
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-    status: &str,
-) -> Result<(), IotError> {
-    tx_app2client
-        .lock()
-        .unwrap()
-        .send(Message::Reported(json!({
-            "factory_reset_status": {
-                "status": status,
-                "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
-            }
-        })))?;
-
-    Ok(())
-}
-
-pub fn update_factory_reset_result(
-    tx_app2client: Arc<Mutex<Sender<Message>>>,
-) -> Result<(), IotError> {
-    if let Ok(output) = Command::new("sh")
-        .arg("-c")
-        .arg("fw_printenv factory-reset-status")
-        .output()
-    {
-        let status = String::from_utf8(output.stdout)?;
-        let vec: Vec<&str> = status.split("=").collect();
-
-        let status = match vec[..] {
-            ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
-            ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
-            ["factory-reset-status", "2:-\n"] => Ok(("unexpected restore settings error", true)),
-            ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
-            ["factory-reset-status", _] => Ok(("failed", true)),
-            _ => Err("unexpected factory reset result format"),
-        };
-
-        match status {
-            Ok((update_twin, true)) => {
-                report_factory_reset_status(tx_app2client, update_twin)?;
-                Command::new("sh")
-                    .arg("-c")
-                    .arg("fw_setenv factory-reset-status")
-                    .output()?;
-
-                info!("factory reset result: {}", update_twin);
-            }
-            Ok((update_twin, false)) => {
-                info!("factory reset result: {}", update_twin);
-            }
-            Err(update_twin) => {
-                warn!("factory reset result: {}", update_twin);
-            }
-        };
-    } else {
-        warn!("fw_printenv command not supported");
+        Ok(())
     }
 
-    Ok(())
+    fn report_factory_reset_status(&mut self, status: &str) -> Result<()> {
+        self.tx
+            .as_ref()
+            .ok_or(anyhow::anyhow!("sender missing").context("report_factory_reset_status"))?
+            .lock()
+            .unwrap()
+            .send(Message::Reported(json!({
+                "factory_reset_status": {
+                    "status": status,
+                    "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
+                }
+            })))
+            .context("report_factory_reset_status")?;
+
+        Ok(())
+    }
+
+    fn report_factory_reset_result(&mut self) -> Result<()> {
+        if let Ok(output) = Command::new("sh")
+            .arg("-c")
+            .arg("fw_printenv factory-reset-status")
+            .output()
+        {
+            let status = String::from_utf8(output.stdout).context("report_factory_reset_result")?;
+            let vec: Vec<&str> = status.split("=").collect();
+
+            let status = match vec[..] {
+                ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
+                ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
+                ["factory-reset-status", "2:-\n"] => {
+                    Ok(("unexpected restore settings error", true))
+                }
+                ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
+                ["factory-reset-status", _] => Ok(("failed", true)),
+                _ => Err("unexpected factory reset result format"),
+            };
+
+            match status {
+                Ok((update_twin, true)) => {
+                    self.report_factory_reset_status(update_twin)?;
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg("fw_setenv factory-reset-status")
+                        .output()
+                        .context("report_factory_reset_result")?;
+
+                    info!("factory reset result: {}", update_twin);
+                }
+                Ok((update_twin, false)) => {
+                    info!("factory reset result: {}", update_twin);
+                }
+                Err(update_twin) => {
+                    warn!("factory reset result: {}", update_twin);
+                }
+            };
+        } else {
+            error!("fw_printenv command not supported");
+        }
+
+        Ok(())
+    }
+
+    fn update_exclude_network_filter(
+        &mut self,
+        exclude_network_filter: Option<&Vec<serde_json::Value>>,
+    ) -> Result<()> {
+        let mut new_exclude_network_filter = if exclude_network_filter.is_some() {
+            exclude_network_filter
+                .unwrap()
+                .iter()
+                .filter(|e| {
+                    if !e.is_string() {
+                        error!(
+                            "unexpected format in desired exclude_network_filter. ignore: {}",
+                            e.to_string()
+                        );
+                    }
+                    e.is_string()
+                })
+                .map(|e| e.as_str().unwrap().to_string().to_lowercase())
+                .collect()
+        } else {
+            vec![]
+        };
+
+        // enforce entries only exists once
+        new_exclude_network_filter.sort();
+        new_exclude_network_filter.dedup();
+
+        // check if desired exclude_network_filter changed
+        if self.exclude_network_filter.eq(&new_exclude_network_filter) {
+            self.exclude_network_filter = new_exclude_network_filter;
+            self.report_network_status()
+        } else {
+            info!("desired exclude_network_filter didn't change");
+            Ok(())
+        }
+    }
+
+    fn report_network_status(&mut self) -> Result<()> {
+        #[derive(Serialize, Deserialize, Debug)]
+        struct NetworkReport {
+            name: String,
+            addr: String,
+            mac: String,
+        }
+
+        let reported_interfaces = NetworkInterface::show()
+            .context("report_network_status")?
+            .iter()
+            .filter(|i| {
+                self.exclude_network_filter.iter().any(|f| {
+                    let pattern = (f.starts_with("*"), f.ends_with("*"));
+                    let pattern_len = f.len();
+                    match (pattern.0, pattern.1) {
+                        (true, true) => i.name.contains(&f[1..pattern_len - 1]),
+                        (true, false) => i.name.ends_with(&f[1..pattern_len]),
+                        (false, true) => i.name.starts_with(&f[0..pattern_len - 1]),
+                        _ => i.name.eq(f),
+                    }
+                })
+            })
+            .map(|i| NetworkReport {
+                name: i.name.clone(),
+                addr: i
+                    .addr
+                    .map_or("none".to_string(), |addr| addr.ip().to_string()),
+                mac: i.mac_addr.clone().unwrap_or_else(|| "none".to_string()),
+            })
+            .collect::<Vec<NetworkReport>>();
+
+        let t = json!({ "network_interfaces": json!(reported_interfaces) });
+
+        self.tx
+            .as_ref()
+            .ok_or(anyhow::anyhow!("sender missing").context("report_network_status"))?
+            .lock()
+            .unwrap()
+            .send(Message::Reported(t))
+            .context("report_network_status")?;
+
+        Ok(())
+    }
 }
