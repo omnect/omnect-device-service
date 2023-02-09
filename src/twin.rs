@@ -300,8 +300,6 @@ impl Twin {
         &mut self,
         include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
-        info!("{:?}", include_network_filter);
-
         let mut new_include_network_filter = if include_network_filter.is_some() {
             include_network_filter
                 .unwrap()
