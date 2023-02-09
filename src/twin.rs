@@ -346,13 +346,18 @@ impl Twin {
             .iter()
             .filter(|i| {
                 self.exclude_network_filter.iter().any(|f| {
-                    let pattern = (f.starts_with("*"), f.ends_with("*"));
                     let pattern_len = f.len();
-                    match (pattern.0, pattern.1) {
-                        (true, true) => i.name.contains(&f[1..pattern_len - 1]),
-                        (true, false) => i.name.ends_with(&f[1..pattern_len]),
-                        (false, true) => i.name.starts_with(&f[0..pattern_len - 1]),
-                        _ => i.name.eq(f),
+                    if pattern_len > 0 {
+                        let pattern = (f.starts_with("*"), f.ends_with("*"));
+                        let name = i.name.to_lowercase();
+                        match (pattern.0, pattern.1) {
+                            (true, true) => name.contains(&f[1..pattern_len - 1]),
+                            (true, false) => name.ends_with(&f[1..pattern_len]),
+                            (false, true) => name.starts_with(&f[0..pattern_len - 1]),
+                            _ => name.eq(f),
+                        }
+                    } else {
+                        true
                     }
                 })
             })
