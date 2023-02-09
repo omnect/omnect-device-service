@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] Q1 2023
+ - added audit exception for RUSTSEC-2020-0071
+
 ## [0.7.0] Q1 2023
  - bumped to notify 5.1
  - bumped to azure-iot-sdk 0.9.0
