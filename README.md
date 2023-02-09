@@ -230,17 +230,18 @@ The module reports the status of network adapters. For this purpose the module s
 ]
 ```
 
-#### Configure current desired exclude network filter
+#### Configure current desired include network filter
 
-In order to filter network adapters by name the following desired property can be used to exclude network from reporting. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
+In order to filter network adapters by name the following desired property can be used to report only defined adapters. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
 ```
-"exclude_network_filter":
+"include_network_filter":
 [
   "docker*",
-  "veth*",
+  "*eth*",
   "wlan0",
 ]
 ```
+If the filter does not exist or is empty all network adapters are reported.
 
 #### Refresh Network status
 

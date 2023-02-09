@@ -26,7 +26,7 @@ pub static TWIN: Lazy<Mutex<Twin>> = Lazy::new(|| {
 #[derive(Default)]
 pub struct Twin {
     tx: Option<Arc<Mutex<Sender<Message>>>>,
-    exclude_network_filter: Vec<String>,
+    include_network_filter: Vec<String>,
 }
 
 pub enum ReportProperty<'a> {
@@ -47,12 +47,12 @@ impl Twin {
         match state {
             TwinUpdateState::Partial => {
                 self.update_general_consent(desired["general_consent"].as_array())?;
-                self.update_exclude_network_filter(desired["exclude_network_filter"].as_array())
+                self.update_include_network_filter(desired["include_network_filter"].as_array())
             }
             TwinUpdateState::Complete => {
                 self.update_general_consent(desired["desired"]["general_consent"].as_array())?;
-                self.update_exclude_network_filter(
-                    desired["desired"]["exclude_network_filter"].as_array(),
+                self.update_include_network_filter(
+                    desired["desired"]["include_network_filter"].as_array(),
                 )
             }
         }
@@ -163,7 +163,7 @@ impl Twin {
             .collect::<Result<Vec<_>>>()?;
 
         // check if consents changed (current desired vs. saved)
-        if !new_consents.eq(&saved_consents) {
+        if new_consents.ne(&saved_consents) {
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -296,18 +296,20 @@ impl Twin {
         Ok(())
     }
 
-    fn update_exclude_network_filter(
+    fn update_include_network_filter(
         &mut self,
-        exclude_network_filter: Option<&Vec<serde_json::Value>>,
+        include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
-        let mut new_exclude_network_filter = if exclude_network_filter.is_some() {
-            exclude_network_filter
+        info!("{:?}", include_network_filter);
+
+        let mut new_include_network_filter = if include_network_filter.is_some() {
+            include_network_filter
                 .unwrap()
                 .iter()
                 .filter(|e| {
                     if !e.is_string() {
                         error!(
-                            "unexpected format in desired exclude_network_filter. ignore: {}",
+                            "unexpected format in desired include_network_filter. ignore: {}",
                             e.to_string()
                         );
                     }
@@ -320,15 +322,15 @@ impl Twin {
         };
 
         // enforce entries only exists once
-        new_exclude_network_filter.sort();
-        new_exclude_network_filter.dedup();
+        new_include_network_filter.sort();
+        new_include_network_filter.dedup();
 
-        // check if desired exclude_network_filter changed
-        if self.exclude_network_filter.eq(&new_exclude_network_filter) {
-            self.exclude_network_filter = new_exclude_network_filter;
+        // check if desired include_network_filter changed
+        if self.include_network_filter.ne(&new_include_network_filter) {
+            self.include_network_filter = new_include_network_filter;
             self.report_network_status()
         } else {
-            info!("desired exclude_network_filter didn't change");
+            info!("desired include_network_filter didn't change");
             Ok(())
         }
     }
@@ -345,19 +347,16 @@ impl Twin {
             .context("report_network_status")?
             .iter()
             .filter(|i| {
-                self.exclude_network_filter.iter().any(|f| {
-                    let pattern_len = f.len();
-                    if pattern_len > 0 {
-                        let pattern = (f.starts_with("*"), f.ends_with("*"));
-                        let name = i.name.to_lowercase();
-                        match (pattern.0, pattern.1) {
-                            (true, true) => name.contains(&f[1..pattern_len - 1]),
-                            (true, false) => name.ends_with(&f[1..pattern_len]),
-                            (false, true) => name.starts_with(&f[0..pattern_len - 1]),
-                            _ => name.eq(f),
-                        }
-                    } else {
-                        true
+                self.include_network_filter.iter().any(|f| {
+                    let pattern = (f.starts_with("*"), f.ends_with("*"), f.len());
+                    let name = i.name.to_lowercase();
+                    match (pattern.0, pattern.1, pattern.2) {
+                        (_, _, 0) => false,                                     // ""
+                        (a, b, 1) if a || b => true,                            // "*"
+                        (true, true, len) => name.contains(&f[1..len - 1]),     // ""*...*"
+                        (true, false, len) => name.ends_with(&f[1..len]),       // "*..."
+                        (false, true, len) => name.starts_with(&f[0..len - 1]), // "...*"
+                        _ => name.eq(f),                                        // "..."
                     }
                 })
             })
@@ -370,14 +369,14 @@ impl Twin {
             })
             .collect::<Vec<NetworkReport>>();
 
-        let t = json!({ "network_interfaces": json!(reported_interfaces) });
-
         self.tx
             .as_ref()
             .ok_or(anyhow::anyhow!("sender missing").context("report_network_status"))?
             .lock()
             .unwrap()
-            .send(Message::Reported(t))
+            .send(Message::Reported(json!({
+                "network_interfaces": json!(reported_interfaces)
+            })))
             .context("report_network_status")?;
 
         Ok(())
