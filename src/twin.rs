@@ -346,9 +346,8 @@ impl Twin {
             .iter()
             .filter(|i| {
                 self.include_network_filter.iter().any(|f| {
-                    let pattern = (f.starts_with("*"), f.ends_with("*"), f.len());
                     let name = i.name.to_lowercase();
-                    match (pattern.0, pattern.1, pattern.2) {
+                    match (f.starts_with("*"), f.ends_with("*"), f.len()) {
                         (_, _, 0) => false,                                     // ""
                         (a, b, 1) if a || b => true,                            // "*"
                         (true, true, len) => name.contains(&f[1..len - 1]),     // ""*...*"
