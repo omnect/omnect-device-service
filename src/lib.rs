@@ -62,6 +62,7 @@ pub async fn run() -> Result<()> {
                         ReportProperty::UserConsent(&request_consent_path),
                         ReportProperty::UserConsent(&history_consent_path),
                         ReportProperty::FactoryResetResult,
+                        ReportProperty::NetworkStatus,
                     ]
                     .iter()
                     .for_each(|p| {

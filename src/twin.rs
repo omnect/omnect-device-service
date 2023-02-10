@@ -5,10 +5,12 @@ use anyhow::Context;
 use anyhow::Result;
 use azure_iot_sdk::client::*;
 use log::{error, info, warn};
-use network_interface::{NetworkInterface, NetworkInterfaceConfig};
+use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_json::json;
+use serde_with::skip_serializing_none;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::process::Command;
@@ -334,14 +336,19 @@ impl Twin {
     }
 
     fn report_network_status(&mut self) -> Result<()> {
+        #[skip_serializing_none]
         #[derive(Serialize)]
         struct NetworkReport {
+            #[serde(default)]
             name: String,
-            addr: String,
             mac: String,
+            addr_v4: Option<Vec<String>>,
+            addr_v6: Option<Vec<String>>,
         }
 
-        let reported_interfaces = NetworkInterface::show()
+        let mut interfaces: HashMap<String, NetworkReport> = HashMap::new();
+
+        NetworkInterface::show()
             .context("report_network_status")?
             .iter()
             .filter(|i| {
@@ -357,14 +364,26 @@ impl Twin {
                     }
                 })
             })
-            .map(|i| NetworkReport {
-                name: i.name.clone(),
-                addr: i
-                    .addr
-                    .map_or("none".to_string(), |addr| addr.ip().to_string()),
-                mac: i.mac_addr.clone().unwrap_or_else(|| "none".to_string()),
-            })
-            .collect::<Vec<NetworkReport>>();
+            .for_each(|i| {
+                let entry = interfaces.entry(i.name.clone()).or_insert(NetworkReport {
+                    addr_v4: None,
+                    addr_v6: None,
+                    mac: i.mac_addr.clone().unwrap_or_else(|| "none".to_string()),
+                    name: i.name.clone(),
+                });
+
+                match i.addr {
+                    Some(Addr::V4(addr)) => entry
+                        .addr_v4
+                        .get_or_insert(vec![])
+                        .push(addr.ip.to_string()),
+                    Some(Addr::V6(addr)) => entry
+                        .addr_v6
+                        .get_or_insert(vec![])
+                        .push(addr.ip.to_string()),
+                    None => error!("report_network_status: ip address is missing"),
+                };
+            });
 
         self.tx
             .as_ref()
@@ -372,7 +391,8 @@ impl Twin {
             .lock()
             .unwrap()
             .send(Message::Reported(json!({
-                "network_interfaces": json!(reported_interfaces)
+                "network_interfaces":
+                    json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
             })))
             .context("report_network_status")?;
 
