@@ -218,29 +218,72 @@ In all other cases there will be an error status:
 
 #### Current reported network status
 
-The module reports the status of network adapters. For this purpose the module sends a reported property to the cloud.
+The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
 
 ```
 "network_interfaces": [
   {
-    "name": "<adapter name>",
-    "addr": "<ipv4/ipv6 address>",
-    "mac":  "<mac address>",
+    "addr_v4": [
+      "172.17.0.1"
+    ],
+    "addr_v6": [
+      "fe80::42:22ff:fe3b:ad66"
+    ],
+    "mac": "02:42:22:3b:ad:66",
+    "name": "docker0"
   },
+  {
+    "addr_v4": [
+      "172.25.0.1"
+    ],
+    "addr_v6": [
+      "fe80::42:c3ff:fe87:3c03"
+    ],
+    "mac": "02:42:c3:87:3c:03",
+    "name": "br-04171e27390a"
+  },
+  {
+    "addr_v4": [
+      "192.168.0.84"
+    ],
+    "addr_v6": [
+      "fe80::33d9:9063:897d:4357"
+    ],
+    "mac": "08:00:27:6d:83:36",
+    "name": "enp0s8"
+  },
+  {
+    "addr_v4": [
+      "127.0.0.1"
+    ],
+    "addr_v6": [
+      "::1"
+    ],
+    "mac": "00:00:00:00:00:00",
+    "name": "lo"
+  },
+  {
+    "addr_v6": [
+      "fe80::4c8e:77ff:fec1:10d3"
+    ],
+    "mac": "4e:8e:77:c1:10:d3",
+    "name": "vethbd467ae"
+  }
 ]
 ```
 
-#### Configure current desired exclude network filter
+#### Configure current desired include network filter
 
-In order to filter network adapters by name the following desired property can be used to exclude network from reporting. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
+In order to filter network adapters by name the following desired property can be used to report only defined adapters. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
 ```
-"exclude_network_filter":
+"include_network_filter":
 [
   "docker*",
-  "veth*",
+  "*eth*",
   "wlan0",
 ]
 ```
+If the filter does not exist or is empty all network adapters are reported.
 
 #### Refresh Network status
 

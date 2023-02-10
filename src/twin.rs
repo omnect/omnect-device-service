@@ -5,10 +5,12 @@ use anyhow::Context;
 use anyhow::Result;
 use azure_iot_sdk::client::*;
 use log::{error, info, warn};
-use network_interface::{NetworkInterface, NetworkInterfaceConfig};
+use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
+use serde_with::skip_serializing_none;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::process::Command;
@@ -26,7 +28,7 @@ pub static TWIN: Lazy<Mutex<Twin>> = Lazy::new(|| {
 #[derive(Default)]
 pub struct Twin {
     tx: Option<Arc<Mutex<Sender<Message>>>>,
-    exclude_network_filter: Vec<String>,
+    include_network_filter: Vec<String>,
 }
 
 pub enum ReportProperty<'a> {
@@ -47,12 +49,12 @@ impl Twin {
         match state {
             TwinUpdateState::Partial => {
                 self.update_general_consent(desired["general_consent"].as_array())?;
-                self.update_exclude_network_filter(desired["exclude_network_filter"].as_array())
+                self.update_include_network_filter(desired["include_network_filter"].as_array())
             }
             TwinUpdateState::Complete => {
                 self.update_general_consent(desired["desired"]["general_consent"].as_array())?;
-                self.update_exclude_network_filter(
-                    desired["desired"]["exclude_network_filter"].as_array(),
+                self.update_include_network_filter(
+                    desired["desired"]["include_network_filter"].as_array(),
                 )
             }
         }
@@ -163,7 +165,7 @@ impl Twin {
             .collect::<Result<Vec<_>>>()?;
 
         // check if consents changed (current desired vs. saved)
-        if !new_consents.eq(&saved_consents) {
+        if new_consents.ne(&saved_consents) {
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -296,18 +298,18 @@ impl Twin {
         Ok(())
     }
 
-    fn update_exclude_network_filter(
+    fn update_include_network_filter(
         &mut self,
-        exclude_network_filter: Option<&Vec<serde_json::Value>>,
+        include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
-        let mut new_exclude_network_filter = if exclude_network_filter.is_some() {
-            exclude_network_filter
+        let mut new_include_network_filter = if include_network_filter.is_some() {
+            include_network_filter
                 .unwrap()
                 .iter()
                 .filter(|e| {
                     if !e.is_string() {
                         error!(
-                            "unexpected format in desired exclude_network_filter. ignore: {}",
+                            "unexpected format in desired include_network_filter. ignore: {}",
                             e.to_string()
                         );
                     }
@@ -316,63 +318,82 @@ impl Twin {
                 .map(|e| e.as_str().unwrap().to_string().to_lowercase())
                 .collect()
         } else {
-            vec![]
+            vec!["*".to_string()]
         };
 
         // enforce entries only exists once
-        new_exclude_network_filter.sort();
-        new_exclude_network_filter.dedup();
+        new_include_network_filter.sort();
+        new_include_network_filter.dedup();
 
-        // check if desired exclude_network_filter changed
-        if self.exclude_network_filter.eq(&new_exclude_network_filter) {
-            self.exclude_network_filter = new_exclude_network_filter;
+        // check if desired include_network_filter changed
+        if self.include_network_filter.ne(&new_include_network_filter) {
+            self.include_network_filter = new_include_network_filter;
             self.report_network_status()
         } else {
-            info!("desired exclude_network_filter didn't change");
+            info!("desired include_network_filter didn't change");
             Ok(())
         }
     }
 
     fn report_network_status(&mut self) -> Result<()> {
-        #[derive(Serialize, Deserialize, Debug)]
+        #[skip_serializing_none]
+        #[derive(Serialize)]
         struct NetworkReport {
+            #[serde(default)]
             name: String,
-            addr: String,
             mac: String,
+            addr_v4: Option<Vec<String>>,
+            addr_v6: Option<Vec<String>>,
         }
 
-        let reported_interfaces = NetworkInterface::show()
+        let mut interfaces: HashMap<String, NetworkReport> = HashMap::new();
+
+        NetworkInterface::show()
             .context("report_network_status")?
             .iter()
             .filter(|i| {
-                self.exclude_network_filter.iter().any(|f| {
-                    let pattern = (f.starts_with("*"), f.ends_with("*"));
-                    let pattern_len = f.len();
-                    match (pattern.0, pattern.1) {
-                        (true, true) => i.name.contains(&f[1..pattern_len - 1]),
-                        (true, false) => i.name.ends_with(&f[1..pattern_len]),
-                        (false, true) => i.name.starts_with(&f[0..pattern_len - 1]),
-                        _ => i.name.eq(f),
+                self.include_network_filter.iter().any(|f| {
+                    let name = i.name.to_lowercase();
+                    match (f.starts_with("*"), f.ends_with("*"), f.len()) {
+                        (_, _, 0) => false,                                     // ""
+                        (a, b, 1) if a || b => true,                            // "*"
+                        (true, true, len) => name.contains(&f[1..len - 1]),     // ""*...*"
+                        (true, false, len) => name.ends_with(&f[1..len]),       // "*..."
+                        (false, true, len) => name.starts_with(&f[0..len - 1]), // "...*"
+                        _ => name.eq(f),                                        // "..."
                     }
                 })
             })
-            .map(|i| NetworkReport {
-                name: i.name.clone(),
-                addr: i
-                    .addr
-                    .map_or("none".to_string(), |addr| addr.ip().to_string()),
-                mac: i.mac_addr.clone().unwrap_or_else(|| "none".to_string()),
-            })
-            .collect::<Vec<NetworkReport>>();
+            .for_each(|i| {
+                let entry = interfaces.entry(i.name.clone()).or_insert(NetworkReport {
+                    addr_v4: None,
+                    addr_v6: None,
+                    mac: i.mac_addr.clone().unwrap_or_else(|| "none".to_string()),
+                    name: i.name.clone(),
+                });
 
-        let t = json!({ "network_interfaces": json!(reported_interfaces) });
+                match i.addr {
+                    Some(Addr::V4(addr)) => entry
+                        .addr_v4
+                        .get_or_insert(vec![])
+                        .push(addr.ip.to_string()),
+                    Some(Addr::V6(addr)) => entry
+                        .addr_v6
+                        .get_or_insert(vec![])
+                        .push(addr.ip.to_string()),
+                    None => error!("report_network_status: ip address is missing"),
+                };
+            });
 
         self.tx
             .as_ref()
             .ok_or(anyhow::anyhow!("sender missing").context("report_network_status"))?
             .lock()
             .unwrap()
-            .send(Message::Reported(t))
+            .send(Message::Reported(json!({
+                "network_interfaces":
+                    json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
+            })))
             .context("report_network_status")?;
 
         Ok(())
