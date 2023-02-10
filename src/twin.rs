@@ -318,7 +318,7 @@ impl Twin {
                 .map(|e| e.as_str().unwrap().to_string().to_lowercase())
                 .collect()
         } else {
-            vec!["*"]
+            vec!["*".to_string()]
         };
 
         // enforce entries only exists once
