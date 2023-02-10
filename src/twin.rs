@@ -7,7 +7,7 @@ use azure_iot_sdk::client::*;
 use log::{error, info, warn};
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::fs::OpenOptions;
@@ -334,7 +334,7 @@ impl Twin {
     }
 
     fn report_network_status(&mut self) -> Result<()> {
-        #[derive(Serialize, Deserialize, Debug)]
+        #[derive(Serialize)]
         struct NetworkReport {
             name: String,
             addr: String,
