@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - report network status:
    - switched to include filter
    - fixed issue with empty filter
+   - report vectors of addresses
 
 ## [0.7.1] Q1 2023
  - added audit exception for RUSTSEC-2020-0071
