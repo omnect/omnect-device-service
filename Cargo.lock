@@ -208,7 +208,6 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.9.0"
-source = "git+ssh://git@github.com/omnect/azure-iot-sdk.git?tag=0.9.0#ce7b53f098ef4a6987b5e6b800691c32036949ca"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
@@ -1283,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "azure-iot-sdk",

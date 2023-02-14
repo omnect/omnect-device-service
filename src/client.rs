@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 #[cfg(feature = "systemd")]
 use crate::systemd::WatchdogHandler;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Message {
     Desired(TwinUpdateState, serde_json::Value),
     Reported(serde_json::Value),

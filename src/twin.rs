@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::process::Command;
+#[cfg(test)]
+use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use time::format_description::well_known::Rfc3339;
@@ -398,4 +400,102 @@ impl Twin {
 
         Ok(())
     }
+}
+
+#[test]
+fn set_sender_test() {
+    let res = TWIN
+        .lock()
+        .unwrap()
+        .report(&ReportProperty::FactoryResetStatus("in_progress"))
+        .unwrap_err();
+
+    assert!(res
+        .chain()
+        .any(|e| e.to_string().starts_with("sender missing")));
+
+    let (tx, _rx) = mpsc::channel();
+    let tx = Arc::new(Mutex::new(tx));
+    TWIN.lock().unwrap().set_sender(Arc::clone(&tx));
+
+    assert!(TWIN
+        .lock()
+        .unwrap()
+        .report(&ReportProperty::FactoryResetStatus("in_progress"))
+        .is_ok());
+}
+
+#[test]
+fn update_general_consent_test() {
+    let (tx, _rx) = mpsc::channel();
+    let tx = Arc::new(Mutex::new(tx));
+    TWIN.lock().unwrap().set_sender(Arc::clone(&tx));
+
+    assert!(TWIN
+        .lock()
+        .unwrap()
+        .update(TwinUpdateState::Partial, json!({}))
+        .is_ok());
+    /*
+    assert!(TWIN
+        .lock()
+        .unwrap()
+        .update(TwinUpdateState::Partial, json!({}))
+        .is_ok()); */
+
+    /*
+            TwinUpdateState::Partial => {
+                self.update_general_consent(desired["general_consent"].as_array())
+                    .context("Twin update partial: general_consent array not found")?;
+                self.update_include_network_filter(desired["include_network_filter"].as_array())
+                    .context("Twin update partial: include_network_filter array not found")
+            }
+            TwinUpdateState::Complete => {
+                self.update_general_consent(desired["desired"]["general_consent"].as_array())
+                    .context("Twin update complete: general_consent array not found")?;
+                self.update_include_network_filter(
+                    desired["desired"]["include_network_filter"].as_array(),
+                )
+                .context("Twin update complete: include_network_filter array not found")
+            }
+    */
+}
+
+#[test]
+fn report_factory_reset_test() {
+    let res = TWIN
+        .lock()
+        .unwrap()
+        .report(&ReportProperty::FactoryResetStatus("in_progress"))
+        .unwrap_err();
+
+    assert!(res.chain().any(|e| e
+        .to_string()
+        .starts_with("Couldn't report factory reset status")));
+
+    assert!(res
+        .chain()
+        .any(|e| e.to_string().starts_with("sender missing")));
+
+    let (tx, rx) = mpsc::channel();
+    let tx = Arc::new(Mutex::new(tx));
+    TWIN.lock().unwrap().set_sender(Arc::clone(&tx));
+
+    assert!(TWIN
+        .lock()
+        .unwrap()
+        .report(&ReportProperty::FactoryResetStatus("in_progress"))
+        .is_ok());
+
+    assert!(rx.try_recv().is_ok());
+
+    /*     assert_eq!(
+        rx.try_recv().unwrap(),
+        Message::Reported(json!({
+            "factory_reset_status": {
+                "status": "in_progress",
+                "date": OffsetDateTime::now_utc().format(&Rfc3339).unwrap().to_string(),
+            }
+        }))
+    ); */
 }
