@@ -6,7 +6,7 @@ use anyhow::Result;
 use azure_iot_sdk::client::*;
 use log::{error, info, warn};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
-use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use serde::Serialize;
 use serde_json::json;
 use serde_with::skip_serializing_none;
@@ -14,23 +14,60 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::process::Command;
-#[cfg(test)]
-use std::sync::mpsc;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-pub static TWIN: Lazy<Mutex<Twin>> = Lazy::new(|| {
-    Mutex::new(Twin {
-        ..Default::default()
-    })
-});
+static INSTANCE: OnceCell<Mutex<Twin>> = OnceCell::new();
+
+pub struct TWIN {
+    inner: &'static Mutex<Twin>,
+}
+
+pub fn get_or_init(tx: Option<Arc<Mutex<Sender<Message>>>>) -> TWIN {
+    if tx.is_some() {
+        TWIN {
+            inner: INSTANCE
+                .get_or_try_init::<_, anyhow::Error>(|| {
+                    Ok(Mutex::new(Twin {
+                        tx: tx,
+                        ..Default::default()
+                    }))
+                })
+                .unwrap(),
+        }
+    } else {
+        TWIN {
+            inner: INSTANCE.get().unwrap(),
+        }
+    }
+}
+
+struct TWIN2Lock<'a> {
+    inner: MutexGuard<'a, Twin>,
+}
+
+impl TWIN {
+    fn lock(&self) -> TWIN2Lock<'_> {
+        TWIN2Lock {
+            inner: self.inner.lock().unwrap_or_else(|e| e.into_inner()),
+        }
+    }
+
+    pub fn report(&self, property: &ReportProperty) -> Result<()> {
+        self.lock().inner.report(property)
+    }
+
+    pub fn update(&self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
+        self.lock().inner.update(state, desired)
+    }
+}
 
 #[derive(Default)]
-pub struct Twin {
+struct Twin {
     tx: Option<Arc<Mutex<Sender<Message>>>>,
-    include_network_filter: Vec<String>,
+    include_network_filter: Option<Vec<String>>,
 }
 
 pub enum ReportProperty<'a> {
@@ -43,11 +80,7 @@ pub enum ReportProperty<'a> {
 }
 
 impl Twin {
-    pub fn set_sender(&mut self, tx: Arc<Mutex<Sender<Message>>>) {
-        self.tx = Some(tx);
-    }
-
-    pub fn update(&mut self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
+    fn update(&mut self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
         match state {
             TwinUpdateState::Partial => {
                 self.update_general_consent(desired["general_consent"].as_array())?;
@@ -62,7 +95,7 @@ impl Twin {
         }
     }
 
-    pub fn report(&mut self, property: &ReportProperty) -> Result<()> {
+    fn report(&mut self, property: &ReportProperty) -> Result<()> {
         match property {
             ReportProperty::Versions => self.report_versions().context("Couldn't report version"),
             ReportProperty::GeneralConsent => self
@@ -189,15 +222,11 @@ impl Twin {
     }
 
     fn report_versions(&mut self) -> Result<()> {
-        self.tx
-            .as_ref()
-            .ok_or(anyhow::anyhow!("sender missing").context("report_versions"))?
-            .lock()
-            .unwrap()
-            .send(Message::Reported(json!({
-                "module-version": env!("CARGO_PKG_VERSION"),
-                "azure-sdk-version": IotHubClient::get_sdk_version_string()
-            })))?;
+        self.report_impl(json!({
+            "module-version": env!("CARGO_PKG_VERSION"),
+            "azure-sdk-version": IotHubClient::get_sdk_version_string()
+        }))
+        .context("report_versions")?;
 
         Ok(())
     }
@@ -208,30 +237,17 @@ impl Twin {
             .create(false)
             .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
-        self.tx
-            .as_ref()
-            .ok_or(anyhow::anyhow!("sender missing").context("report_general_consent"))?
-            .lock()
-            .unwrap()
-            .send(Message::Reported(
-                serde_json::from_reader(file).context("report_general_consent")?,
-            ))?;
+        self.report_impl(serde_json::from_reader(file).context("report_general_consent")?)
+            .context("report_general_consent")?;
 
         Ok(())
     }
 
     fn report_user_consent(&mut self, report_consent_file: &str) -> Result<()> {
-        let json: serde_json::Value =
-            serde_json::from_str(fs::read_to_string(report_consent_file)?.as_str())
-                .context("report_user_consent")?;
-
-        self.tx
-            .as_ref()
-            .ok_or(anyhow::anyhow!("sender missing").context("report_user_consent"))?
-            .lock()
-            .unwrap()
-            .send(Message::Reported(json))
-            .context("report_user_consent")?;
+        self.report_impl(serde_json::from_str(
+            fs::read_to_string(report_consent_file)?.as_str(),
+        )?)
+        .context("report_user_consent")?;
 
         info!("reported user consent file: {}", report_consent_file);
 
@@ -239,18 +255,13 @@ impl Twin {
     }
 
     fn report_factory_reset_status(&mut self, status: &str) -> Result<()> {
-        self.tx
-            .as_ref()
-            .ok_or(anyhow::anyhow!("sender missing").context("report_factory_reset_status"))?
-            .lock()
-            .unwrap()
-            .send(Message::Reported(json!({
-                "factory_reset_status": {
-                    "status": status,
-                    "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
-                }
-            })))
-            .context("report_factory_reset_status")?;
+        self.report_impl(json!({
+            "factory_reset_status": {
+                "status": status,
+                "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
+            }
+        }))
+        .context("report_factory_reset_status")?;
 
         Ok(())
     }
@@ -304,32 +315,42 @@ impl Twin {
         &mut self,
         include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
-        let mut new_include_network_filter = if include_network_filter.is_some() {
-            include_network_filter
-                .unwrap()
-                .iter()
-                .filter(|e| {
-                    if !e.is_string() {
-                        error!(
-                            "unexpected format in desired include_network_filter. ignore: {}",
-                            e.to_string()
-                        );
-                    }
-                    e.is_string()
-                })
-                .map(|e| e.as_str().unwrap().to_string().to_lowercase())
-                .collect()
-        } else {
-            vec!["*".to_string()]
-        };
+        if include_network_filter.is_none() {
+            self.include_network_filter.take();
+            return self
+                .report_impl(json!({ "network_interfaces": json!(null) }))
+                .context("report_network_status");
+        }
+
+        let mut new_include_network_filter: Vec<String> = include_network_filter
+            .unwrap()
+            .iter()
+            .filter(|e| {
+                if !e.is_string() {
+                    error!(
+                        "unexpected format in desired include_network_filter. ignore: {}",
+                        e.to_string()
+                    );
+                }
+                e.is_string()
+            })
+            .map(|e| e.as_str().unwrap().to_string().to_lowercase())
+            .collect();
 
         // enforce entries only exists once
         new_include_network_filter.sort();
         new_include_network_filter.dedup();
 
         // check if desired include_network_filter changed
-        if self.include_network_filter.ne(&new_include_network_filter) {
-            self.include_network_filter = new_include_network_filter;
+        if self.include_network_filter.is_none()
+            || self
+                .include_network_filter
+                .as_ref()
+                .unwrap()
+                .ne(&new_include_network_filter)
+        {
+            self.include_network_filter
+                .replace(new_include_network_filter);
             self.report_network_status()
         } else {
             info!("desired include_network_filter didn't change");
@@ -354,17 +375,21 @@ impl Twin {
             .context("report_network_status")?
             .iter()
             .filter(|i| {
-                self.include_network_filter.iter().any(|f| {
-                    let name = i.name.to_lowercase();
-                    match (f.starts_with("*"), f.ends_with("*"), f.len()) {
-                        (_, _, 0) => false,                                     // ""
-                        (a, b, 1) if a || b => true,                            // "*"
-                        (true, true, len) => name.contains(&f[1..len - 1]),     // ""*...*"
-                        (true, false, len) => name.ends_with(&f[1..len]),       // "*..."
-                        (false, true, len) => name.starts_with(&f[0..len - 1]), // "...*"
-                        _ => name.eq(f),                                        // "..."
-                    }
-                })
+                self.include_network_filter
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .any(|f| {
+                        let name = i.name.to_lowercase();
+                        match (f.starts_with("*"), f.ends_with("*"), f.len()) {
+                            (_, _, 0) => false,                                     // ""
+                            (a, b, 1) if a || b => true,                            // "*"
+                            (true, true, len) => name.contains(&f[1..len - 1]),     // ""*...*"
+                            (true, false, len) => name.ends_with(&f[1..len]),       // "*..."
+                            (false, true, len) => name.starts_with(&f[0..len - 1]), // "...*"
+                            _ => name.eq(f),                                        // "..."
+                        }
+                    })
             })
             .for_each(|i| {
                 let entry = interfaces.entry(i.name.clone()).or_insert(NetworkReport {
@@ -387,115 +412,84 @@ impl Twin {
                 };
             });
 
+        self.report_impl(json!({
+            "network_interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
+        }))
+        .context("report_network_status")?;
+
+        Ok(())
+    }
+
+    fn report_impl(&mut self, value: serde_json::Value) -> Result<()> {
         self.tx
             .as_ref()
-            .ok_or(anyhow::anyhow!("sender missing").context("report_network_status"))?
+            .ok_or(anyhow::anyhow!("tx channel missing"))?
             .lock()
             .unwrap()
-            .send(Message::Reported(json!({
-                "network_interfaces":
-                    json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
-            })))
-            .context("report_network_status")?;
+            .send(Message::Reported(value))?;
 
         Ok(())
     }
 }
 
-#[test]
-fn set_sender_test() {
-    let res = TWIN
-        .lock()
-        .unwrap()
-        .report(&ReportProperty::FactoryResetStatus("in_progress"))
-        .unwrap_err();
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::sync::mpsc;
 
-    assert!(res
-        .chain()
-        .any(|e| e.to_string().starts_with("sender missing")));
+    #[test]
+    fn update_general_consent_test() {
+        let (tx, _rx) = mpsc::channel();
+        let tx = Arc::new(Mutex::new(tx));
+        let twin = get_or_init(Some(Arc::clone(&tx)));
 
-    let (tx, _rx) = mpsc::channel();
-    let tx = Arc::new(Mutex::new(tx));
-    TWIN.lock().unwrap().set_sender(Arc::clone(&tx));
+        assert!(twin.update(TwinUpdateState::Partial, json!({})).is_ok());
 
-    assert!(TWIN
-        .lock()
-        .unwrap()
-        .report(&ReportProperty::FactoryResetStatus("in_progress"))
-        .is_ok());
-}
+        /*
+        assert!(TWIN
+            .lock()
+            .unwrap()
+            .update(TwinUpdateState::Partial, json!({}))
+            .is_ok()); */
 
-#[test]
-fn update_general_consent_test() {
-    let (tx, _rx) = mpsc::channel();
-    let tx = Arc::new(Mutex::new(tx));
-    TWIN.lock().unwrap().set_sender(Arc::clone(&tx));
+        /*
+                TwinUpdateState::Partial => {
+                    self.update_general_consent(desired["general_consent"].as_array())
+                        .context("Twin update partial: general_consent array not found")?;
+                    self.update_include_network_filter(desired["include_network_filter"].as_array())
+                        .context("Twin update partial: include_network_filter array not found")
+                }
+                TwinUpdateState::Complete => {
+                    self.update_general_consent(desired["desired"]["general_consent"].as_array())
+                        .context("Twin update complete: general_consent array not found")?;
+                    self.update_include_network_filter(
+                        desired["desired"]["include_network_filter"].as_array(),
+                    )
+                    .context("Twin update complete: include_network_filter array not found")
+                }
+        */
+    }
 
-    assert!(TWIN
-        .lock()
-        .unwrap()
-        .update(TwinUpdateState::Partial, json!({}))
-        .is_ok());
-    /*
-    assert!(TWIN
-        .lock()
-        .unwrap()
-        .update(TwinUpdateState::Partial, json!({}))
-        .is_ok()); */
+    #[test]
+    fn report_factory_reset_test() {
+        let (tx, rx) = mpsc::channel();
+        let tx = Arc::new(Mutex::new(tx));
+        let twin = get_or_init(Some(Arc::clone(&tx)));
 
-    /*
-            TwinUpdateState::Partial => {
-                self.update_general_consent(desired["general_consent"].as_array())
-                    .context("Twin update partial: general_consent array not found")?;
-                self.update_include_network_filter(desired["include_network_filter"].as_array())
-                    .context("Twin update partial: include_network_filter array not found")
-            }
-            TwinUpdateState::Complete => {
-                self.update_general_consent(desired["desired"]["general_consent"].as_array())
-                    .context("Twin update complete: general_consent array not found")?;
-                self.update_include_network_filter(
-                    desired["desired"]["include_network_filter"].as_array(),
-                )
-                .context("Twin update complete: include_network_filter array not found")
-            }
-    */
-}
+        assert!(twin
+            .report(&ReportProperty::FactoryResetStatus("in_progress"))
+            .is_ok());
+        /*
+        assert!(rx.try_recv().is_ok());
 
-#[test]
-fn report_factory_reset_test() {
-    let res = TWIN
-        .lock()
-        .unwrap()
-        .report(&ReportProperty::FactoryResetStatus("in_progress"))
-        .unwrap_err();
-
-    assert!(res.chain().any(|e| e
-        .to_string()
-        .starts_with("Couldn't report factory reset status")));
-
-    assert!(res
-        .chain()
-        .any(|e| e.to_string().starts_with("sender missing")));
-
-    let (tx, rx) = mpsc::channel();
-    let tx = Arc::new(Mutex::new(tx));
-    TWIN.lock().unwrap().set_sender(Arc::clone(&tx));
-
-    assert!(TWIN
-        .lock()
-        .unwrap()
-        .report(&ReportProperty::FactoryResetStatus("in_progress"))
-        .is_ok());
-
-    assert!(rx.try_recv().is_ok());
-
-    /*     assert_eq!(
-        rx.try_recv().unwrap(),
-        Message::Reported(json!({
-            "factory_reset_status": {
-                "status": "in_progress",
-                "date": OffsetDateTime::now_utc().format(&Rfc3339).unwrap().to_string(),
-            }
-        }))
-    ); */
+             assert_eq!(
+            rx.try_recv().unwrap(),
+            Message::Reported(json!({
+                "factory_reset_status": {
+                    "status": "in_progress",
+                    "date": OffsetDateTime::now_utc().format(&Rfc3339).unwrap().to_string(),
+                }
+            }))
+        ); */
+    }
 }

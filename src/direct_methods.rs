@@ -8,7 +8,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
-use twin::{ReportProperty, TWIN};
+use twin::ReportProperty;
 
 lazy_static! {
     static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
@@ -75,9 +75,7 @@ pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<se
                 .open("/run/omnect-device-service/factory-reset-trigger")?
                 .write_all(reset_type.to_string().as_bytes())?;
 
-            TWIN.lock()
-                .unwrap()
-                .report(&ReportProperty::FactoryResetStatus("in_progress"))?;
+            twin::get_or_init(None).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
 
             Ok(None)
         }
@@ -121,9 +119,7 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> 
 pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("network status requested");
 
-    TWIN.lock()
-        .unwrap()
-        .report(&ReportProperty::NetworkStatus)?;
+    twin::get_or_init(None).report(&ReportProperty::NetworkStatus)?;
 
     Ok(None)
 }

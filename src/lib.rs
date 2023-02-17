@@ -14,7 +14,7 @@ use notify_debouncer_mini::new_debouncer;
 use std::fs;
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::{path::Path, time::Duration};
-use twin::{ReportProperty, TWIN};
+use twin::ReportProperty;
 
 static INIT: Once = Once::new();
 
@@ -52,8 +52,7 @@ pub async fn run() -> Result<()> {
         new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
     let request_consent_path = format!("{}/request_consent.json", CONSENT_DIR_PATH);
     let history_consent_path = format!("{}/history_consent.json", CONSENT_DIR_PATH);
-
-    TWIN.lock().unwrap().set_sender(Arc::clone(&tx_app2client));
+    let twin = twin::get_or_init(Some(Arc::clone(&tx_app2client)));
 
     debouncer
         .watcher()
@@ -65,7 +64,8 @@ pub async fn run() -> Result<()> {
         .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)
         .context("debouncer history_consent_path")?;
 
-    client.run(None, methods, tx_client2app, rx_app2client);
+    //client.run(None, methods, tx_client2app, rx_app2client);
+    client.run(Some("HostName=omnect-cp-dev-iot-hub.azure-devices.net;DeviceId=jza-02:42:ac:11:00:02;ModuleId=omnect-device-service;SharedAccessKey=6rd7wSR2ASK6x6EfTUNaqhYU4TzJ63TZyjBW32DWgwI="), methods, tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
@@ -82,15 +82,9 @@ pub async fn run() -> Result<()> {
                         ReportProperty::UserConsent(&request_consent_path),
                         ReportProperty::UserConsent(&history_consent_path),
                         ReportProperty::FactoryResetResult,
-                        ReportProperty::NetworkStatus,
                     ]
                     .iter()
-                    .for_each(|p| {
-                        TWIN.lock()
-                            .unwrap()
-                            .report(p)
-                            .unwrap_or_else(|e| error!("{:#?}", e))
-                    });
+                    .for_each(|p| twin.report(p).unwrap_or_else(|e| error!("{:#?}", e)));
                 });
             }
             Ok(Message::Unauthenticated(reason)) => {
@@ -101,9 +95,7 @@ pub async fn run() -> Result<()> {
                 );
             }
             Ok(Message::Desired(state, desired)) => {
-                TWIN.lock()
-                    .unwrap()
-                    .update(state, desired)
+                twin.update(state, desired)
                     .unwrap_or_else(|e| error!("{:#?}", e));
             }
             Ok(Message::C2D(msg)) => {
@@ -118,9 +110,7 @@ pub async fn run() -> Result<()> {
         if let Ok(events) = rx_file2app.try_recv() {
             events.unwrap_or(vec![]).iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
-                    TWIN.lock()
-                        .unwrap()
-                        .report(&ReportProperty::UserConsent(path))
+                    twin.report(&ReportProperty::UserConsent(path))
                         .unwrap_or_else(|e| error!("{:#?}", e));
                 }
             })
