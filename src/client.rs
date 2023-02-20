@@ -2,9 +2,15 @@ use anyhow::Result;
 use azure_iot_sdk::client::*;
 use futures_executor::block_on;
 use log::{error, info, warn};
-use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
+use std::fs;
+use std::fs::OpenOptions;
+use std::path::Path;
+use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex, Once};
 use std::time;
 use tokio::task::JoinHandle;
+
+static UPDATE_VALIDATION_ONCE: Once = Once::new();
+static UPDATE_VALIDATION_FILE: &'static str = "/run/omnect-device-service/omnect_validate_update";
 
 #[cfg(feature = "systemd")]
 use crate::systemd::WatchdogHandler;
@@ -25,12 +31,35 @@ struct ClientEventHandler {
     tx: Sender<Message>,
 }
 
+impl ClientEventHandler {
+    fn update_validation(&self) {
+        UPDATE_VALIDATION_ONCE.call_once(|| {
+            /*
+             * Todo: as soon as we can switch to rust >=1.63 we should use
+             * Path::try_exists() here
+             */
+            if Path::new(UPDATE_VALIDATION_FILE).exists() {
+                /*
+                 * For now the only validation is a successful module provisioning.
+                 * This is ensured by calling this function once on authentication.
+                 */
+                info!("Successfully validated Update.");
+                fs::remove_file(UPDATE_VALIDATION_FILE)
+                    .unwrap_or_else(|e| error!("Couldn't delete {UPDATE_VALIDATION_FILE}: {e}."));
+            }
+        });
+    }
+}
+
 impl EventHandler for ClientEventHandler {
     fn handle_connection_status(&self, auth_status: AuthenticationStatus) {
         info!("new AuthenticationStatus: {:?}", auth_status);
 
         let res = match auth_status {
-            AuthenticationStatus::Authenticated => self.tx.send(Message::Authenticated),
+            AuthenticationStatus::Authenticated => {
+                self.update_validation();
+                self.tx.send(Message::Authenticated)
+            }
             AuthenticationStatus::Unauthenticated(reason) => {
                 self.tx.send(Message::Unauthenticated(reason))
             }
