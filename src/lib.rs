@@ -8,9 +8,10 @@ use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
 use default_env::default_env;
-use log::error;
+use log::{error, info};
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
+use std::fs;
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::{path::Path, time::Duration};
 use twin::{ReportProperty, TWIN};
@@ -18,9 +19,26 @@ use twin::{ReportProperty, TWIN};
 static INIT: Once = Once::new();
 
 pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/omnect/consent");
+static UPDATE_VALIDATION_FILE: &'static str = "/run/omnect-device-service/omnect_validate_update";
 
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
+
+fn update_validation() {
+    /*
+     * Todo: as soon as we can switch to rust >=1.63 we should use
+     * Path::try_exists() here
+     */
+    if Path::new(UPDATE_VALIDATION_FILE).exists() {
+        /*
+         * For now the only validation is a successful module provisioning.
+         * This is ensured by calling this function once on authentication.
+         */
+        info!("Successfully validated Update.");
+        fs::remove_file(UPDATE_VALIDATION_FILE)
+            .unwrap_or_else(|e| error!("Couldn't delete {UPDATE_VALIDATION_FILE}: {e}."));
+    }
+}
 
 #[tokio::main]
 pub async fn run() -> Result<()> {
@@ -53,6 +71,8 @@ pub async fn run() -> Result<()> {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
+                    update_validation();
+
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();
 

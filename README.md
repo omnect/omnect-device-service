@@ -10,6 +10,7 @@ This module implements the device part for the following end to end workflows:
 - iot-hub-device-update user consent
 - reboot
 - report network status
+- update validation
 
 ### Factory reset
 The module itself does not perform a factory reset.
@@ -322,6 +323,19 @@ In all other cases there will be an error status:
   "payload": {}
 }
 ```
+
+### Update Validation
+On `iot-hub-device-update` update, after flashing the new root partition, we boot
+into the new root partition and test if the update was successful.<br>
+We don't set the new root partition permanently yet. On this boot the startup of
+`iot-hub-device-update` is prevented and has to be triggered by
+`omnect-device-service`.<br>
+`omnect-device-service´ validates if the update was successful. If so, the new
+root partition is permanently set and the start of `iot-hub-device-update` gets triggered. If not, the device gets rebooted and we
+boot to the old root partition.
+
+#### Criteria for a successful Update
+This service provisions against iothub.
 
 ## License
 
