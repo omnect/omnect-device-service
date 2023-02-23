@@ -1,3 +1,5 @@
 {
-  "general_consent": []
+  "general_consent": [
+    "swupdate"
+  ]
 }

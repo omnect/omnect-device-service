@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.1] Q1 2023
  - twin:
    - don't report any network adapter in case no filter is set in desired properties
-   - add unittests
+   - add integration tests
 
 ## [0.8.0] Q1 2023
  - introduced fallback update handling

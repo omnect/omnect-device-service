@@ -123,62 +123,66 @@ pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serd
 
     Ok(None)
 }
+#[cfg(test)]
+mod test {
+    use super::*;
 
-#[test]
-fn factory_reset_test() {
-    assert!(reset_to_factory_settings(json!({
-        "type": 1,
-        "restore_settings": ["wifi"]
-    }),)
-    .unwrap_err()
-    .to_string()
-    .starts_with("No such file or directory"));
-
-    assert!(reset_to_factory_settings(json!({
-        "type": 1,
-    }),)
-    .unwrap_err()
-    .to_string()
-    .starts_with("No such file or directory"));
-
-    assert_eq!(
-        reset_to_factory_settings(json!({
+    #[test]
+    fn factory_reset_test() {
+        assert!(reset_to_factory_settings(json!({
+            "type": 1,
             "restore_settings": ["wifi"]
         }),)
-        .unwrap_err()
-        .to_string(),
-        "reset type missing or not supported"
-    );
-
-    assert_eq!(
-        reset_to_factory_settings(json!({
-            "type": 1,
-            "restore_settings": ["unknown"]
-        }),)
-        .unwrap_err()
-        .to_string(),
-        "unknown restore setting received"
-    );
-}
-
-#[test]
-fn user_consent_test() {
-    let component = "swupdate";
-
-    assert!(user_consent(json!({component: "1.0.0"}))
         .unwrap_err()
         .to_string()
         .starts_with("No such file or directory"));
 
-    assert_eq!(
-        user_consent(json!({})).unwrap_err().to_string(),
-        "unexpected parameter format"
-    );
+        assert!(reset_to_factory_settings(json!({
+            "type": 1,
+        }),)
+        .unwrap_err()
+        .to_string()
+        .starts_with("No such file or directory"));
 
-    assert_eq!(
-        user_consent(json!({component: "1.0.0", "another_component": "1.2.3"}))
+        assert_eq!(
+            reset_to_factory_settings(json!({
+                "restore_settings": ["wifi"]
+            }),)
             .unwrap_err()
             .to_string(),
-        "unexpected parameter format"
-    );
+            "reset type missing or not supported"
+        );
+
+        assert_eq!(
+            reset_to_factory_settings(json!({
+                "type": 1,
+                "restore_settings": ["unknown"]
+            }),)
+            .unwrap_err()
+            .to_string(),
+            "unknown restore setting received"
+        );
+    }
+
+    #[test]
+    fn user_consent_test() {
+        let component = "swupdate";
+
+        assert!(user_consent(json!({component: "1.0.0"}))
+            .unwrap_err()
+            .to_string()
+            .starts_with("No such file or directory"));
+
+        assert_eq!(
+            user_consent(json!({})).unwrap_err().to_string(),
+            "unexpected parameter format"
+        );
+
+        assert_eq!(
+            user_consent(json!({component: "1.0.0", "another_component": "1.2.3"}))
+                .unwrap_err()
+                .to_string(),
+            "unexpected parameter format"
+        );
+    }
 }

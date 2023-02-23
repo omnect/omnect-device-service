@@ -28,14 +28,12 @@ pub struct TWIN {
 pub fn get_or_init(tx: Option<Arc<Mutex<Sender<Message>>>>) -> TWIN {
     if tx.is_some() {
         TWIN {
-            inner: INSTANCE
-                .get_or_try_init::<_, anyhow::Error>(|| {
-                    Ok(Mutex::new(Twin {
-                        tx: tx,
-                        ..Default::default()
-                    }))
+            inner: INSTANCE.get_or_init(|| {
+                Mutex::new(Twin {
+                    tx: tx,
+                    ..Default::default()
                 })
-                .unwrap(),
+            }),
         }
     } else {
         TWIN {
@@ -118,38 +116,10 @@ impl Twin {
 
     fn update_general_consent(
         &mut self,
-        new_consents: Option<&Vec<serde_json::Value>>,
+        desired_consents: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
-        struct Guard {
-            tx: Arc<Mutex<Sender<Message>>>,
-            report_default: bool,
-        }
-
-        impl Drop for Guard {
-            fn drop(&mut self) {
-                if self.report_default {
-                    self.tx
-                        .lock()
-                        .unwrap()
-                        .send(Message::Reported(json!({ "general_consent": null })))
-                        .unwrap()
-                }
-            }
-        }
-
-        let mut guard = Guard {
-            tx: Arc::clone(
-                &self
-                    .tx
-                    .as_ref()
-                    .ok_or(anyhow::anyhow!("sender missing").context("update_general_consent"))?
-                    .to_owned(),
-            ),
-            report_default: true,
-        };
-
-        let mut new_consents = if new_consents.is_some() {
-            new_consents
+        if desired_consents.is_some() {
+            let mut new_consents = desired_consents
                 .unwrap()
                 .iter()
                 .filter(|e| {
@@ -169,38 +139,37 @@ impl Twin {
                             .context("update_general_consent"))
                     }
                 })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            info!("no or malformed general consent defined in desired properties. default to empty array.");
-            vec![]
-        };
+                .collect::<Result<Vec<_>>>()?;
 
-        // enforce entries only exists once
-        new_consents.sort_by_key(|name| name.to_string());
-        new_consents.dedup();
+            // enforce entries only exists once
+            new_consents.sort_by_key(|name| name.to_string());
+            new_consents.dedup();
 
-        let saved_consents: serde_json::Value = serde_json::from_reader(
-            OpenOptions::new()
-                .read(true)
-                .create(false)
-                .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))
-                .context("update_general_consent")?,
-        )?;
+            let saved_consents: serde_json::Value = serde_json::from_reader(
+                OpenOptions::new()
+                    .read(true)
+                    .create(false)
+                    .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))
+                    .context("update_general_consent")?,
+            )?;
 
-        let saved_consents: Vec<&str> = saved_consents["general_consent"]
-            .as_array()
-            .context("update_general_consent: general_consent array malformed")?
-            .iter()
-            .map(|e| {
-                e.as_str().ok_or_else(|| {
-                    anyhow::anyhow!("cannot parse str from saved_consents json.")
-                        .context("update_general_consent")
+            let saved_consents: Vec<&str> = saved_consents["general_consent"]
+                .as_array()
+                .context("update_general_consent: general_consent array malformed")?
+                .iter()
+                .map(|e| {
+                    e.as_str().ok_or_else(|| {
+                        anyhow::anyhow!("cannot parse str from saved_consents json.")
+                            .context("update_general_consent")
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()?;
 
-        // check if consents changed (current desired vs. saved)
-        if new_consents.ne(&saved_consents) {
+            // check if consents changed (current desired vs. saved)
+            if new_consents.eq(&saved_consents) {
+                info!("desired general_consent didn't change");
+                return Ok(());
+            }
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -210,25 +179,22 @@ impl Twin {
                     .context("update_general_consent")?,
                 &json!({ "general_consent": new_consents }),
             )?;
-
-            self.report_general_consent()?;
         } else {
-            info!("desired general_consent didn't change")
-        }
+            info!("no general consent defined in desired properties. current general_consent is reported.");
+        };
 
-        guard.report_default = false;
-
-        Ok(())
+        self.report_general_consent()
     }
 
     fn report_versions(&mut self) -> Result<()> {
-        self.report_impl(json!({
+        let version = json!({
             "module-version": env!("CARGO_PKG_VERSION"),
             "azure-sdk-version": IotHubClient::get_sdk_version_string()
-        }))
-        .context("report_versions")?;
+        });
 
-        Ok(())
+        self.report_impl(version.clone())
+            .context("report_versions")
+            .map_err(|err| err.into())
     }
 
     fn report_general_consent(&mut self) -> Result<()> {
@@ -238,20 +204,16 @@ impl Twin {
             .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
 
         self.report_impl(serde_json::from_reader(file).context("report_general_consent")?)
-            .context("report_general_consent")?;
-
-        Ok(())
+            .context("report_general_consent")
+            .map_err(|err| err.into())
     }
 
     fn report_user_consent(&mut self, report_consent_file: &str) -> Result<()> {
         self.report_impl(serde_json::from_str(
             fs::read_to_string(report_consent_file)?.as_str(),
         )?)
-        .context("report_user_consent")?;
-
-        info!("reported user consent file: {}", report_consent_file);
-
-        Ok(())
+        .context("report_user_consent")
+        .map_err(|err| err.into())
     }
 
     fn report_factory_reset_status(&mut self, status: &str) -> Result<()> {
@@ -261,9 +223,8 @@ impl Twin {
                 "date": OffsetDateTime::now_utc().format(&Rfc3339)?.to_string(),
             }
         }))
-        .context("report_factory_reset_status")?;
-
-        Ok(())
+        .context("report_factory_reset_status")
+        .map_err(|err| err.into())
     }
 
     fn report_factory_reset_result(&mut self) -> Result<()> {
@@ -415,20 +376,20 @@ impl Twin {
         self.report_impl(json!({
             "network_interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
         }))
-        .context("report_network_status")?;
-
-        Ok(())
+        .context("report_network_status")
+        .map_err(|err| err.into())
     }
 
     fn report_impl(&mut self, value: serde_json::Value) -> Result<()> {
+        info!("report: \n{:?}", value);
+
         self.tx
             .as_ref()
             .ok_or(anyhow::anyhow!("tx channel missing"))?
             .lock()
             .unwrap()
-            .send(Message::Reported(value))?;
-
-        Ok(())
+            .send(Message::Reported(value))
+            .map_err(|err| err.into())
     }
 }
 
@@ -436,60 +397,69 @@ impl Twin {
 mod test {
     use super::*;
     use std::sync::mpsc;
+    use std::sync::mpsc::TryRecvError;
 
     #[test]
-    fn update_general_consent_test() {
-        let (tx, _rx) = mpsc::channel();
+    fn update_and_report_general_consent_test() {
+        let (tx, rx) = mpsc::channel();
         let tx = Arc::new(Mutex::new(tx));
-        let twin = get_or_init(Some(Arc::clone(&tx)));
+        let mut twin = Twin {
+            tx: Some(tx),
+            include_network_filter: None,
+        };
 
-        assert!(twin.update(TwinUpdateState::Partial, json!({})).is_ok());
+        assert!(twin.update_general_consent(None).is_ok());
 
-        /*
-        assert!(TWIN
-            .lock()
-            .unwrap()
-            .update(TwinUpdateState::Partial, json!({}))
-            .is_ok()); */
+        assert_eq!(
+            rx.recv().unwrap(),
+            Message::Reported(json!({"general_consent": ["swupdate"]}))
+        );
 
-        /*
-                TwinUpdateState::Partial => {
-                    self.update_general_consent(desired["general_consent"].as_array())
-                        .context("Twin update partial: general_consent array not found")?;
-                    self.update_include_network_filter(desired["include_network_filter"].as_array())
-                        .context("Twin update partial: include_network_filter array not found")
-                }
-                TwinUpdateState::Complete => {
-                    self.update_general_consent(desired["desired"]["general_consent"].as_array())
-                        .context("Twin update complete: general_consent array not found")?;
-                    self.update_include_network_filter(
-                        desired["desired"]["include_network_filter"].as_array(),
-                    )
-                    .context("Twin update complete: include_network_filter array not found")
-                }
-        */
+        assert!(twin
+            .update_general_consent(Some(json!(["swupdate1", "swupdate2"]).as_array().unwrap()))
+            .is_ok());
+
+        assert_eq!(
+            rx.recv().unwrap(),
+            Message::Reported(json!({"general_consent": ["swupdate1", "swupdate2"]}))
+        );
+
+        assert!(twin
+            .update_general_consent(Some(json!(["swupdate1", "swupdate2"]).as_array().unwrap()))
+            .is_ok());
+
+        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+
+        assert!(twin
+            .update_general_consent(Some(json!(["swupdate"]).as_array().unwrap()))
+            .is_ok());
+
+        assert_eq!(
+            rx.recv().unwrap(),
+            Message::Reported(json!({
+                "general_consent": [
+                    "swupdate"
+                ]
+            }))
+        );
     }
 
     #[test]
     fn report_factory_reset_test() {
         let (tx, rx) = mpsc::channel();
         let tx = Arc::new(Mutex::new(tx));
-        let twin = get_or_init(Some(Arc::clone(&tx)));
+        let mut twin = Twin {
+            tx: Some(tx),
+            include_network_filter: None,
+        };
 
         assert!(twin
             .report(&ReportProperty::FactoryResetStatus("in_progress"))
             .is_ok());
-        /*
-        assert!(rx.try_recv().is_ok());
 
-             assert_eq!(
-            rx.try_recv().unwrap(),
-            Message::Reported(json!({
-                "factory_reset_status": {
-                    "status": "in_progress",
-                    "date": OffsetDateTime::now_utc().format(&Rfc3339).unwrap().to_string(),
-                }
-            }))
-        ); */
+        let reported = format!("{:?}", rx.recv().unwrap());
+        assert!(reported
+            .contains("Reported(Object {\"factory_reset_status\": Object {\"date\": String"));
+        assert!(reported.contains("\"status\": String(\"in_progress\")}})"));
     }
 }
