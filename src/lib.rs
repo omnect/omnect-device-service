@@ -7,7 +7,6 @@ pub mod twin;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
-use default_env::default_env;
 use log::{error, info};
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
@@ -15,11 +14,19 @@ use std::fs;
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::{path::Path, time::Duration};
 use twin::ReportProperty;
+#[cfg(test)]
+mod test_util;
 
 static INIT: Once = Once::new();
-
-pub static CONSENT_DIR_PATH: &'static str = default_env!("CONSENT_DIR_PATH", "/etc/omnect/consent");
 static UPDATE_VALIDATION_FILE: &'static str = "/run/omnect-device-service/omnect_validate_update";
+
+#[macro_export]
+macro_rules! consent_path {
+    () => {{
+        static CONSENT_DIR_PATH_DEFAULT: &'static str = "/etc/omnect/consent";
+        std::env::var("CONSENT_DIR_PATH").unwrap_or(CONSENT_DIR_PATH_DEFAULT.to_string())
+    }};
+}
 
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
@@ -50,8 +57,8 @@ pub async fn run() -> Result<()> {
     let methods = direct_methods::get_direct_methods();
     let mut debouncer =
         new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
-    let request_consent_path = format!("{}/request_consent.json", CONSENT_DIR_PATH);
-    let history_consent_path = format!("{}/history_consent.json", CONSENT_DIR_PATH);
+    let request_consent_path = format!("{}/request_consent.json", consent_path!());
+    let history_consent_path = format!("{}/history_consent.json", consent_path!());
     let twin = twin::get_or_init(Some(Arc::clone(&tx_app2client)));
 
     debouncer

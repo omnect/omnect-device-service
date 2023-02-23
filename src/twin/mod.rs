@@ -1,5 +1,9 @@
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod mod_test;
+
 use crate::Message;
-use crate::CONSENT_DIR_PATH;
+use crate::consent_path;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
@@ -149,7 +153,7 @@ impl Twin {
                 OpenOptions::new()
                     .read(true)
                     .create(false)
-                    .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))
+                    .open(format!("{}/consent_conf.json", consent_path!()))
                     .context("update_general_consent")?,
             )?;
 
@@ -175,7 +179,7 @@ impl Twin {
                     .write(true)
                     .create(false)
                     .truncate(true)
-                    .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))
+                    .open(format!("{}/consent_conf.json", consent_path!()))
                     .context("update_general_consent")?,
                 &json!({ "general_consent": new_consents }),
             )?;
@@ -201,7 +205,7 @@ impl Twin {
         let file = OpenOptions::new()
             .read(true)
             .create(false)
-            .open(format!("{}/consent_conf.json", CONSENT_DIR_PATH))?;
+            .open(format!("{}/consent_conf.json", consent_path!()))?;
 
         self.report_impl(serde_json::from_reader(file).context("report_general_consent")?)
             .context("report_general_consent")
@@ -390,76 +394,5 @@ impl Twin {
             .unwrap()
             .send(Message::Reported(value))
             .map_err(|err| err.into())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use std::sync::mpsc;
-    use std::sync::mpsc::TryRecvError;
-
-    #[test]
-    fn update_and_report_general_consent_test() {
-        let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
-        let mut twin = Twin {
-            tx: Some(tx),
-            include_network_filter: None,
-        };
-
-        assert!(twin.update_general_consent(None).is_ok());
-
-        assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({"general_consent": ["swupdate"]}))
-        );
-
-        assert!(twin
-            .update_general_consent(Some(json!(["swupdate1", "swupdate2"]).as_array().unwrap()))
-            .is_ok());
-
-        assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({"general_consent": ["swupdate1", "swupdate2"]}))
-        );
-
-        assert!(twin
-            .update_general_consent(Some(json!(["swupdate1", "swupdate2"]).as_array().unwrap()))
-            .is_ok());
-
-        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
-
-        assert!(twin
-            .update_general_consent(Some(json!(["swupdate"]).as_array().unwrap()))
-            .is_ok());
-
-        assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({
-                "general_consent": [
-                    "swupdate"
-                ]
-            }))
-        );
-    }
-
-    #[test]
-    fn report_factory_reset_test() {
-        let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
-        let mut twin = Twin {
-            tx: Some(tx),
-            include_network_filter: None,
-        };
-
-        assert!(twin
-            .report(&ReportProperty::FactoryResetStatus("in_progress"))
-            .is_ok());
-
-        let reported = format!("{:?}", rx.recv().unwrap());
-        assert!(reported
-            .contains("Reported(Object {\"factory_reset_status\": Object {\"date\": String"));
-        assert!(reported.contains("\"status\": String(\"in_progress\")}})"));
     }
 }

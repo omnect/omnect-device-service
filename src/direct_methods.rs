@@ -1,5 +1,5 @@
 use crate::twin;
-use crate::CONSENT_DIR_PATH;
+use crate::consent_path;
 use anyhow::Result;
 use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
@@ -89,7 +89,7 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
             let (component, version) = map.iter().next().unwrap();
-            let file_path = format!("{}/{}/user_consent.json", CONSENT_DIR_PATH, component);
+            let file_path = format!("{}/{}/user_consent.json", consent_path!(), component);
 
             let mut file = OpenOptions::new()
                 .write(true)
