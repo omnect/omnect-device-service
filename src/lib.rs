@@ -89,7 +89,7 @@ pub async fn run() -> Result<()> {
             }
             Ok(Message::Unauthenticated(reason)) => {
                 anyhow::ensure!(
-                    !matches!(reason, UnauthenticatedReason::ExpiredSasToken),
+                    matches!(reason, UnauthenticatedReason::ExpiredSasToken),
                     "No connection. Reason: {:?}",
                     reason
                 );

@@ -21,13 +21,13 @@ use time::OffsetDateTime;
 
 static INSTANCE: OnceCell<Mutex<Twin>> = OnceCell::new();
 
-pub struct TWIN {
+pub struct TwinInstance {
     inner: &'static Mutex<Twin>,
 }
 
-pub fn get_or_init(tx: Option<Arc<Mutex<Sender<Message>>>>) -> TWIN {
+pub fn get_or_init(tx: Option<Arc<Mutex<Sender<Message>>>>) -> TwinInstance {
     if tx.is_some() {
-        TWIN {
+        TwinInstance {
             inner: INSTANCE.get_or_init(|| {
                 Mutex::new(Twin {
                     tx: tx,
@@ -36,19 +36,19 @@ pub fn get_or_init(tx: Option<Arc<Mutex<Sender<Message>>>>) -> TWIN {
             }),
         }
     } else {
-        TWIN {
+        TwinInstance {
             inner: INSTANCE.get().unwrap(),
         }
     }
 }
 
-struct TWIN2Lock<'a> {
+struct TwinLock<'a> {
     inner: MutexGuard<'a, Twin>,
 }
 
-impl TWIN {
-    fn lock(&self) -> TWIN2Lock<'_> {
-        TWIN2Lock {
+impl TwinInstance {
+    fn lock(&self) -> TwinLock<'_> {
+        TwinLock {
             inner: self.inner.lock().unwrap_or_else(|e| e.into_inner()),
         }
     }
