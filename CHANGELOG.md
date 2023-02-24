@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - twin:
    - don't report any network adapter in case no filter is set in desired properties
    - restructure files and add unittests
+ - direct_methods:
+   - refactor unittests
  - readme: prepare open sourcing repository
 
 ## [0.8.0] Q1 2023

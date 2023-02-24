@@ -70,4 +70,6 @@ mod mod_test {
 
         assert!(user_consent(json!({"test_component": "1.0.0"})).is_ok());
     }
+
+    //ToDo: add remaining unittests
 }
