@@ -90,7 +90,10 @@ pub async fn run() -> Result<()> {
                         ReportProperty::FactoryResetResult,
                     ]
                     .iter()
-                    .for_each(|p| twin.report(p).unwrap_or_else(|e| error!("{:#?}", e)));
+                    .for_each(|p| {
+                        twin.report(p)
+                            .unwrap_or_else(|e| error!("twin report: {:#?}", e))
+                    });
                 });
             }
             Ok(Message::Unauthenticated(reason)) => {
@@ -117,7 +120,7 @@ pub async fn run() -> Result<()> {
             events.unwrap_or(vec![]).iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
                     twin.report(&ReportProperty::UserConsent(path))
-                        .unwrap_or_else(|e| error!("{:#?}", e));
+                        .unwrap_or_else(|e| error!("twin report user consent: {:#?}", e));
                 }
             })
         }
