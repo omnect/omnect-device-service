@@ -1,6 +1,10 @@
-use crate::twin;
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod mod_test;
+
 use crate::consent_path;
-use anyhow::Result;
+use crate::twin;
+use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
 use log::info;
@@ -89,15 +93,21 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
             let (component, version) = map.iter().next().unwrap();
-            let file_path = format!("{}/{}/user_consent.json", consent_path!(), component);
+            serde_json::to_writer_pretty(
+                OpenOptions::new()
+                    .write(true)
+                    .create(false)
+                    .truncate(true)
+                    .open(format!(
+                        "{}/{}/user_consent.json",
+                        consent_path!(),
+                        component
+                    ))
+                    .context("user_consent: open user_consent.json for write")?,
+                &json!({ "consent": version }),
+            )
+            .context("user_consent: serde_json::to_writer_pretty")?;
 
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open(&file_path)?;
-            let content = serde_json::to_string_pretty(&json!({ "consent": version }))?;
-            file.write(content.as_bytes())?;
             Ok(None)
         }
         _ => anyhow::bail!("unexpected parameter format"),
@@ -122,67 +132,4 @@ pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serd
     twin::get_or_init(None).report(&ReportProperty::NetworkStatus)?;
 
     Ok(None)
-}
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn factory_reset_test() {
-        assert!(reset_to_factory_settings(json!({
-            "type": 1,
-            "restore_settings": ["wifi"]
-        }),)
-        .unwrap_err()
-        .to_string()
-        .starts_with("No such file or directory"));
-
-        assert!(reset_to_factory_settings(json!({
-            "type": 1,
-        }),)
-        .unwrap_err()
-        .to_string()
-        .starts_with("No such file or directory"));
-
-        assert_eq!(
-            reset_to_factory_settings(json!({
-                "restore_settings": ["wifi"]
-            }),)
-            .unwrap_err()
-            .to_string(),
-            "reset type missing or not supported"
-        );
-
-        assert_eq!(
-            reset_to_factory_settings(json!({
-                "type": 1,
-                "restore_settings": ["unknown"]
-            }),)
-            .unwrap_err()
-            .to_string(),
-            "unknown restore setting received"
-        );
-    }
-
-    #[test]
-    fn user_consent_test() {
-        let component = "swupdate";
-
-        assert!(user_consent(json!({component: "1.0.0"}))
-            .unwrap_err()
-            .to_string()
-            .starts_with("No such file or directory"));
-
-        assert_eq!(
-            user_consent(json!({})).unwrap_err().to_string(),
-            "unexpected parameter format"
-        );
-
-        assert_eq!(
-            user_consent(json!({component: "1.0.0", "another_component": "1.2.3"}))
-                .unwrap_err()
-                .to_string(),
-            "unexpected parameter format"
-        );
-    }
 }

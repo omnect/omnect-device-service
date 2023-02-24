@@ -1,4 +1,5 @@
 # omnect-device-service
+Product page: https://www.omnect.io/home
 
 ## Instruction
 This module is based on the omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
@@ -352,4 +353,7 @@ submitted for inclusion in the work by you, as defined in the Apache-2.0
 license, shall be dual licensed as above, without any additional terms or
 conditions.
 
-Copyright (c) 2022 conplement AG
+---
+
+copyright (c) 2023 conplement AG<br>
+Content published under the Apache License Version 2.0 or MIT license, are marked as such. They may be used in accordance with the stated license conditions.
