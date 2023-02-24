@@ -22,7 +22,8 @@
       "args": [],
       "cwd": "${workspaceFolder}",
       "env": {
-        "RUST_BACKTRACE": "1"
+        "RUST_BACKTRACE": "1",
+        "CONSENT_DIR_PATH": "${workspaceFolder}/testfiles"
       }
     },
     {

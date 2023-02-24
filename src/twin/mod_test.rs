@@ -95,7 +95,7 @@ mod mod_test {
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 
         let tr = Testrunner::new(function_name!().split("::").last().unwrap());
-        tr.to_pathbuf("testfiles/consent_conf.json");
+        tr.copy_file("testfiles/consent_conf.json");
 
         env::set_var("CONSENT_DIR_PATH", tr.get_dirpath().as_str());
 
@@ -141,7 +141,7 @@ mod mod_test {
 
         assert!(twin
             .report_user_consent(
-                tr.to_pathbuf("testfiles/invalid_consent.json")
+                tr.copy_file("testfiles/invalid_consent.json")
                     .to_str()
                     .unwrap()
             )
@@ -151,7 +151,7 @@ mod mod_test {
 
         assert!(twin
             .report_user_consent(
-                tr.to_pathbuf("testfiles/history_consent.json")
+                tr.copy_file("testfiles/history_consent.json")
                     .to_str()
                     .unwrap()
             )

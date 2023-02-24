@@ -7,7 +7,7 @@ use crate::twin;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use lazy_static::{__Deref, lazy_static};
-use log::info;
+use log::{error, info};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -39,7 +39,7 @@ pub fn get_direct_methods() -> Option<DirectMethodMap> {
 }
 
 pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    info!("factory reset requested");
+    info!("factory reset requested: {}", in_json);
 
     let restore_paths = match in_json["restore_settings"].as_array() {
         Some(settings) => {
@@ -88,7 +88,7 @@ pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<se
 }
 
 pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    info!("user consent requested");
+    info!("user consent requested: {}", in_json);
 
     match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
         Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
@@ -110,7 +110,10 @@ pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Val
 
             Ok(None)
         }
-        _ => anyhow::bail!("unexpected parameter format"),
+        _ => {
+            error!("user_consent: unexpected parameter format");
+            anyhow::bail!("unexpected parameter format")
+        }
     }
 }
 

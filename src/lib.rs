@@ -33,7 +33,7 @@ const RX_CLIENT2APP_TIMEOUT: u64 = 1;
 
 fn update_validation() {
     /*
-     * Todo: as soon as we can switch to rust >=1.63 we should use
+     * ToDo: as soon as we can switch to rust >=1.63 we should use
      * Path::try_exists() here
      */
     if Path::new(UPDATE_VALIDATION_FILE).exists() {
@@ -71,8 +71,7 @@ pub async fn run() -> Result<()> {
         .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)
         .context("debouncer history_consent_path")?;
 
-    //client.run(None, methods, tx_client2app, rx_app2client);
-    client.run(Some("HostName=omnect-cp-dev-iot-hub.azure-devices.net;DeviceId=jza-02:42:ac:11:00:02;ModuleId=omnect-device-service;SharedAccessKey=6rd7wSR2ASK6x6EfTUNaqhYU4TzJ63TZyjBW32DWgwI="), methods, tx_client2app, rx_app2client);
+    client.run(None, methods, tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {

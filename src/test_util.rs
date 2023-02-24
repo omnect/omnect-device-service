@@ -1,3 +1,4 @@
+use cp_r::CopyOptions;
 use env_logger::{Builder, Env};
 use lazy_static::lazy_static;
 use log::error;
@@ -27,7 +28,15 @@ impl Testrunner {
         Testrunner { dirpath }
     }
 
-    pub fn to_pathbuf(&self, file: &str) -> PathBuf {
+    pub fn copy_directory(&self, dir: &str) -> PathBuf {
+        let destdir = String::from(dir);
+        let destdir = destdir.split('/').last().unwrap();
+        let path = PathBuf::from(format!("{}/{}", self.dirpath, destdir));
+        CopyOptions::new().copy_tree(dir, &path).unwrap();
+        path
+    }
+
+    pub fn copy_file(&self, file: &str) -> PathBuf {
         let destfile = String::from(file);
         let destfile = destfile.split('/').last().unwrap();
         let path = PathBuf::from(format!("{}/{}", self.dirpath, destfile));

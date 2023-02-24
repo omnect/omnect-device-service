@@ -208,6 +208,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.9.0"
+source = "git+ssh://git@github.com/omnect/azure-iot-sdk.git?tag=0.9.0#ce7b53f098ef4a6987b5e6b800691c32036949ca"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
@@ -351,9 +352,9 @@ dependencies = [
 
 [[package]]
 name = "clang-sys"
-version = "1.4.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa2e27ae6ab525c3d369ded447057bca5438d86dc3a68f6faafb8269ba82ebf3"
+checksum = "77ed9a53e5d4d9c573ae844bfac6872b159cb1d1585a83b29e7a64b7eef7332a"
 dependencies = [
  "glob",
  "libc",
@@ -375,6 +376,15 @@ name = "core-foundation-sys"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
+
+[[package]]
+name = "cp_r"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f21d305efe161d2d3179950f5746837215197e774bf7424c12eafc191b63e88a"
+dependencies = [
+ "filetime",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -799,9 +809,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "http"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75f43d41e26995c17e71ee126451dd3941010b0514a81a9d11f3b341debc2399"
+checksum = "bd6effc99afb63425aff9b05836f029929e345a6148a14b7ecd5ab67af944482"
 dependencies = [
  "bytes",
  "fnv",
@@ -1275,6 +1285,7 @@ version = "0.8.1"
 dependencies = [
  "anyhow",
  "azure-iot-sdk",
+ "cp_r",
  "env_logger",
  "futures-executor",
  "lazy_static",
@@ -1786,9 +1797,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.4"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bb2e075f03b3d66d8d8785356224ba688d2906a371015e225beeb65ca92c740"
+checksum = "5427d89453009325de0d8f342c9490009f76e999cb7672d77e46267448f7e6b2"
 dependencies = [
  "bytes",
  "futures-core",

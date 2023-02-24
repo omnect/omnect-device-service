@@ -2,6 +2,8 @@
 mod mod_test {
     use super::super::*;
     use crate::test_util::Testrunner;
+    use std::env;
+    use stdext::function_name;
 
     #[test]
     fn factory_reset_test() {
@@ -58,5 +60,14 @@ mod mod_test {
                 .to_string(),
             "unexpected parameter format"
         );
+
+        let tr = Testrunner::new(function_name!().split("::").last().unwrap());
+        tr.copy_file("testfiles/consent_conf.json");
+
+        env::set_var("CONSENT_DIR_PATH", tr.get_dirpath().as_str());
+
+        tr.copy_directory("testfiles/test_component");
+
+        assert!(user_consent(json!({"test_component": "1.0.0"})).is_ok());
     }
 }
