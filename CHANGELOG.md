@@ -12,8 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      - submodules of twin: common.rs, consent.rs, factory_reset.rs, network_status.rs
    - added unittests
    - don't report any network adapter in case no filter is set in desired properties
- - direct_methods:
-   - refactored unittests
  - readme: prepared open sourcing repository
 
 ## [0.8.0] Q1 2023
