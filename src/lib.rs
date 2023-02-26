@@ -1,6 +1,4 @@
 pub mod client;
-pub mod direct_methods;
-pub mod message;
 #[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
@@ -47,6 +45,22 @@ fn update_validation() {
     }
 }
 
+fn report_states(request_consent_path: &str, history_consent_path: &str) {
+    vec![
+        ReportProperty::Versions,
+        ReportProperty::GeneralConsent,
+        ReportProperty::UserConsent(request_consent_path),
+        ReportProperty::UserConsent(history_consent_path),
+        ReportProperty::FactoryResetResult,
+    ]
+    .iter()
+    .for_each(|p| {
+        twin::get_or_init(None)
+            .report(p)
+            .unwrap_or_else(|e| error!("twin report: {:#?}", e))
+    });
+}
+
 #[tokio::main]
 pub async fn run() -> Result<()> {
     let mut client = Client::new();
@@ -54,7 +68,6 @@ pub async fn run() -> Result<()> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let (tx_file2app, rx_file2app) = mpsc::channel();
     let tx_app2client = Arc::new(Mutex::new(tx_app2client));
-    let methods = direct_methods::get_direct_methods();
     let mut debouncer =
         new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
     let request_consent_path = format!("{}/request_consent.json", consent_path!());
@@ -71,29 +84,22 @@ pub async fn run() -> Result<()> {
         .watch(Path::new(&history_consent_path), RecursiveMode::Recursive)
         .context("debouncer history_consent_path")?;
 
-    client.run(None, methods, tx_client2app, rx_app2client);
+    client.run(
+        None,
+        twin.get_direct_methods(),
+        tx_client2app,
+        rx_app2client,
+    );
 
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
-                    update_validation();
-
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();
 
-                    vec![
-                        ReportProperty::Versions,
-                        ReportProperty::GeneralConsent,
-                        ReportProperty::UserConsent(&request_consent_path),
-                        ReportProperty::UserConsent(&history_consent_path),
-                        ReportProperty::FactoryResetResult,
-                    ]
-                    .iter()
-                    .for_each(|p| {
-                        twin.report(p)
-                            .unwrap_or_else(|e| error!("twin report: {:#?}", e))
-                    });
+                    update_validation();
+                    report_states(&request_consent_path, &history_consent_path);
                 });
             }
             Ok(Message::Unauthenticated(reason)) => {
@@ -105,10 +111,10 @@ pub async fn run() -> Result<()> {
             }
             Ok(Message::Desired(state, desired)) => {
                 twin.update(state, desired)
-                    .unwrap_or_else(|e| error!("{:#?}", e));
+                    .unwrap_or_else(|e| error!("twin update desired properties: {:#?}", e));
             }
             Ok(Message::C2D(msg)) => {
-                message::update(msg, Arc::clone(&tx_app2client));
+                twin.cloud_message(msg);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("iot channel unexpectedly closed by client");
