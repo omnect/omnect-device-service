@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.1] Q1 2023
  - twin:
-   - refactored into modules and submodules:
-     - module twin: contains now handler for C2D messages, direct methods, and desired/reported properties
+   - refactored into main module and submodules:
+     - main module: src/twin/mod.rs
      - submodules of twin: common.rs, consent.rs, factory_reset.rs, network_status.rs
+     - contains now handlers for: C2D messages, direct methods, and desired/reported properties
    - added unittests
    - don't report any network adapter in case no filter is set in desired properties
  - readme: prepared open sourcing repository
