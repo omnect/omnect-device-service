@@ -208,6 +208,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.9.1"
+source = "git+ssh://git@github.com/omnect/azure-iot-sdk.git?tag=0.9.1#9d9d8095ce8a3cc001604680c4fc94dd6c09524a"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",

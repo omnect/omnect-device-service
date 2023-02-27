@@ -141,7 +141,7 @@ impl Twin {
     }
 
     fn report_impl(&mut self, value: serde_json::Value) -> Result<()> {
-        info!("report: \n{:?}", value);
+        info!("report: {:?}", value);
 
         self.tx
             .as_ref()
