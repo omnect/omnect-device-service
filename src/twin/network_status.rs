@@ -1,6 +1,6 @@
 use super::Twin;
 use crate::{twin, ReportProperty};
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use log::{error, info};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use serde::Serialize;
@@ -22,8 +22,11 @@ impl Twin {
         include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
         if include_network_filter.is_none() {
-            self.include_network_filter.take();
-            return self.report_network_status();
+            if self.include_network_filter.take().is_some() {
+                return self.report_network_status();
+            }
+
+            return Ok(());
         }
 
         let mut new_include_network_filter: Vec<String> = include_network_filter

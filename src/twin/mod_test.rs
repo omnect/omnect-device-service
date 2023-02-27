@@ -225,10 +225,7 @@ mod mod_test {
 
         assert!(twin.update_include_network_filter(None).is_ok());
 
-        assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({ "network_interfaces": json!(null) }))
-        );
+        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 
         assert!(twin
             .update_include_network_filter(Some(json!(["*"]).as_array().unwrap()))
@@ -241,6 +238,19 @@ mod mod_test {
             .is_ok());
 
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+
+        twin.include_network_filter = Some(vec!["*".to_string()]);
+
+        assert!(twin.update_include_network_filter(None).is_ok());
+
+        assert!(twin.report_network_status().is_ok());
+
+        assert!(rx.recv().is_ok());
+
+        assert_eq!(
+            rx.recv().unwrap(),
+            Message::Reported(json!({ "network_interfaces": json!(null) }))
+        );
 
         // ToDo: add more tests based on network adapters available on build server?
     }
