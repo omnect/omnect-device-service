@@ -23,9 +23,7 @@ impl Twin {
     ) -> Result<()> {
         if include_network_filter.is_none() {
             self.include_network_filter.take();
-            return self
-                .report_impl(json!({ "network_interfaces": json!(null) }))
-                .context("report_network_status: report_impl");
+            return self.report_network_status();
         }
 
         let mut new_include_network_filter: Vec<String> = include_network_filter
@@ -65,6 +63,12 @@ impl Twin {
     }
 
     pub fn report_network_status(&mut self) -> Result<()> {
+        if self.include_network_filter.is_none() {
+            return self
+                .report_impl(json!({ "network_interfaces": json!(null) }))
+                .context("report_network_status: report_impl");
+        }
+
         #[skip_serializing_none]
         #[derive(Serialize)]
         struct NetworkReport {

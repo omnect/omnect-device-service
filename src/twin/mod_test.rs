@@ -216,6 +216,13 @@ mod mod_test {
             include_network_filter: None,
         };
 
+        assert!(twin.report_network_status().is_ok());
+
+        assert_eq!(
+            rx.recv().unwrap(),
+            Message::Reported(json!({ "network_interfaces": json!(null) }))
+        );
+
         assert!(twin.update_include_network_filter(None).is_ok());
 
         assert_eq!(
