@@ -29,10 +29,9 @@ mod mod_test {
         };
 
         assert!(twin.report_impl(json!({"test": "test"})).is_ok());
-
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({"test": "test"}))
+            rx.try_recv(),
+            Ok(Message::Reported(json!({"test": "test"})))
         );
     }
 
@@ -48,11 +47,11 @@ mod mod_test {
         assert!(twin.report_versions().is_ok());
 
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({
+            rx.try_recv(),
+            Ok(Message::Reported(json!({
                 "module-version": env!("CARGO_PKG_VERSION"),
                 "azure-sdk-version": IotHubClient::get_sdk_version_string()
-            }))
+            })))
         );
     }
 
@@ -103,8 +102,8 @@ mod mod_test {
         assert!(twin.update_general_consent(None).is_ok());
 
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({"general_consent": ["swupdate"]}))
+            rx.try_recv(),
+            Ok(Message::Reported(json!({"general_consent": ["swupdate"]})))
         );
 
         assert!(twin
@@ -112,8 +111,10 @@ mod mod_test {
             .is_ok());
 
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({"general_consent": ["swupdate1", "swupdate2"]}))
+            rx.try_recv(),
+            Ok(Message::Reported(
+                json!({"general_consent": ["swupdate1", "swupdate2"]})
+            ))
         );
 
         assert!(twin
@@ -159,14 +160,14 @@ mod mod_test {
             .is_ok());
 
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({
+            rx.try_recv(),
+            Ok(Message::Reported(json!({
                 "user_consent_history": {
                     "swupdate": [
                         "<version>"
                     ]
                 }
-            }))
+            })))
         );
     }
 
@@ -183,7 +184,11 @@ mod mod_test {
             .report(&ReportProperty::FactoryResetStatus("in_progress"))
             .is_ok());
 
-        let reported = format!("{:?}", rx.recv().unwrap());
+        let reported = rx.try_recv();
+
+        assert!(reported.is_ok());
+        let reported = format!("{:?}", reported.unwrap());
+
         assert!(reported
             .contains("Reported(Object {\"factory_reset_status\": Object {\"date\": String"));
         assert!(reported.contains("\"status\": String(\"in_progress\")}})"));
@@ -219,8 +224,10 @@ mod mod_test {
         assert!(twin.report_network_status().is_ok());
 
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({ "network_interfaces": json!(null) }))
+            rx.try_recv(),
+            Ok(Message::Reported(json!({
+                "network_interfaces": json!(null)
+            })))
         );
 
         assert!(twin.update_include_network_filter(None).is_ok());
@@ -231,7 +238,7 @@ mod mod_test {
             .update_include_network_filter(Some(json!(["*"]).as_array().unwrap()))
             .is_ok());
 
-        assert!(rx.recv().is_ok());
+        assert!(rx.try_recv().is_ok());
 
         assert!(twin
             .update_include_network_filter(Some(json!(["*"]).as_array().unwrap()))
@@ -245,11 +252,13 @@ mod mod_test {
 
         assert!(twin.report_network_status().is_ok());
 
-        assert!(rx.recv().is_ok());
+        assert!(rx.try_recv().is_ok());
 
         assert_eq!(
-            rx.recv().unwrap(),
-            Message::Reported(json!({ "network_interfaces": json!(null) }))
+            rx.try_recv(),
+            Ok(Message::Reported(json!({
+                "network_interfaces": json!(null)
+            })))
         );
 
         // ToDo: add more tests based on network adapters available on build server?
