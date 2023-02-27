@@ -81,11 +81,11 @@ The following status information is defined:
 
 ### iot-hub-device-update user consent
 
-In our systems we use the service [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) for device firmware update. We have extended this service to include a "user consent" functionality, which allows the user to individually approve a new device update for his IoT device.
+On omnect linux [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service is used for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
 
-The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [omnect yocto image](https://github.com/omnect/meta-omnect).
+The module itself does not perform a user consent. It serves as an interface between the cloud and the content handler in [omnect yocto image](https://github.com/omnect/meta-omnect).
 
-Adapt the following environment variable in order to configure the directory used for consent files at compile time:
+Adapt the following environment variable in order to configure the directory used for consent files at runtime:
 ```
 # use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
 CONSENT_DIR_PATH: "/my/path"

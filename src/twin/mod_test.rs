@@ -122,6 +122,12 @@ mod mod_test {
             .is_ok());
 
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
+
+        assert!(twin
+            .update_general_consent(Some(json!(["swupdate1", "swupdate2"]).as_array().unwrap()))
+            .is_ok());
+
+        assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
     }
 
     #[test]
