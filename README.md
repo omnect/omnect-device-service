@@ -1,4 +1,5 @@
 # omnect-device-service
+Product page: https://www.omnect.io/home
 
 ## Instruction
 This module is based on the omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
@@ -80,11 +81,11 @@ The following status information is defined:
 
 ### iot-hub-device-update user consent
 
-In our systems we use the service [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) for device firmware update. We have extended this service to include a "user consent" functionality, which allows the user to individually approve a new device update for his IoT device.
+omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service is used for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
 
-The module itself does not perform a user consent. It serves as an interface between the cloud and the built-in user consent from the [omnect yocto image](https://github.com/omnect/meta-omnect).
+The module itself does not perform a user consent. It serves as an interface between the cloud and the content handler in [omnect yocto image](https://github.com/omnect/meta-omnect).
 
-Adapt the following environment variable in order to configure the directory used for consent files at compile time:
+Adapt the following environment variable in order to configure the directory used for consent files at runtime:
 ```
 # use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
 CONSENT_DIR_PATH: "/my/path"
@@ -110,7 +111,7 @@ To disable the general consent enter the following setting in the module twin:
 ]
 ```
 
-The current general consent status is also exposed to the cloud as reported property.
+The current general consent status is also exposed to the cloud as reported property. In case no desired general_consent is defined the current general_consent settings of the device are reported.
 
 #### Grant user consent
 
@@ -275,7 +276,7 @@ The module reports the status of network adapters. For this purpose the module s
 
 #### Configure current desired include network filter
 
-In order to filter network adapters by name the following desired property can be used to report only defined adapters. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
+In order to report and filter network adapters by name the following desired property can be used. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
 ```
 "include_network_filter":
 [
@@ -284,7 +285,7 @@ In order to filter network adapters by name the following desired property can b
   "wlan0",
 ]
 ```
-If the filter does not exist or is empty all network adapters are reported.
+If the filter is empty all network adapters are reported. In case the `include_network_filter` property doesn't exis at all no adapters will we reported.
 
 #### Refresh Network status
 
@@ -352,4 +353,7 @@ submitted for inclusion in the work by you, as defined in the Apache-2.0
 license, shall be dual licensed as above, without any additional terms or
 conditions.
 
-Copyright (c) 2022 conplement AG
+---
+
+copyright (c) 2022 conplement AG<br>
+Content published under the Apache License Version 2.0 or MIT license, are marked as such. They may be used in accordance with the stated license conditions.
