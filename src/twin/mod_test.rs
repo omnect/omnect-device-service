@@ -2,11 +2,20 @@
 mod mod_test {
     use super::super::*;
     use crate::test_util::Testrunner;
+    use lazy_static::lazy_static;
     use serde_json::json;
     use std::env;
-    use std::sync::mpsc;
     use std::sync::mpsc::TryRecvError;
+    use std::sync::{mpsc, Arc, Mutex};
     use stdext::function_name;
+
+    /* ToDo:
+        as soon as we can switch to rust >=1.63 we should replace by:
+        `static TESTCASE: Mutex<i32> = Mutex::new(0i32);`
+    */
+    lazy_static! {
+        static ref TESTCASE: Mutex<i32> = Mutex::new(0i32);
+    }
 
     #[test]
     fn report_impl_test() {
@@ -94,37 +103,42 @@ mod mod_test {
 
         assert_eq!(rx.try_recv(), Err(TryRecvError::Empty));
 
-        let tr = Testrunner::new(function_name!().split("::").last().unwrap());
-        tr.copy_file("testfiles/consent_conf.json");
+        // avoid race regarding CONSENT_DIR_PATH
+        {
+            let _lock = TESTCASE.lock().unwrap();
 
-        env::set_var("CONSENT_DIR_PATH", tr.get_dirpath().as_str());
+            let tr = Testrunner::new(function_name!().split("::").last().unwrap());
+            tr.copy_file("testfiles/consent_conf.json");
 
-        assert!(twin.update_general_consent(None).is_ok());
+            env::set_var("CONSENT_DIR_PATH", tr.get_dirpath().as_str());
 
-        assert_eq!(
-            rx.try_recv(),
-            Ok(Message::Reported(json!({"general_consent": ["swupdate"]})))
-        );
+            assert!(twin.update_general_consent(None).is_ok());
 
-        assert!(twin
-            .update_general_consent(Some(json!(["SWUPDATE2", "SWUPDATE1"]).as_array().unwrap()))
-            .is_ok());
+            assert_eq!(
+                rx.try_recv(),
+                Ok(Message::Reported(json!({"general_consent": ["swupdate"]})))
+            );
 
-        assert_eq!(
-            rx.try_recv(),
-            Ok(Message::Reported(
-                json!({"general_consent": ["swupdate1", "swupdate2"]})
-            ))
-        );
+            assert!(twin
+                .update_general_consent(Some(json!(["SWUPDATE2", "SWUPDATE1"]).as_array().unwrap()))
+                .is_ok());
 
-        assert!(twin.update_general_consent(None).is_ok());
+            assert_eq!(
+                rx.try_recv(),
+                Ok(Message::Reported(
+                    json!({"general_consent": ["swupdate1", "swupdate2"]})
+                ))
+            );
 
-        assert_eq!(
-            rx.try_recv(),
-            Ok(Message::Reported(
-                json!({"general_consent": ["swupdate1", "swupdate2"]})
-            ))
-        );
+            assert!(twin.update_general_consent(None).is_ok());
+
+            assert_eq!(
+                rx.try_recv(),
+                Ok(Message::Reported(
+                    json!({"general_consent": ["swupdate1", "swupdate2"]})
+                ))
+            );
+        }
     }
 
     #[test]
@@ -323,14 +337,18 @@ mod mod_test {
             "unexpected parameter format"
         );
 
-        let tr = Testrunner::new(function_name!().split("::").last().unwrap());
-        tr.copy_file("testfiles/consent_conf.json");
+        // avoid race regarding CONSENT_DIR_PATH
+        {
+            let _lock = TESTCASE.lock().unwrap();
 
-        env::set_var("CONSENT_DIR_PATH", tr.get_dirpath().as_str());
+            let tr = Testrunner::new(function_name!().split("::").last().unwrap());
 
-        tr.copy_directory("testfiles/test_component");
+            tr.copy_directory("testfiles/test_component");
 
-        assert!(consent::user_consent(json!({"test_component": "1.0.0"})).is_ok());
+            env::set_var("CONSENT_DIR_PATH", tr.get_dirpath().as_str());
+
+            assert!(consent::user_consent(json!({"test_component": "1.0.0"})).is_ok());
+        }
     }
 
     //ToDo: add remaining unittests

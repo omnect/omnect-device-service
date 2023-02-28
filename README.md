@@ -81,7 +81,7 @@ The following status information is defined:
 
 ### iot-hub-device-update user consent
 
-On omnect linux [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service is used for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
+omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service is used for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
 
 The module itself does not perform a user consent. It serves as an interface between the cloud and the content handler in [omnect yocto image](https://github.com/omnect/meta-omnect).
 
