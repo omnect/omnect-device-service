@@ -108,7 +108,6 @@ impl Twin {
             .context("report_general_consent: serde_json::from_reader")?,
         )
         .context("report_general_consent: report_impl")
-        .map_err(|err| err.into())
     }
 
     pub fn report_user_consent(&mut self, report_consent_file: &str) -> Result<()> {
@@ -123,6 +122,5 @@ impl Twin {
             .context("report_user_consent: serde_json::from_reader")?,
         )
         .context("report_user_consent: report_impl")
-        .map_err(|err| err.into())
     }
 }

@@ -24,8 +24,7 @@ impl Twin {
             "azure-sdk-version": IotHubClient::get_sdk_version_string()
         });
 
-        self.report_impl(version.clone())
+        self.report_impl(version)
             .context("report_versions: report_impl")
-            .map_err(|err| err.into())
     }
 }

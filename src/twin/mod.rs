@@ -24,7 +24,7 @@ pub fn get_or_init(tx: Option<Arc<Mutex<Sender<Message>>>>) -> TwinInstance {
         TwinInstance {
             inner: INSTANCE.get_or_init(|| {
                 Mutex::new(Twin {
-                    tx: tx,
+                    tx,
                     ..Default::default()
                 })
             }),
@@ -145,7 +145,7 @@ impl Twin {
 
         self.tx
             .as_ref()
-            .ok_or(anyhow::anyhow!("tx channel missing"))?
+            .ok_or_else(|| anyhow::anyhow!("tx channel missing"))?
             .lock()
             .unwrap()
             .send(Message::Reported(value))

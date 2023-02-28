@@ -74,11 +74,10 @@ impl Twin {
             "factory_reset_status": {
                 "status": status,
                 "date": OffsetDateTime::now_utc().format(&Rfc3339)
-                .context("report_factory_reset_status: format time to Rfc3339")?.to_string(),
+                .context("report_factory_reset_status: format time to Rfc3339")?,
             }
         }))
         .context("report_factory_reset_status: report_impl")
-        .map_err(|err| err.into())
     }
 
     pub fn report_factory_reset_result(&mut self) -> Result<()> {
@@ -91,7 +90,7 @@ impl Twin {
                 error!("report_factory_reset_result: {:#?}", e);
                 String::from("")
             });
-            let vec: Vec<&str> = status.split("=").collect();
+            let vec: Vec<&str> = status.split('=').collect();
 
             let status = match vec[..] {
                 ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),

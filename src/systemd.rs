@@ -32,7 +32,7 @@ impl WatchdogHandler {
         self.usec = u64::MAX;
 
         if sd_notify::watchdog_enabled(false, &mut self.usec) {
-            self.usec = self.usec / 2;
+            self.usec /= 2;
             self.now = Some(Instant::now());
         }
 
@@ -49,7 +49,7 @@ impl WatchdogHandler {
         if let Some(ref mut now) = self.now {
             if u128::from(self.usec) < now.elapsed().as_micros() {
                 debug!("notify watchdog=1");
-                let _ = sd_notify::notify(false, &[NotifyState::Watchdog])?;
+                sd_notify::notify(false, &[NotifyState::Watchdog])?;
                 *now = Instant::now();
             }
         }

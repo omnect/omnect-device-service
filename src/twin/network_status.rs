@@ -94,7 +94,7 @@ impl Twin {
                     .iter()
                     .any(|f| {
                         let name = i.name.to_lowercase();
-                        match (f.starts_with("*"), f.ends_with("*"), f.len()) {
+                        match (f.starts_with('*'), f.ends_with('*'), f.len()) {
                             (_, _, 0) => false,                                     // ""
                             (a, b, 1) if a || b => true,                            // "*"
                             (true, true, len) => name.contains(&f[1..len - 1]),     // ""*...*"
@@ -129,6 +129,5 @@ impl Twin {
             "network_interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
         }))
         .context("report_network_status")
-        .map_err(|err| err.into())
     }
 }

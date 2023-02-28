@@ -16,7 +16,7 @@ use twin::ReportProperty;
 mod test_util;
 
 static INIT: Once = Once::new();
-static UPDATE_VALIDATION_FILE: &'static str = "/run/omnect-device-service/omnect_validate_update";
+static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 
 #[macro_export]
 macro_rules! consent_path {
@@ -123,7 +123,7 @@ pub async fn run() -> Result<()> {
         }
 
         if let Ok(events) = rx_file2app.try_recv() {
-            events.unwrap_or(vec![]).iter().for_each(|ev| {
+            events.unwrap_or_default().iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
                     twin.report(&ReportProperty::UserConsent(path))
                         .unwrap_or_else(|e| error!("twin report user consent: {:#?}", e));

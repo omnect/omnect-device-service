@@ -73,6 +73,12 @@ pub struct Client {
     run: Arc<Mutex<bool>>,
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Client {
     pub fn new() -> Self {
         Client {
