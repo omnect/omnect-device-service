@@ -43,6 +43,8 @@ pub fn open_ssh(in_json: serde_json::Value) -> Result<Option<serde_json::Value>>
     v6.append_replace("filter", "INPUT", SSH_RULE)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    twin::get_or_init(None).report(&ReportProperty::SshStatus)?;
+
     Ok(None)
 }
 
@@ -57,6 +59,8 @@ pub fn close_ssh(_in_json: serde_json::Value) -> Result<Option<serde_json::Value
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     std::fs::remove_file(AUTHORIZED_KEY_PATH)?;
+
+    twin::get_or_init(None).report(&ReportProperty::SshStatus)?;
 
     Ok(None)
 }
