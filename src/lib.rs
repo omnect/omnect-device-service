@@ -52,6 +52,7 @@ fn report_states(request_consent_path: &str, history_consent_path: &str) {
         ReportProperty::UserConsent(request_consent_path),
         ReportProperty::UserConsent(history_consent_path),
         ReportProperty::FactoryResetResult,
+        ReportProperty::SshStatus,
     ]
     .iter()
     .for_each(|p| {

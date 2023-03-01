@@ -5,6 +5,7 @@ mod factory_reset;
 #[path = "mod_test.rs"]
 mod mod_test;
 mod network_status;
+mod ssh;
 use crate::Message;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
@@ -74,6 +75,10 @@ impl TwinInstance {
                 network_status::refresh_network_status(in_json)
             }),
         );
+        methods.insert(
+            String::from("refresh_ssh_status"),
+            IotHubClient::make_direct_method(move |in_json| ssh::refresh_ssh_status(in_json)),
+        );
 
         Some(methods)
     }
@@ -101,6 +106,7 @@ pub enum ReportProperty<'a> {
     FactoryResetStatus(&'a str),
     FactoryResetResult,
     NetworkStatus,
+    SshStatus,
 }
 
 impl Twin {
@@ -137,6 +143,9 @@ impl Twin {
             ReportProperty::NetworkStatus => self
                 .report_network_status()
                 .context("Couldn't report network status"),
+            ReportProperty::SshStatus => self
+                .report_ssh_status()
+                .context("Couldn't report ssh status"),
         }
     }
 
