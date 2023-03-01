@@ -1,7 +1,7 @@
 use super::Twin;
 use crate::{twin, ReportProperty};
 use anyhow::{Context, Result};
-use log::info;
+use log::{debug, info};
 
 use serde::Serialize;
 use serde_json::json;
@@ -56,9 +56,9 @@ impl Twin {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
 
-        info!("ssh report: {:#?}", ssh_report);
+        debug!("ssh report: {:#?}", ssh_report);
 
-        self.report_impl(json!(ssh_report))
+        self.report_impl(json!({ "ssh_status": json!(ssh_report) }))
             .context("report_ssh_status")
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
