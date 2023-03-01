@@ -79,6 +79,14 @@ impl TwinInstance {
             String::from("refresh_ssh_status"),
             IotHubClient::make_direct_method(ssh::refresh_ssh_status),
         );
+        methods.insert(
+            String::from("open_ssh"),
+            IotHubClient::make_direct_method(ssh::open_ssh),
+        );
+        methods.insert(
+            String::from("close_ssh"),
+            IotHubClient::make_direct_method(ssh::close_ssh),
+        );
 
         Some(methods)
     }
