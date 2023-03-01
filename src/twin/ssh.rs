@@ -6,7 +6,7 @@ use log::info;
 use serde::Serialize;
 use serde_json::json;
 
-static SSH_RULE: &'static str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
+static SSH_RULE: &str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
 
 pub fn refresh_ssh_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("ssh status requested");
@@ -58,8 +58,8 @@ impl Twin {
 
         info!("ssh report: {:#?}", ssh_report);
 
-        self.report_impl(json!({ "network_interfaces": json!(ssh_report) }))
+        self.report_impl(json!(ssh_report))
             .context("report_ssh_status")
-            .map_err(|err| err.into())
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
