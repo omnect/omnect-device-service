@@ -9,7 +9,7 @@ use log::{error, info};
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use std::fs;
-use std::sync::{mpsc, Arc, Mutex, Once};
+use std::sync::{mpsc, Once};
 use std::{path::Path, time::Duration};
 use twin::ReportProperty;
 #[cfg(test)]
@@ -67,12 +67,11 @@ pub async fn run() -> Result<()> {
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let (tx_file2app, rx_file2app) = mpsc::channel();
-    let tx_app2client = Arc::new(Mutex::new(tx_app2client));
     let mut debouncer =
         new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
     let request_consent_path = format!("{}/request_consent.json", consent_path!());
     let history_consent_path = format!("{}/history_consent.json", consent_path!());
-    let twin = twin::get_or_init(Some(Arc::clone(&tx_app2client)));
+    let twin = twin::get_or_init(Some(&tx_app2client));
 
     debouncer
         .watcher()

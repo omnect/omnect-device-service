@@ -6,7 +6,7 @@ mod mod_test {
     use serde_json::json;
     use std::env;
     use std::sync::mpsc::TryRecvError;
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{mpsc, Mutex};
     use stdext::function_name;
 
     /* ToDo:
@@ -31,7 +31,6 @@ mod mod_test {
             .starts_with("tx channel missing"));
 
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,
@@ -47,7 +46,6 @@ mod mod_test {
     #[test]
     fn report_versions_test() {
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,
@@ -67,7 +65,6 @@ mod mod_test {
     #[test]
     fn update_and_report_general_consent_test() {
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,
@@ -144,7 +141,6 @@ mod mod_test {
     #[test]
     fn report_user_consent_test() {
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,
@@ -191,7 +187,6 @@ mod mod_test {
     #[test]
     fn report_factory_reset_status_test() {
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,
@@ -214,7 +209,6 @@ mod mod_test {
     #[test]
     fn report_factory_reset_result_test() {
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,
@@ -232,7 +226,6 @@ mod mod_test {
     #[test]
     fn update_and_report_network_status_test() {
         let (tx, rx) = mpsc::channel();
-        let tx = Arc::new(Mutex::new(tx));
         let mut twin = Twin {
             tx: Some(tx),
             include_network_filter: None,

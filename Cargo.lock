@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "azure-iot-sdk",
