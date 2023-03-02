@@ -1,0 +1,8 @@
+[Unit]
+Before=paths.target
+
+[Path]
+PathChanged=/run/omnect-authorized_keys
+
+[Install]
+WantedBy=paths.target
