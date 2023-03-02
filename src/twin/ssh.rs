@@ -8,7 +8,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 
-static AUTHORIZED_KEY_PATH: &str = "/etc/dropbear/authorized_keys";
+static AUTHORIZED_KEY_PATH: &str = "/home/omnect/.ssh/authorized_keys";
 static SSH_RULE: &str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
 
 pub fn refresh_ssh_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
