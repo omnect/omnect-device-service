@@ -367,10 +367,79 @@ SSH gets enabled by adding the iptables nft filter rule for port 22 and adding t
 
 **Note**: This is intended for "release" images. In "devel" images SSH is enabled by default.
 
+**Direct method: open_ssh**
+
+Method Name: `open_ssh`
+
+Payload:
+```
+{
+  "pubkey" : "<content of your ssh pubkey file>"
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
 #### Disabling SSH
 SSH gets disabled by removing the iptables nft filter rule for port 22 and deleting the content of `/etc/dropbear/authorized_keys`.
 
 **Note**: If you use custom iptables rules, which don't have the default policy "DROP" for the "filter" table "INPUT" chain and use a "devel" image or have a custom `/etc/default/dropbear` which allows password logins this direct method has no effect.
+
+**Direct method: open_ssh**
+
+Method Name: `close_ssh`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
 
 ### Update Validation
 On `iot-hub-device-update` update, after flashing the new root partition, we boot
