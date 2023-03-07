@@ -24,14 +24,13 @@ pub fn open_ssh(in_json: serde_json::Value) -> Result<Option<serde_json::Value>>
     if let Some(pubkey) = in_json["pubkey"].as_str() {
         if String::from(pubkey).is_empty() {
             anyhow::bail!("Empty ssh pubkey")
-        } else {
-            OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open(AUTHORIZED_KEY_PATH)?
-                .write_all(format!("{}\n", pubkey).as_bytes())?;
         }
+        OpenOptions::new()
+            .write(true)
+            .create(false)
+            .truncate(true)
+            .open(AUTHORIZED_KEY_PATH)?
+            .write_all(format!("{}\n", pubkey).as_bytes())?;
     } else {
         anyhow::bail!("No ssh pubkey given");
     }
@@ -94,21 +93,21 @@ impl Twin {
             v6_enabled: false,
         };
 
-        if "ACCEPT" == v4_input_policy {
-            ssh_report.v4_enabled = true;
-        } else if "DROP" == v4_input_policy {
-            ssh_report.v4_enabled = v4
+        ssh_report.v4_enabled = match v4_input_policy.as_str() {
+            "ACCEPT" => true,
+            "DROP" => v4
                 .exists("filter", "INPUT", SSH_RULE)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-        }
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+            p => anyhow::bail!("Unexpected input policy: {p}"),
+        };
 
-        if "ACCEPT" == v6_input_policy {
-            ssh_report.v6_enabled = true;
-        } else if "DROP" == v6_input_policy {
-            ssh_report.v6_enabled = v6
+        ssh_report.v6_enabled = match v6_input_policy.as_str() {
+            "ACCEPT" => true,
+            "DROP" => v4
                 .exists("filter", "INPUT", SSH_RULE)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-        }
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+            p => anyhow::bail!("Unexpected input policy: {p}"),
+        };
 
         debug!("ssh report: {:#?}", ssh_report);
 

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0] Q1 2023
  - added ssh direct methods: open_ssh, close_ssh, refresh_ssh_status
+ - updated azure-iot-sdk to 0.9.2
 
 ## [0.8.2] Q1 2023
  - fixed redundant locking on twin
