@@ -21,18 +21,17 @@ pub fn refresh_ssh_status(_in_json: serde_json::Value) -> Result<Option<serde_js
 pub fn open_ssh(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("open ssh requested {in_json}");
 
-    if let Some(pubkey) = in_json["pubkey"].as_str() {
-        if String::from(pubkey).is_empty() {
-            anyhow::bail!("Empty ssh pubkey")
+    match in_json["pubkey"].as_str() {
+        Some("") => anyhow::bail!("Empty ssh pubkey"),
+        Some(pubkey) => {
+            OpenOptions::new()
+                .write(true)
+                .create(false)
+                .truncate(true)
+                .open(AUTHORIZED_KEY_PATH)?
+                .write_all(format!("{}\n", pubkey).as_bytes())?;
         }
-        OpenOptions::new()
-            .write(true)
-            .create(false)
-            .truncate(true)
-            .open(AUTHORIZED_KEY_PATH)?
-            .write_all(format!("{}\n", pubkey).as_bytes())?;
-    } else {
-        anyhow::bail!("No ssh pubkey given");
+        None => anyhow::bail!("No ssh pubkey given"),
     }
 
     let v4 = iptables::new(false).map_err(|e| anyhow::anyhow!("{e}"))?;
