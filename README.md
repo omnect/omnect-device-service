@@ -81,7 +81,7 @@ The following status information is defined:
 
 ### iot-hub-device-update user consent
 
-omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service is used for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
+omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
 
 The module itself does not perform a user consent. It serves as an interface between the cloud and the content handler in [omnect yocto image](https://github.com/omnect/meta-omnect).
 
@@ -216,7 +216,7 @@ In all other cases there will be an error status:
 }
 ```
 
-### Network stautus
+### Network status
 
 #### Current reported network status
 
@@ -294,6 +294,122 @@ A direct method to refresh and report current network status.
 **Direct method: refresh_network_status**
 
 Method Name: `refresh_network_status`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+### SSH handling
+
+#### SSH status
+A direct method to refresh and report current ssh status.
+
+**Direct method: refresh_ssh_status**
+
+Method Name: `refresh_ssh_status`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+#### Enabling SSH
+SSH gets enabled by adding the iptables nft filter rule for port 22 and adding the provided public key to `/etc/dropbear/authorized_keys`.
+
+**Note**: This is intended for "release" images. In "devel" images SSH is enabled by default.
+
+**Direct method: open_ssh**
+
+Method Name: `open_ssh`
+
+Payload:
+```
+{
+  "pubkey" : "<content of your ssh pubkey file>"
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+#### Disabling SSH
+SSH gets disabled by removing the iptables nft filter rule for port 22 and deleting the content of `/etc/dropbear/authorized_keys`.
+
+**Note**: If you use custom iptables rules, which don't have the default policy "DROP" for the "filter" table "INPUT" chain and use a "devel" image or have a custom `/etc/default/dropbear` which allows password logins this direct method has no effect.
+
+**Direct method: open_ssh**
+
+Method Name: `close_ssh`
 
 Payload:
 ```

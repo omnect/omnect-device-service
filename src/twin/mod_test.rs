@@ -344,5 +344,25 @@ mod mod_test {
         }
     }
 
+    #[test]
+    fn ssh_test() {
+        assert!(ssh::open_ssh(json!({}),)
+            .unwrap_err()
+            .to_string()
+            .starts_with("No ssh pubkey given"));
+        assert!(ssh::open_ssh(json!({ "": "" }),)
+            .unwrap_err()
+            .to_string()
+            .starts_with("No ssh pubkey given"));
+        assert!(ssh::open_ssh(json!({ "pubkey": "" }),)
+            .unwrap_err()
+            .to_string()
+            .starts_with("Empty ssh pubkey"));
+
+        // its hard to test the ssh functionality as module test,
+        // we would have to mock the iptables crate and make
+        // AUTHORIZED_KEY_PATH configurable
+    }
+
     //ToDo: add remaining unittests
 }
