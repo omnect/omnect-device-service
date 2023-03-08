@@ -1,23 +1,41 @@
 # omnect-device-service
-Product page: https://www.omnect.io/home
+**Product page: https://www.omnect.io/home**
+
+This module serves as interface between omnect cloud and device to support certain end to end workflows:
+
+- [omnect-device-service](#omnect-device-service)
+  - [Instruction](#instruction)
+  - [Factory reset](#factory-reset)
+    - [Trigger factory reset](#trigger-factory-reset)
+    - [Report factory reset status](#report-factory-reset-status)
+  - [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
+    - [Configure current desired general consent](#configure-current-desired-general-consent)
+    - [Grant user consent](#grant-user-consent)
+    - [Current reported user consent status](#current-reported-user-consent-status)
+  - [Reboot](#reboot)
+  - [Network status](#network-status)
+    - [Current reported network status](#current-reported-network-status)
+    - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
+    - [Refresh Network status](#refresh-network-status)
+  - [SSH handling](#ssh-handling)
+    - [SSH status](#ssh-status)
+    - [Enabling SSH](#enabling-ssh)
+    - [Disabling SSH](#disabling-ssh)
+  - [Update Validation](#update-validation)
+    - [Criteria for a successful Update](#criteria-for-a-successful-update)
+- [License](#license)
+- [Contribution](#contribution)
+
+<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
 ## Instruction
-This module is based on the omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
+This module is based on omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
 
-
-## What is omnect-device-service
-This module implements the device part for the following end to end workflows:
-- factory reset
-- iot-hub-device-update user consent
-- reboot
-- report network status
-- update validation
-
-### Factory reset
+## Factory reset
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
-A function was specified for this purpose, a so-called direct method which is described below.
+### Trigger factory reset
 
 **Direct method: factory reset**
 
@@ -62,6 +80,8 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
+### Report factory reset status
+
 Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
 
 ```
@@ -79,7 +99,7 @@ The following status information is defined:
  - "unexpected factory reset type"
 
 
-### iot-hub-device-update user consent
+## iot-hub-device-update user consent
 
 omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
 
@@ -91,7 +111,7 @@ Adapt the following environment variable in order to configure the directory use
 CONSENT_DIR_PATH: "/my/path"
 ```
 
-#### Configure current desired general consent
+### Configure current desired general consent
 
 To enable a general consent for all swupdate based firmware updates, configure the following general_consent setting in the module twin (the setting is case insensitive):
 
@@ -113,7 +133,7 @@ To disable the general consent enter the following setting in the module twin:
 
 The current general consent status is also exposed to the cloud as reported property. In case no desired general_consent is defined the current general_consent settings of the device are reported.
 
-#### Grant user consent
+### Grant user consent
 
 If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
 A direct method was specified for this purpose which is described below.
@@ -154,7 +174,7 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
-#### Current reported user consent status
+### Current reported user consent status
 
 The module reports the status for a required user consent. For this purpose the module sends a reported property to the cloud.
 
@@ -178,7 +198,7 @@ As soon as the consent for a new update has been granted via the direct method "
 }
 ```
 
-### Reboot
+## Reboot
 
 A direct method to trigger a device reboot.
 
@@ -216,9 +236,9 @@ In all other cases there will be an error status:
 }
 ```
 
-### Network status
+## Network status
 
-#### Current reported network status
+### Current reported network status
 
 The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
 
@@ -274,7 +294,7 @@ The module reports the status of network adapters. For this purpose the module s
 ]
 ```
 
-#### Configure current desired include network filter
+### Configure current desired include network filter
 
 In order to report and filter network adapters by name the following desired property can be used. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
 ```
@@ -287,7 +307,7 @@ In order to report and filter network adapters by name the following desired pro
 ```
 If the filter is empty all network adapters are reported. In case the `include_network_filter` property doesn't exis at all no adapters will we reported.
 
-#### Refresh Network status
+### Refresh Network status
 
 A direct method to refresh and report current network status.
 
@@ -324,9 +344,10 @@ In all other cases there will be an error status:
   "payload": {}
 }
 ```
-### SSH handling
+## SSH handling
 
-#### SSH status
+### SSH status
+
 A direct method to refresh and report current ssh status.
 
 **Direct method: refresh_ssh_status**
@@ -362,7 +383,8 @@ In all other cases there will be an error status:
   "payload": {}
 }
 ```
-#### Enabling SSH
+### Enabling SSH
+
 SSH gets enabled by adding the iptables nft filter rule for port 22 and adding the provided public key to `/etc/dropbear/authorized_keys`.
 
 **Note**: This is intended for "release" images. In "devel" images SSH is enabled by default.
@@ -402,7 +424,8 @@ In all other cases there will be an error status:
 }
 ```
 
-#### Disabling SSH
+### Disabling SSH
+
 SSH gets disabled by removing the iptables nft filter rule for port 22 and deleting the content of `/etc/dropbear/authorized_keys`.
 
 **Note**: If you use custom iptables rules, which don't have the default policy "DROP" for the "filter" table "INPUT" chain and use a "devel" image or have a custom `/etc/default/dropbear` which allows password logins this direct method has no effect.
@@ -441,20 +464,16 @@ In all other cases there will be an error status:
 }
 ```
 
-### Update Validation
-On `iot-hub-device-update` update, after flashing the new root partition, we boot
-into the new root partition and test if the update was successful.<br>
-We don't set the new root partition permanently yet. On this boot the startup of
-`iot-hub-device-update` is prevented and has to be triggered by
-`omnect-device-service`.<br>
-`omnect-device-service´ validates if the update was successful. If so, the new
-root partition is permanently set and the start of `iot-hub-device-update` gets triggered. If not, the device gets rebooted and we
-boot to the old root partition.
+## Update Validation
 
-#### Criteria for a successful Update
+On `iot-hub-device-update` update, after flashing the new root partition, we boot into the new root partition and test if the update was successful.<br>
+We don't set the new root partition permanently yet. On this boot the startup of `iot-hub-device-update` is prevented and has to be triggered by `omnect-device-service`.<br>
+`omnect-device-service` validates if the update was successful. If so, the new root partition is permanently set and the start of `iot-hub-device-update` gets triggered. If not, the device gets rebooted and we boot to the old root partition.
+
+### Criteria for a successful Update
 This service provisions against iothub.
 
-## License
+# License
 
 Licensed under either of
 * Apache License, Version 2.0, (./LICENSE-APACHE or <http://www.apache.org/licenses/LICENSE-2.0>)
@@ -462,7 +481,7 @@ Licensed under either of
 
 at your option.
 
-## Contribution
+# Contribution
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in the work by you, as defined in the Apache-2.0
