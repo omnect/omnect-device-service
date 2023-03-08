@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.1] Q1 2023
  - improved readme
+ - pined time dependency to 0.3.19 since newer versions need rust 1.63
 
 ## [0.9.0] Q1 2023
  - added ssh direct methods: open_ssh, close_ssh, refresh_ssh_status
