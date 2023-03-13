@@ -276,21 +276,6 @@ mod mod_test {
 
     #[test]
     fn factory_reset_test() {
-        assert!(factory_reset::reset_to_factory_settings(json!({
-            "type": 1,
-            "restore_settings": ["wifi"]
-        }),)
-        .unwrap_err()
-        .to_string()
-        .starts_with("No such file or directory"));
-
-        assert!(factory_reset::reset_to_factory_settings(json!({
-            "type": 1,
-        }),)
-        .unwrap_err()
-        .to_string()
-        .starts_with("No such file or directory"));
-
         assert_eq!(
             factory_reset::reset_to_factory_settings(json!({
                 "restore_settings": ["wifi"]

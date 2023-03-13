@@ -1,18 +1,14 @@
+use super::super::systemd;
 use super::Twin;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use log::info;
 use serde_json::json;
-use std::fs::OpenOptions;
 
 pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("reboot requested");
 
-    OpenOptions::new()
-        .write(true)
-        .create(false)
-        .truncate(true)
-        .open("/run/omnect-device-service/reboot-trigger")?;
+    systemd::system_reboot()?;
 
     Ok(None)
 }

@@ -1,3 +1,4 @@
+use super::super::systemd;
 use super::Twin;
 use crate::{twin, ReportProperty};
 use anyhow::{anyhow, Context, Result};
@@ -5,8 +6,6 @@ use lazy_static::{__Deref, lazy_static};
 use log::{error, info, warn};
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -46,21 +45,21 @@ pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<se
 
     match &in_json["type"].as_u64() {
         Some(reset_type) => {
-            OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open("/run/omnect-device-service/factory-reset-restore-list")?
-                .write_all(restore_paths.as_bytes())?;
+            Command::new("sudo")
+                .arg("fw_setenv")
+                .arg("factory-reset-restore-list")
+                .arg(restore_paths)
+                .output()?;
 
-            OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open("/run/omnect-device-service/factory-reset-trigger")?
-                .write_all(reset_type.to_string().as_bytes())?;
+            Command::new("sudo")
+                .arg("fw_setenv")
+                .arg("factory-reset")
+                .arg(reset_type.to_string())
+                .output()?;
 
             twin::get_or_init(None).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
+
+            systemd::system_reboot()?;
 
             Ok(None)
         }
@@ -81,9 +80,9 @@ impl Twin {
     }
 
     pub fn report_factory_reset_result(&mut self) -> Result<()> {
-        if let Ok(output) = Command::new("sh")
-            .arg("-c")
-            .arg("fw_printenv factory-reset-status")
+        if let Ok(output) = Command::new("sudo")
+            .arg("fw_printenv")
+            .arg("factory-reset-status")
             .output()
         {
             let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
@@ -106,9 +105,9 @@ impl Twin {
             match status {
                 Ok((update_twin, true)) => {
                     self.report_factory_reset_status(update_twin)?;
-                    Command::new("sh")
-                        .arg("-c")
-                        .arg("fw_setenv factory-reset-status")
+                    Command::new("sudo")
+                        .arg("fw_setenv")
+                        .arg("factory-reset-status")
                         .output()
                         .context("report_factory_reset_result")?;
 

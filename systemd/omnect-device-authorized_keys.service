@@ -1,8 +1,0 @@
-[Unit]
-Description=authorized_keys generation
-
-[Service]
-User=omnect
-Group=omnect
-Type=oneshot
-ExecStart=/bin/bash -c 'cat /run/omnect-authorized_keys > /home/omnect/.ssh/authorized_keys && echo "" > /run/omnect-authorized_keys'

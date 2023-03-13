@@ -1,8 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, info};
 use sd_notify::NotifyState;
 use std::sync::Once;
 use std::time::Instant;
+use systemd_zbus::{ManagerProxyBlocking, Mode};
 
 static SD_NOTIFY_ONCE: Once = Once::new();
 
@@ -56,4 +57,32 @@ impl WatchdogHandler {
 
         Ok(())
     }
+}
+
+pub fn system_reboot() -> Result<()> {
+    zbus::blocking::Connection::system()
+        .map_err(|e| anyhow::anyhow!("system_reboot: can't get system dbus: {:?}", e))?
+        .call_method(
+            Some("org.freedesktop.login1"),
+            "/org/freedesktop/login1",
+            Some("org.freedesktop.login1.Manager"),
+            "Reboot",
+            &(true),
+        )
+        .map_err(|e| anyhow::anyhow!("dbus reboot: {:?}", e))?;
+
+    Ok(())
+}
+
+pub fn systemd_start_unit(unit: &str) -> Result<()> {
+    let conn = zbus::blocking::Connection::system()
+        .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't get system dbus: {:?}", e))?;
+    let proxy = ManagerProxyBlocking::new(&conn)?;
+    let res = proxy
+        .start_unit(unit, Mode::Fail)
+        .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't start \"{unit}\": {:?}", e))?;
+    debug!("systemd start unit object: {:?}", res);
+
+    //todo receive job removed signal on res
+    Ok(())
 }

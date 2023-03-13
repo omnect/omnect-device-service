@@ -1,7 +1,0 @@
-[Unit]
-Description=update finalization
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'fw_setenv bootpart $(fw_printenv omnect_validate_update_part | cut -d= -f2); fw_setenv omnect_validate_update; fw_setenv omnect_validate_update_part;'
-RemainAfterExit=true
