@@ -2,23 +2,21 @@ pub mod client;
 #[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
+pub mod update_validation;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
-use log::{error, info};
+use log::error;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
-use std::fs;
-use std::process::Command;
+use std::path::Path;
 use std::sync::{mpsc, Once};
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 use twin::ReportProperty;
 #[cfg(test)]
 mod test_util;
 
 static INIT: Once = Once::new();
-static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
-static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 
 #[macro_export]
 macro_rules! consent_path {
@@ -30,63 +28,6 @@ macro_rules! consent_path {
 
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
-
-fn update_validation() -> Result<()> {
-    /*
-     * For now the only validation is a successful module provisioning.
-     * This is ensured by calling this function once on authentication.
-     */
-    info!("Successfully validated Update.");
-
-    Ok(())
-}
-
-fn update_validation_finalize() -> Result<()> {
-    let omnect_validate_update_part = Command::new("sudo")
-        .arg("fw_printenv")
-        .arg("omnect_validate_update_part")
-        .output()?;
-    if !omnect_validate_update_part.status.success() {
-        anyhow::bail!("fw_printenv omnect_validate_update_part failed");
-    }
-    let omnect_validate_update_part = String::from_utf8(omnect_validate_update_part.stdout)?;
-    let omnect_validate_update_part = match omnect_validate_update_part.split('=').last() {
-        Some(omnect_validate_update_part) => omnect_validate_update_part.trim(),
-        None => anyhow::bail!("omnect_validate_update_part split failed"),
-    };
-
-    if !Command::new("sudo")
-        .args(["fw_setenv", "bootpart", omnect_validate_update_part])
-        .status()?
-        .success()
-    {
-        anyhow::bail!("\"fw_setenv bootpart {omnect_validate_update_part}\" failed")
-    }
-
-    if !Command::new("sudo")
-        .arg("fw_setenv")
-        .arg("omnect_validate_update")
-        .status()?
-        .success()
-    {
-        anyhow::bail!("\"fw_setenv omnect_validate_update\" failed")
-    }
-
-    if !Command::new("sudo")
-        .arg("fw_setenv")
-        .arg("omnect_validate_update_part")
-        .status()?
-        .success()
-    {
-        anyhow::bail!("\"fw_setenv omnect_validate_update_part\" failed")
-    };
-
-    // remove iot-hub-device-service barrier file and start service
-    fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
-    systemd::systemd_start_unit(IOT_HUB_DEVICE_UPDATE_SERVICE)?;
-
-    Ok(())
-}
 
 fn report_states(request_consent_path: &str, history_consent_path: &str) {
     vec![
@@ -138,17 +79,7 @@ pub async fn run() -> Result<()> {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
-                    /*
-                     * ToDo: as soon as we can switch to rust >=1.63 we should use
-                     * Path::try_exists() here
-                     */
-                    if Path::new(UPDATE_VALIDATION_FILE).exists()
-                        && (update_validation().is_err() || update_validation_finalize().is_err())
-                    {
-                        info!("update validation failed... reboot");
-                        systemd::system_reboot()
-                            .unwrap_or_else(|e| error!("update validation reboot: {e}"));
-                    }
+                    update_validation::check_update().unwrap();
 
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();

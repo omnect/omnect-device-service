@@ -45,17 +45,25 @@ pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<se
 
     match &in_json["type"].as_u64() {
         Some(reset_type) => {
-            Command::new("sudo")
-                .arg("fw_setenv")
-                .arg("factory-reset-restore-list")
-                .arg(restore_paths)
-                .output()?;
+            anyhow::ensure!(
+                Command::new("sudo")
+                    .arg("fw_setenv")
+                    .arg("factory-reset-restore-list")
+                    .arg(restore_paths)
+                    .status()?
+                    .success(),
+                "failed to set factory-reset-restore-list in u-boot env"
+            );
 
-            Command::new("sudo")
-                .arg("fw_setenv")
-                .arg("factory-reset")
-                .arg(reset_type.to_string())
-                .output()?;
+            anyhow::ensure!(
+                Command::new("sudo")
+                    .arg("fw_setenv")
+                    .arg("factory-reset")
+                    .arg(reset_type.to_string())
+                    .status()?
+                    .success(),
+                "failed to set factory-reset type in u-boot env"
+            );
 
             twin::get_or_init(None).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
 
@@ -85,6 +93,11 @@ impl Twin {
             .arg("factory-reset-status")
             .output()
         {
+            anyhow::ensure!(
+                output.status.success(),
+                "failed to get factory-reset-status"
+            );
+
             let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
                 error!("report_factory_reset_result: {:#?}", e);
                 String::from("")
@@ -105,11 +118,14 @@ impl Twin {
             match status {
                 Ok((update_twin, true)) => {
                     self.report_factory_reset_status(update_twin)?;
-                    Command::new("sudo")
-                        .arg("fw_setenv")
-                        .arg("factory-reset-status")
-                        .output()
-                        .context("report_factory_reset_result")?;
+                    anyhow::ensure!(
+                        Command::new("sudo")
+                            .arg("fw_setenv")
+                            .arg("factory-reset-status")
+                            .status()?
+                            .success(),
+                        "failed to reset factory-reset-status"
+                    );
 
                     info!("factory reset result: {}", update_twin);
                 }

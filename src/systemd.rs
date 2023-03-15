@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{debug, info};
 use sd_notify::NotifyState;
 use std::sync::Once;

@@ -22,10 +22,10 @@ pub fn write_authorized_keys(pubkey: &str) -> Result<()> {
         _ => anyhow::bail!("failed to take stdin"),
     }
 
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        anyhow::bail!("failed to set pubkey as omnect user")
-    }
+    anyhow::ensure!(
+        child.wait_with_output()?.status.success(),
+        "failed to set pubkey as omnect user"
+    );
 
     Ok(())
 }
