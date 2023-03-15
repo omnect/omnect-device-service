@@ -8,7 +8,7 @@ use serde_json::json;
 pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("reboot requested");
 
-    systemd::system_reboot()?;
+    systemd::reboot()?;
 
     Ok(None)
 }

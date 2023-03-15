@@ -59,7 +59,7 @@ impl WatchdogHandler {
     }
 }
 
-pub fn system_reboot() -> Result<()> {
+pub fn reboot() -> Result<()> {
     zbus::blocking::Connection::system()
         .map_err(|e| anyhow::anyhow!("system_reboot: can't get system dbus: {:?}", e))?
         .call_method(
@@ -74,7 +74,7 @@ pub fn system_reboot() -> Result<()> {
     Ok(())
 }
 
-pub fn systemd_start_unit(unit: &str) -> Result<()> {
+pub fn start_unit(unit: &str) -> Result<()> {
     let conn = zbus::blocking::Connection::system()
         .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't get system dbus: {:?}", e))?;
     let proxy = ManagerProxyBlocking::new(&conn)?;

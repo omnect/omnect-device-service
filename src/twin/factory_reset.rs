@@ -67,7 +67,7 @@ pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<se
 
             twin::get_or_init(None).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
 
-            systemd::system_reboot()?;
+            systemd::reboot()?;
 
             Ok(None)
         }

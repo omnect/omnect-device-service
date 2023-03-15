@@ -60,7 +60,7 @@ fn update_validation_finalize() -> Result<()> {
 
     // remove iot-hub-device-service barrier file and start service
     fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
-    systemd::systemd_start_unit(IOT_HUB_DEVICE_UPDATE_SERVICE)?;
+    systemd::start_unit(IOT_HUB_DEVICE_UPDATE_SERVICE)?;
 
     Ok(())
 }
@@ -74,8 +74,7 @@ pub fn check_update() -> Result<()> {
         && (update_validation().is_err() || update_validation_finalize().is_err())
     {
         info!("update validation failed... reboot");
-        return systemd::system_reboot()
-            .map_err(|e| anyhow::anyhow!("update validation reboot: {e}"));
+        return systemd::reboot().map_err(|e| anyhow::anyhow!("update validation reboot: {e}"));
     }
 
     Ok(())
