@@ -14,14 +14,9 @@ fn validate() -> Result<()> {
      * This is ensured by calling this function once on authentication.
      */
 
-    // remove iot-hub-device-service barrier file and start service
+    // remove iot-hub-device-service barrier file and start service as part of validation
     fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
     systemd::start_unit(IOT_HUB_DEVICE_UPDATE_SERVICE)?;
-
-    /*
-     * todo: here we should validate if iot-hub-device-update could actually
-     * start successfully, for now we assume it did
-     */
 
     info!("Successfully validated Update.");
     Ok(())

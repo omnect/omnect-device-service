@@ -1,9 +1,10 @@
 use anyhow::Result;
+use futures_util::StreamExt;
 use log::{debug, info};
 use sd_notify::NotifyState;
 use std::sync::Once;
 use std::time::Instant;
-use systemd_zbus::{ManagerProxyBlocking, Mode};
+use systemd_zbus::{ManagerProxy, Mode};
 
 static SD_NOTIFY_ONCE: Once = Once::new();
 
@@ -75,14 +76,51 @@ pub fn reboot() -> Result<()> {
 }
 
 pub fn start_unit(unit: &str) -> Result<()> {
-    let conn = zbus::blocking::Connection::system()
-        .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't get system dbus: {:?}", e))?;
-    let proxy = ManagerProxyBlocking::new(&conn)?;
-    let res = proxy
-        .start_unit(unit, Mode::Fail)
-        .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't start \"{unit}\": {:?}", e))?;
-    debug!("systemd start unit object: {:?}", res);
+    futures_executor::block_on(async {
+        let conn = zbus::Connection::system()
+            .await
+            .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't get system dbus: {:?}", e))?;
+        let proxy = ManagerProxy::new(&conn).await?;
 
-    //todo receive job removed signal on res
-    Ok(())
+        let mut job_removed_stream = proxy.receive_job_removed().await?;
+
+        // https://gitlab.freedesktop.org/dbus/zbus/-/blob/main/zbus/tests/e2e.rs
+        let (job_removed, job) =
+            futures_util::future::join(async { job_removed_stream.next().await.unwrap() }, async {
+                proxy
+                    .start_unit(unit, Mode::Fail)
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!("systemd_start_unit: can't start \"{unit}\": {:?}", e)
+                    })
+                    .unwrap()
+            })
+            .await;
+
+        let job_removed_args = job_removed.args()?;
+        debug!("job removed: {:?}", job_removed_args);
+        if job_removed_args.job().to_string() == job.to_string() {
+            anyhow::ensure!(
+                job_removed_args.result == "done",
+                "failed to start unit \"{unit}\": {}",
+                job_removed_args.result
+            );
+        } else {
+            loop {
+                let job_removed = job_removed_stream.next().await.unwrap();
+                let job_removed_args = job_removed.args()?;
+                debug!("job removed: {:?}", job_removed_args);
+                if job_removed_args.job().to_string() == job.to_string() {
+                    anyhow::ensure!(
+                        job_removed.args()?.result == "done",
+                        "failed to start unit \"{unit}\": {}",
+                        job_removed_args.result
+                    );
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    })
 }

@@ -16,6 +16,7 @@ azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "
 ] }
 env_logger = "0.8"
 futures-executor = "0.3"
+futures-util = "0.3"
 iptables = "0.5"
 lazy_static = "1.4"
 log = "0.4"
