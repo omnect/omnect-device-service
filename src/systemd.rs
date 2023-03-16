@@ -84,18 +84,24 @@ pub fn start_unit(unit: &str) -> Result<()> {
 
         let mut job_removed_stream = proxy.receive_job_removed().await?;
 
-        // https://gitlab.freedesktop.org/dbus/zbus/-/blob/main/zbus/tests/e2e.rs
         let (job_removed, job) =
-            futures_util::future::join(async { job_removed_stream.next().await.unwrap() }, async {
-                proxy
-                    .start_unit(unit, Mode::Fail)
-                    .await
-                    .map_err(|e| {
-                        anyhow::anyhow!("systemd_start_unit: can't start \"{unit}\": {:?}", e)
-                    })
-                    .unwrap()
+            futures_util::future::join(async { job_removed_stream.next().await }, async {
+                proxy.start_unit(unit, Mode::Fail).await
             })
             .await;
+
+        anyhow::ensure!(
+            job.is_ok(),
+            "systemd_start_unit: can't start \"{unit}\": {:?}",
+            job.err()
+        );
+        let job = job.unwrap();
+
+        anyhow::ensure!(
+            job_removed.is_some(),
+            "Failed to get next item in job removed stream"
+        );
+        let job_removed = job_removed.unwrap();
 
         let job_removed_args = job_removed.args()?;
         debug!("job removed: {:?}", job_removed_args);
@@ -107,7 +113,12 @@ pub fn start_unit(unit: &str) -> Result<()> {
             );
         } else {
             loop {
-                let job_removed = job_removed_stream.next().await.unwrap();
+                let job_removed = job_removed_stream.next().await;
+                anyhow::ensure!(
+                    job_removed.is_some(),
+                    "Failed to get next item in job removed stream"
+                );
+                let job_removed = job_removed.unwrap();
                 let job_removed_args = job_removed.args()?;
                 debug!("job removed: {:?}", job_removed_args);
                 if job_removed_args.job().to_string() == job.to_string() {
@@ -120,6 +131,7 @@ pub fn start_unit(unit: &str) -> Result<()> {
                 }
             }
         }
+        drop(job_removed_stream);
 
         Ok(())
     })
