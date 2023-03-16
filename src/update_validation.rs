@@ -65,7 +65,7 @@ fn update_validation_finalize() -> Result<()> {
     Ok(())
 }
 
-pub fn check_update() -> Result<()> {
+pub fn check() -> Result<()> {
     /*
      * ToDo: as soon as we can switch to rust >=1.63 we should use
      * Path::try_exists() here

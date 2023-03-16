@@ -79,7 +79,7 @@ pub async fn run() -> Result<()> {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
-                    update_validation::check_update().unwrap();
+                    update_validation::check().unwrap();
 
                     #[cfg(feature = "systemd")]
                     systemd::notify_ready();
