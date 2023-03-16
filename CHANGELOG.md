@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.10.0] Q1 2023
- - TODO
+ - refactored service permissions, reboot, factory-reset, ssh-report and
+   update validation handling
+   - removed path activation handling for permission propagation
+   - added policy-kit configuration for accessing systemd via dbus for reboot
+     and starting iot-hub-device-update
+   - added sudo configuration for safe fw_setenv/printenv usage
+   - added sudo configuration for writing ssh pubkey as user omnect
 
 ## [0.9.1] Q1 2023
  - improved readme
