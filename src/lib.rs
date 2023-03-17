@@ -1,5 +1,4 @@
 pub mod client;
-#[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
 pub mod update_validation;
@@ -79,9 +78,9 @@ pub async fn run() -> Result<()> {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
+                    // ToDo we can not use anyhow::ensure! here, so we unwrap
                     update_validation::check().unwrap();
 
-                    #[cfg(feature = "systemd")]
                     systemd::notify_ready();
 
                     report_states(&request_consent_path, &history_consent_path);

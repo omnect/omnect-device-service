@@ -10,8 +10,10 @@ static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 
 fn validate() -> Result<()> {
     /*
-     * For now the only validation is a successful module provisioning.
-     * This is ensured by calling this function once on authentication.
+     * For now the only validation is a successful module provisioning plus
+     * a successful start of iot-hub-device-update.
+     * Successful provisioning is ensured by calling this function once on
+     * authentication.
      */
 
     // remove iot-hub-device-service barrier file and start service as part of validation

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use futures_util::StreamExt;
+use futures_util::{join, StreamExt};
 use log::{debug, info};
 use sd_notify::NotifyState;
 use std::sync::Once;
@@ -83,29 +83,27 @@ pub fn start_unit(unit: &str) -> Result<()> {
         let proxy = ManagerProxy::new(&conn).await?;
 
         let mut job_removed_stream = proxy.receive_job_removed().await?;
-
-        let (job_removed, job) =
-            futures_util::future::join(async { job_removed_stream.next().await }, async {
-                proxy.start_unit(unit, Mode::Fail).await
-            })
-            .await;
+        let (job_removed, job) = join!(
+            job_removed_stream.next(),
+            proxy.start_unit(unit, Mode::Fail),
+        );
 
         anyhow::ensure!(
             job.is_ok(),
             "systemd_start_unit: can't start \"{unit}\": {:?}",
             job.err()
         );
-        let job = job.unwrap();
+        let job = job.unwrap().into_inner();
 
         anyhow::ensure!(
             job_removed.is_some(),
-            "Failed to get next item in job removed stream"
+            "failed to get next item in job removed stream"
         );
         let job_removed = job_removed.unwrap();
 
         let job_removed_args = job_removed.args()?;
         debug!("job removed: {:?}", job_removed_args);
-        if job_removed_args.job().to_string() == job.to_string() {
+        if job_removed_args.job() == &job {
             anyhow::ensure!(
                 job_removed_args.result == "done",
                 "failed to start unit \"{unit}\": {}",
@@ -113,17 +111,14 @@ pub fn start_unit(unit: &str) -> Result<()> {
             );
         } else {
             loop {
-                let job_removed = job_removed_stream.next().await;
-                anyhow::ensure!(
-                    job_removed.is_some(),
-                    "Failed to get next item in job removed stream"
-                );
-                let job_removed = job_removed.unwrap();
+                let job_removed = job_removed_stream.next().await.ok_or_else(|| {
+                    anyhow::anyhow!("failed to get next item in job removed stream")
+                })?;
                 let job_removed_args = job_removed.args()?;
                 debug!("job removed: {:?}", job_removed_args);
-                if job_removed_args.job().to_string() == job.to_string() {
+                if job_removed_args.job() == &job {
                     anyhow::ensure!(
-                        job_removed.args()?.result == "done",
+                        job_removed_args.result == "done",
                         "failed to start unit \"{unit}\": {}",
                         job_removed_args.result
                     );
@@ -131,7 +126,6 @@ pub fn start_unit(unit: &str) -> Result<()> {
                 }
             }
         }
-        drop(job_removed_stream);
 
         Ok(())
     })

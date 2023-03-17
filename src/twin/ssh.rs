@@ -7,12 +7,12 @@ use serde_json::json;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-static AUTHORIZED_KEY_PATH: &str = "/home/omnect/.ssh/authorized_keys";
+static AUTHORIZED_KEYS_PATH: &str = "/home/omnect/.ssh/authorized_keys";
 static SSH_RULE: &str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
 
 pub fn write_authorized_keys(pubkey: &str) -> Result<()> {
     let mut child = Command::new("sudo")
-        .args(["-u", "omnect", "tee", AUTHORIZED_KEY_PATH])
+        .args(["-u", "omnect", "tee", AUTHORIZED_KEYS_PATH])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()?;
