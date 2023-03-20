@@ -20,7 +20,7 @@ pub struct TwinInstance {
     inner: &'static Mutex<Twin>,
 }
 
-pub fn get_or_init(tx: Option<& Sender<Message>>) -> TwinInstance {
+pub fn get_or_init(tx: Option<&Sender<Message>>) -> TwinInstance {
     if let Some(tx) = tx {
         TwinInstance {
             inner: INSTANCE.get_or_init(|| {

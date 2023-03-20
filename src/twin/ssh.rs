@@ -4,11 +4,31 @@ use anyhow::{Context, Result};
 use log::{debug, info};
 use serde::Serialize;
 use serde_json::json;
-use std::fs::OpenOptions;
 use std::io::Write;
+use std::process::{Command, Stdio};
 
-static AUTHORIZED_KEY_PATH: &str = "/run/omnect-authorized_keys";
+static AUTHORIZED_KEYS_PATH: &str = "/home/omnect/.ssh/authorized_keys";
 static SSH_RULE: &str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
+
+pub fn write_authorized_keys(pubkey: &str) -> Result<()> {
+    let mut child = Command::new("sudo")
+        .args(["-u", "omnect", "tee", AUTHORIZED_KEYS_PATH])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()?;
+
+    match child.stdin.as_mut() {
+        Some(child_stdin) => child_stdin.write_all(format!("{}\n", pubkey).as_bytes())?,
+        _ => anyhow::bail!("failed to take stdin"),
+    }
+
+    anyhow::ensure!(
+        child.wait_with_output()?.status.success(),
+        "failed to set pubkey as omnect user"
+    );
+
+    Ok(())
+}
 
 pub fn refresh_ssh_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("ssh status requested");
@@ -23,16 +43,9 @@ pub fn open_ssh(in_json: serde_json::Value) -> Result<Option<serde_json::Value>>
 
     match in_json["pubkey"].as_str() {
         Some("") => anyhow::bail!("Empty ssh pubkey"),
-        Some(pubkey) => {
-            OpenOptions::new()
-                .write(true)
-                .create(false)
-                .truncate(true)
-                .open(AUTHORIZED_KEY_PATH)?
-                .write_all(format!("{}\n", pubkey).as_bytes())?;
-        }
+        Some(pubkey) => write_authorized_keys(pubkey),
         None => anyhow::bail!("No ssh pubkey given"),
-    }
+    }?;
 
     let v4 = iptables::new(false).map_err(|e| anyhow::anyhow!("{e}"))?;
     v4.append_replace("filter", "INPUT", SSH_RULE)
@@ -56,12 +69,8 @@ pub fn close_ssh(_in_json: serde_json::Value) -> Result<Option<serde_json::Value
     v6.delete("filter", "INPUT", SSH_RULE)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    OpenOptions::new()
-        .write(true)
-        .create(false)
-        .truncate(true)
-        .open(AUTHORIZED_KEY_PATH)?
-        .write_all("".as_bytes())?;
+    // clear authorized_keys
+    write_authorized_keys("")?;
 
     twin::get_or_init(None).report(&ReportProperty::SshStatus)?;
 

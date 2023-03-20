@@ -1,22 +1,21 @@
 pub mod client;
-#[cfg(feature = "systemd")]
 pub mod systemd;
 pub mod twin;
+pub mod update_validation;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
-use log::{error, info};
+use log::error;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
-use std::fs;
+use std::path::Path;
 use std::sync::{mpsc, Once};
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 use twin::ReportProperty;
 #[cfg(test)]
 mod test_util;
 
 static INIT: Once = Once::new();
-static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 
 #[macro_export]
 macro_rules! consent_path {
@@ -28,22 +27,6 @@ macro_rules! consent_path {
 
 const WATCHER_DELAY: u64 = 2;
 const RX_CLIENT2APP_TIMEOUT: u64 = 1;
-
-fn update_validation() {
-    /*
-     * ToDo: as soon as we can switch to rust >=1.63 we should use
-     * Path::try_exists() here
-     */
-    if Path::new(UPDATE_VALIDATION_FILE).exists() {
-        /*
-         * For now the only validation is a successful module provisioning.
-         * This is ensured by calling this function once on authentication.
-         */
-        info!("Successfully validated Update.");
-        fs::remove_file(UPDATE_VALIDATION_FILE)
-            .unwrap_or_else(|e| error!("Couldn't delete {UPDATE_VALIDATION_FILE}: {e}."));
-    }
-}
 
 fn report_states(request_consent_path: &str, history_consent_path: &str) {
     vec![
@@ -95,10 +78,11 @@ pub async fn run() -> Result<()> {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
-                    #[cfg(feature = "systemd")]
+                    // ToDo we can not use anyhow::ensure! here, so we unwrap
+                    update_validation::check().unwrap();
+
                     systemd::notify_ready();
 
-                    update_validation();
                     report_states(&request_consent_path, &history_consent_path);
                 });
             }

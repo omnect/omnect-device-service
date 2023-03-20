@@ -6,7 +6,6 @@ use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use std::time;
 use tokio::task::JoinHandle;
 
-#[cfg(feature = "systemd")]
 use crate::systemd::WatchdogHandler;
 
 #[derive(Debug, PartialEq)]
@@ -102,10 +101,7 @@ impl Client {
             let hundred_millis = time::Duration::from_millis(100);
             let event_handler = ClientEventHandler { direct_methods, tx };
 
-            #[cfg(feature = "systemd")]
             let mut wdt = WatchdogHandler::default();
-
-            #[cfg(feature = "systemd")]
             wdt.init()?;
 
             let mut client = match IotHubClient::get_client_type() {
@@ -131,7 +127,6 @@ impl Client {
 
                 client.do_work();
 
-                #[cfg(feature = "systemd")]
                 wdt.notify()?;
             }
 

@@ -1,6 +1,6 @@
 [package]
 name = "omnect-device-service"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2021"
 description = "This service allows remote features like: user fw update consent, factory reset, network adapter status and reboot."
 authors = ["omnect@conplement.de"]
@@ -16,6 +16,7 @@ azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "
 ] }
 env_logger = "0.8"
 futures-executor = "0.3"
+futures-util = "0.3"
 iptables = "0.5"
 lazy_static = "1.4"
 log = "0.4"
@@ -24,19 +25,16 @@ network-interface = "0.1"
 notify = "5.1"
 notify-debouncer-mini = "0.2"
 once_cell = "1.17"
-sd-notify = { version = "0.4", optional = true }
+sd-notify = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "2.2.0"
+systemd-zbus = "0.1"
 # ToDo: set to 0.3 once we support rust 1.63
 time = { version = "=0.3.19", features = ["formatting"] }
 tokio = { version = "1.25", features = ["full"] }
+zbus = "3.11"
 
 [dev-dependencies]
 cp_r = "0.5"
 stdext = "0.3"
-
-[features]
-# select if systemd ready and watchdog should be enabled
-default = ["systemd"]
-systemd = ["sd-notify"]
