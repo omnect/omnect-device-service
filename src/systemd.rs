@@ -4,6 +4,7 @@ use log::{debug, info};
 use sd_notify::NotifyState;
 use std::sync::Once;
 use std::time::Instant;
+use std::{thread, time};
 use systemd_zbus::{ManagerProxy, Mode};
 
 static SD_NOTIFY_ONCE: Once = Once::new();
@@ -127,6 +128,28 @@ pub fn start_unit(unit: &str) -> Result<()> {
             }
         }
 
+        Ok(())
+    })
+}
+
+/* note: doesnt return a bool */
+pub fn is_system_running() -> Result<()> {
+    let allowed_system_states = vec!["initializing", "starting", "running"];
+    futures_executor::block_on(async {
+        let manager = ManagerProxy::new(&zbus::Connection::system().await?).await?;
+        loop {
+            let system_state = manager.system_state().await?;
+            debug!("system is {system_state}");
+            anyhow::ensure!(
+                { allowed_system_states.contains(&system_state.as_str()) },
+                "system is {system_state}"
+            );
+            if "running" == system_state {
+                break;
+            } else {
+                thread::sleep(time::Duration::from_millis(100));
+            };
+        }
         Ok(())
     })
 }
