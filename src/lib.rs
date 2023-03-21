@@ -78,10 +78,14 @@ pub async fn run() -> Result<()> {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
                 INIT.call_once(|| {
+                    /*
+                     * the update validation test "is_system_running" enforces that
+                     * omnect-device-service already notified its own success
+                     */
+                    systemd::notify_ready();
+
                     // ToDo we can not use anyhow::ensure! here, so we unwrap
                     update_validation::check().unwrap();
-
-                    systemd::notify_ready();
 
                     report_states(&request_consent_path, &history_consent_path);
                 });

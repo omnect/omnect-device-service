@@ -9,18 +9,16 @@ static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validat
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 
 fn validate() -> Result<()> {
-    /*
-     * For now the only validation is a successful module provisioning plus
-     * a successful start of iot-hub-device-update.
-     * Successful provisioning is ensured by calling this function once on
-     * authentication.
-     */
+    info!("update validation started");
+    systemd::is_system_running()?;
+    info!("system is running");
 
     // remove iot-hub-device-service barrier file and start service as part of validation
+    info!("starting deviceupdate-agent.service");
     fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
     systemd::start_unit(IOT_HUB_DEVICE_UPDATE_SERVICE)?;
 
-    info!("Successfully validated Update.");
+    info!("successfully validated update");
     Ok(())
 }
 
