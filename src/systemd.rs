@@ -147,6 +147,7 @@ pub fn is_system_running() -> Result<()> {
             if "running" == system_state {
                 break;
             } else {
+                // ToDo https://github.com/omnect/omnect-device-service/pull/39#discussion_r1142147564
                 thread::sleep(time::Duration::from_millis(100));
             };
         }
