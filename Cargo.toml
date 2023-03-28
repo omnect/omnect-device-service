@@ -1,6 +1,6 @@
 [package]
 name = "omnect-device-service"
-version = "0.10.2"
+version = "0.10.3"
 edition = "2021"
 description = "This service allows remote features like: user fw update consent, factory reset, network adapter status and reboot."
 authors = ["omnect@conplement.de"]
@@ -32,7 +32,8 @@ serde_with = "2.2"
 systemd-zbus = "0.1"
 # ToDo: set to 0.3 once we support rust 1.63
 time = { version = "=0.3.19", features = ["formatting"] }
-tokio = { version = "1", features = ["full"] }
+tokio = "1"
+
 zbus = "3.11"
 
 [dev-dependencies]

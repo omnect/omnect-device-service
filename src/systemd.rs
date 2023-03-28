@@ -3,9 +3,11 @@ use futures_util::{join, StreamExt};
 use log::{debug, info};
 use sd_notify::NotifyState;
 use std::sync::Once;
+use std::time::Duration;
 use std::time::Instant;
 use std::{thread, time};
 use systemd_zbus::{ManagerProxy, Mode};
+use tokio::time::timeout;
 
 static SD_NOTIFY_ONCE: Once = Once::new();
 
@@ -85,7 +87,7 @@ pub fn start_unit(unit: &str) -> Result<()> {
 
         let mut job_removed_stream = proxy.receive_job_removed().await?;
         let (job_removed, job) = join!(
-            job_removed_stream.next(),
+            timeout(Duration::from_secs(60), job_removed_stream.next()),
             proxy.start_unit(unit, Mode::Fail),
         );
 
@@ -95,6 +97,13 @@ pub fn start_unit(unit: &str) -> Result<()> {
             job.err()
         );
         let job = job.unwrap().into_inner();
+
+        anyhow::ensure!(
+            job_removed.is_ok(),
+            "systemd_job_removed_stream: timeout: {:?}",
+            job_removed.err()
+        );
+        let job_removed = job_removed.unwrap();
 
         anyhow::ensure!(
             job_removed.is_some(),
