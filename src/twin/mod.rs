@@ -121,16 +121,22 @@ impl Twin {
     fn update(&mut self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
         match state {
             TwinUpdateState::Partial => {
-                self.update_general_consent(desired["general_consent"].as_array())?;
-                self.update_include_network_filter(desired["include_network_filter"].as_array())
+                if let Some(gc) = desired.get("general_consent") {
+                    self.update_general_consent(gc.as_array())?;
+                }
+
+                if let Some(inf) = desired.get("include_network_filter") {
+                    self.update_include_network_filter(inf.as_array())?;
+                }
             }
             TwinUpdateState::Complete => {
                 self.update_general_consent(desired["desired"]["general_consent"].as_array())?;
                 self.update_include_network_filter(
                     desired["desired"]["include_network_filter"].as_array(),
-                )
+                )?;
             }
         }
+        Ok(())
     }
 
     fn report(&mut self, property: &ReportProperty) -> Result<()> {
