@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures_util::{join, StreamExt};
 use log::{debug, info};
+use once_cell::sync::OnceCell;
 use sd_notify::NotifyState;
 use std::sync::Once;
 use std::time::Duration;
@@ -10,6 +11,7 @@ use systemd_zbus::{ManagerProxy, Mode};
 use tokio::time::timeout;
 
 static SD_NOTIFY_ONCE: Once = Once::new();
+static SYSTEMD_TIMEOUT_USEC: OnceCell<u64> = OnceCell::new();
 
 pub fn notify_ready() {
     SD_NOTIFY_ONCE.call_once(|| {
@@ -38,6 +40,7 @@ impl WatchdogHandler {
 
         if sd_notify::watchdog_enabled(false, &mut self.usec) {
             self.usec /= 2;
+            let _ = SYSTEMD_TIMEOUT_USEC.set(self.usec / 3);
             self.now = Some(Instant::now());
         }
 
@@ -87,7 +90,16 @@ pub fn start_unit(unit: &str) -> Result<()> {
 
         let mut job_removed_stream = proxy.receive_job_removed().await?;
         let (job_removed, job) = join!(
-            timeout(Duration::from_secs(60), job_removed_stream.next()),
+            timeout(
+                /* don't know if it is a good idea to use the watchdog timeout
+                 * as reference, but currently this function is called from
+                 * the same thread the watchdog is triggered.
+                 * we probably should make the service watchdog timeout longer
+                 * then
+                 */
+                Duration::from_micros(*SYSTEMD_TIMEOUT_USEC.get_or_init(|| 10000u64)),
+                job_removed_stream.next()
+            ),
             proxy.start_unit(unit, Mode::Fail),
         );
 
