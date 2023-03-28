@@ -56,7 +56,7 @@ mod mod_test {
         assert_eq!(
             rx.try_recv(),
             Ok(Message::Reported(json!({
-                "module-version": env!("CARGO_PKG_VERSION"),
+                "module-version": format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("GIT_SHORT_REV")),
                 "azure-sdk-version": IotHubClient::get_sdk_version_string()
             })))
         );

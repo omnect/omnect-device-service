@@ -84,8 +84,14 @@ pub async fn run() -> Result<()> {
                      */
                     systemd::notify_ready();
 
-                    // ToDo we can not use anyhow::ensure! here, so we unwrap
-                    update_validation::check().unwrap();
+                    // without spawn, the possible reboot crashes
+                    tokio::task::spawn_blocking(move || {
+                        futures_executor::block_on(async {
+                            update_validation::check()
+                                .await
+                                .or_else(|e| anyhow::bail!("{e:?}"))
+                        })
+                    });
 
                     report_states(&request_consent_path, &history_consent_path);
                 });

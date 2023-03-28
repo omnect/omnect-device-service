@@ -1,17 +1,18 @@
-use anyhow::Result;
+use anyhow::Context;
+use anyhow::{ensure, Result};
 use futures_util::{join, StreamExt};
-use log::{debug, info};
-use once_cell::sync::OnceCell;
+use log::{debug, info, trace};
 use sd_notify::NotifyState;
+use std::process::Command;
 use std::sync::Once;
 use std::time::Duration;
 use std::time::Instant;
 use std::{thread, time};
 use systemd_zbus::{ManagerProxy, Mode};
 use tokio::time::timeout;
+use zbus::Connection;
 
 static SD_NOTIFY_ONCE: Once = Once::new();
-static SYSTEMD_TIMEOUT_USEC: OnceCell<u64> = OnceCell::new();
 
 pub fn notify_ready() {
     SD_NOTIFY_ONCE.call_once(|| {
@@ -40,7 +41,6 @@ impl WatchdogHandler {
 
         if sd_notify::watchdog_enabled(false, &mut self.usec) {
             self.usec /= 2;
-            let _ = SYSTEMD_TIMEOUT_USEC.set(self.usec / 3);
             self.now = Some(Instant::now());
         }
 
@@ -56,7 +56,7 @@ impl WatchdogHandler {
     pub fn notify(&mut self) -> Result<()> {
         if let Some(ref mut now) = self.now {
             if u128::from(self.usec) < now.elapsed().as_micros() {
-                debug!("notify watchdog=1");
+                trace!("notify watchdog=1");
                 sd_notify::notify(false, &[NotifyState::Watchdog])?;
                 *now = Instant::now();
             }
@@ -67,6 +67,13 @@ impl WatchdogHandler {
 }
 
 pub fn reboot() -> Result<()> {
+    info!("systemd::reboot");
+    //journalctl seems not to have a dbus api
+    let _ = Command::new("sudo")
+        .arg("journalctl")
+        .arg("--sync")
+        .status();
+
     zbus::blocking::Connection::system()
         .map_err(|e| anyhow::anyhow!("system_reboot: can't get system dbus: {:?}", e))?
         .call_method(
@@ -77,101 +84,153 @@ pub fn reboot() -> Result<()> {
             &(true),
         )
         .map_err(|e| anyhow::anyhow!("dbus reboot: {:?}", e))?;
-
     Ok(())
 }
 
-pub fn start_unit(unit: &str) -> Result<()> {
-    futures_executor::block_on(async {
-        let conn = zbus::Connection::system()
-            .await
-            .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't get system dbus: {:?}", e))?;
-        let proxy = ManagerProxy::new(&conn).await?;
+pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
+    let (mut dur, mut begin) = (Duration::from_secs(timeout_secs), Instant::now());
+    let manager = timeout(dur, ManagerProxy::new(&zbus::Connection::system().await?)).await?;
+    ensure!(manager.is_ok(), "{:?}", manager.err());
+    let manager = manager.unwrap();
+    (dur, begin) = (
+        dur.checked_sub(Instant::now() - begin)
+            .with_context(|| "timeout starting unit \"{unit}\"")?,
+        Instant::now(),
+    );
 
-        let mut job_removed_stream = proxy.receive_job_removed().await?;
-        let (job_removed, job) = join!(
-            timeout(
-                /* don't know if it is a good idea to use the watchdog timeout
-                 * as reference, but currently this function is called from
-                 * the same thread the watchdog is triggered.
-                 * we probably should make the service watchdog timeout longer
-                 * then
-                 */
-                Duration::from_micros(*SYSTEMD_TIMEOUT_USEC.get_or_init(|| 10000u64)),
-                job_removed_stream.next()
-            ),
-            proxy.start_unit(unit, Mode::Fail),
-        );
+    let job_removed_stream = timeout(dur, manager.receive_job_removed()).await?;
+    ensure!(job_removed_stream.is_ok(), "{:?}", job_removed_stream.err());
+    let mut job_removed_stream = job_removed_stream.unwrap();
+    (dur, begin) = (
+        dur.checked_sub(Instant::now() - begin)
+            .with_context(|| "timeout starting unit \"{unit}\"")?,
+        Instant::now(),
+    );
 
+    let (job_removed, job) = join!(
+        timeout(dur, job_removed_stream.next()),
+        timeout(dur, manager.start_unit(unit, Mode::Fail))
+    );
+
+    anyhow::ensure!(
+        job.is_ok(),
+        "systemd_start_unit: timeout \"{unit}\": {:?}",
+        job.err()
+    );
+    let job = job.unwrap();
+
+    anyhow::ensure!(
+        job.is_ok(),
+        "systemd_start_unit: can't start \"{unit}\": {:?}",
+        job.err()
+    );
+    let job = job.unwrap().into_inner();
+
+    anyhow::ensure!(
+        job_removed.is_ok(),
+        "systemd_job_removed_stream: timeout: {:?}",
+        job_removed.err()
+    );
+    let job_removed = job_removed.unwrap();
+
+    anyhow::ensure!(
+        job_removed.is_some(),
+        "failed to get next item in job removed stream"
+    );
+    let job_removed = job_removed.unwrap();
+
+    let job_removed_args = job_removed.args()?;
+    debug!("job removed: {:?}", job_removed_args);
+    if job_removed_args.job() == &job {
         anyhow::ensure!(
-            job.is_ok(),
-            "systemd_start_unit: can't start \"{unit}\": {:?}",
-            job.err()
+            job_removed_args.result == "done",
+            "failed to start unit \"{unit}\": {}",
+            job_removed_args.result
         );
-        let job = job.unwrap().into_inner();
-
-        anyhow::ensure!(
-            job_removed.is_ok(),
-            "systemd_job_removed_stream: timeout: {:?}",
-            job_removed.err()
-        );
-        let job_removed = job_removed.unwrap();
-
-        anyhow::ensure!(
-            job_removed.is_some(),
-            "failed to get next item in job removed stream"
-        );
-        let job_removed = job_removed.unwrap();
-
-        let job_removed_args = job_removed.args()?;
-        debug!("job removed: {:?}", job_removed_args);
-        if job_removed_args.job() == &job {
-            anyhow::ensure!(
-                job_removed_args.result == "done",
-                "failed to start unit \"{unit}\": {}",
-                job_removed_args.result
-            );
-        } else {
-            loop {
-                let job_removed = job_removed_stream.next().await.ok_or_else(|| {
-                    anyhow::anyhow!("failed to get next item in job removed stream")
-                })?;
-                let job_removed_args = job_removed.args()?;
-                debug!("job removed: {:?}", job_removed_args);
-                if job_removed_args.job() == &job {
-                    anyhow::ensure!(
-                        job_removed_args.result == "done",
-                        "failed to start unit \"{unit}\": {}",
-                        job_removed_args.result
-                    );
-                    break;
-                }
-            }
-        }
-
         Ok(())
-    })
+    } else {
+        (dur, begin) = (
+            dur.checked_sub(Instant::now() - begin)
+                .with_context(|| "timeout starting unit \"{unit}\"")?,
+            Instant::now(),
+        );
+        loop {
+            let job_removed = timeout(dur, job_removed_stream.next()).await?;
+            ensure!(job_removed.is_some(), "no job_removed signal received");
+            let job_removed = job_removed.unwrap();
+
+            let job_removed_args = job_removed.args()?;
+            debug!("job removed: {:?}", job_removed_args);
+            if job_removed_args.job() == &job {
+                anyhow::ensure!(
+                    job_removed_args.result == "done",
+                    "failed to start unit \"{unit}\": {}",
+                    job_removed_args.result
+                );
+                return Ok(());
+            }
+            (dur, begin) = (
+                dur.checked_sub(Instant::now() - begin)
+                    .with_context(|| "timeout starting unit \"{unit}\"")?,
+                Instant::now(),
+            );
+        }
+    }
 }
 
 /* note: doesnt return a bool */
-pub fn is_system_running() -> Result<()> {
+pub async fn is_system_running(timeout_secs: u64) -> Result<()> {
     let allowed_system_states = vec!["initializing", "starting", "running"];
-    futures_executor::block_on(async {
-        let manager = ManagerProxy::new(&zbus::Connection::system().await?).await?;
-        loop {
-            let system_state = manager.system_state().await?;
-            debug!("system is {system_state}");
-            anyhow::ensure!(
-                { allowed_system_states.contains(&system_state.as_str()) },
-                "system is {system_state}"
+    let (mut dur, mut begin) = (Duration::from_secs(timeout_secs), Instant::now());
+    let manager = timeout(
+        dur,
+        // here we use manager which explicitly doesn't cache the system state
+        ManagerProxy::builder(&Connection::system().await?)
+            .uncached_properties(&["SystemState"])
+            .build(),
+    )
+    .await?;
+    ensure!(manager.is_ok(), "{:?}", manager.err());
+    let manager = manager.unwrap();
+    (dur, begin) = (
+        dur.checked_sub(Instant::now() - begin)
+            .with_context(|| "timeout getting system state \"running\"")?,
+        Instant::now(),
+    );
+    loop {
+        let system_state = timeout(dur, manager.system_state()).await?;
+        ensure!(
+            system_state.is_ok(),
+            "system state error: {:?}",
+            system_state.err()
+        );
+        let system_state = system_state.unwrap();
+        anyhow::ensure!(
+            { allowed_system_states.contains(&system_state.as_str()) },
+            "system in error state: \"{system_state}\""
+        );
+        if "running" == system_state {
+            debug!("running");
+            break;
+        } else {
+            /*
+             * ToDo https://github.com/omnect/omnect-device-service/pull/39#discussion_r1142147564
+             * This is tricky because you have to receive system state signals, which blocks if you
+             * are already in state "running". if you receive the system state on condition after
+             * you got state "starting" by polling, there would by a race which can result in a
+             * deadlock of receiving the state signal again.
+             * So a solution would be to poll, start signal receiving, poll again and stop
+             * possibly stop receiving.
+             */
+
+            thread::sleep(time::Duration::from_millis(100));
+            trace!("{dur:?}:{begin:?}");
+            (dur, begin) = (
+                dur.checked_sub(Instant::now() - begin)
+                    .with_context(|| "timeout getting system state \"running\"")?,
+                Instant::now(),
             );
-            if "running" == system_state {
-                break;
-            } else {
-                // ToDo https://github.com/omnect/omnect-device-service/pull/39#discussion_r1142147564
-                thread::sleep(time::Duration::from_millis(100));
-            };
         }
-        Ok(())
-    })
+    }
+    Ok(())
 }

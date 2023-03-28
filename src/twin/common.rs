@@ -16,7 +16,7 @@ pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> 
 impl Twin {
     pub fn report_versions(&mut self) -> Result<()> {
         let version = json!({
-            "module-version": env!("CARGO_PKG_VERSION"),
+            "module-version": format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("GIT_SHORT_REV")),
             "azure-sdk-version": IotHubClient::get_sdk_version_string()
         });
 

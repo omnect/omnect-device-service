@@ -1,28 +1,41 @@
 use super::systemd;
 use anyhow::{Context, Result};
-use log::info;
+use log::{error, info};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
+// ToDo refine configuration for that, e.g as env/config value in /etc/omnect/omnect-device-service.env
+static IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC: u64 = 60;
+static SYSTEM_IS_RUNNING_TIMEOUT_SEC: u64 = 300;
 
-fn validate() -> Result<()> {
+async fn validate() -> Result<()> {
     info!("update validation started");
-    systemd::is_system_running()?;
+    systemd::is_system_running(SYSTEM_IS_RUNNING_TIMEOUT_SEC).await?;
+
+    /* ToDo: if it returns with an error, we may want to handle the state
+     * "degrated" and possibly ignore certain failed services via configuration
+     */
     info!("system is running");
 
     // remove iot-hub-device-service barrier file and start service as part of validation
     info!("starting deviceupdate-agent.service");
     fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
-    systemd::start_unit(IOT_HUB_DEVICE_UPDATE_SERVICE)?;
+
+    systemd::start_unit(
+        IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC,
+        IOT_HUB_DEVICE_UPDATE_SERVICE,
+    )
+    .await?;
+    info!("successfully started iot-hub-device-update");
 
     info!("successfully validated update");
     Ok(())
 }
 
-fn finalize() -> Result<()> {
+async fn finalize() -> Result<()> {
     let omnect_validate_update_part = Command::new("sudo")
         .arg("fw_printenv")
         .arg("omnect_validate_update_part")
@@ -65,14 +78,21 @@ fn finalize() -> Result<()> {
     Ok(())
 }
 
-pub fn check() -> Result<()> {
+pub async fn check() -> Result<()> {
     /*
      * ToDo: as soon as we can switch to rust >=1.63 we should use
      * Path::try_exists() here
      */
-    if Path::new(UPDATE_VALIDATION_FILE).exists() && (validate().is_err() || finalize().is_err()) {
-        info!("update validation failed... reboot");
-        return systemd::reboot().map_err(|e| anyhow::anyhow!("update validation reboot: {e}"));
+    if Path::new(UPDATE_VALIDATION_FILE).exists() {
+        validate().await.or_else(|e| {
+            error!("validate error: {e:?}");
+            systemd::reboot()
+        })?;
+
+        finalize().await.or_else(|e| {
+            error!("finalize error: {e:?}");
+            systemd::reboot()
+        })?;
     }
 
     Ok(())
