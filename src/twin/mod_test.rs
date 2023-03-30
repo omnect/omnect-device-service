@@ -64,6 +64,7 @@ mod mod_test {
 
     #[test]
     fn update_and_report_general_consent_test() {
+        // @ToDo: replace all `update_general_consent` by `update`calls
         let (tx, rx) = mpsc::channel();
         let mut twin = Twin {
             tx: Some(tx),
@@ -228,6 +229,7 @@ mod mod_test {
 
     #[test]
     fn update_and_report_network_status_test() {
+        // @ToDo: replace all `update_include_network_filter` by `update`calls
         let (tx, rx) = mpsc::channel();
         let mut twin = Twin {
             tx: Some(tx),
