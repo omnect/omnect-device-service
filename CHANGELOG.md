@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - systemd::start_unit: added timeout handling
  - systemd::is_system_running: added timeout handling
  - systemd::reboot: sync journal before reboot
+ - module version: also log the short giv revision
 
 ## [0.10.3] Q1 2023
  - fixed twin update handling when key is not present at all vs. key is null
