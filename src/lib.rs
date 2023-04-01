@@ -5,6 +5,7 @@ pub mod update_validation;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
 use client::{Client, Message};
+use futures_executor::block_on;
 use log::error;
 use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
@@ -51,8 +52,7 @@ pub async fn run() -> Result<()> {
     let (tx_client2app, rx_client2app) = mpsc::channel();
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let (tx_file2app, rx_file2app) = mpsc::channel();
-    let mut debouncer =
-        new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app).unwrap();
+    let mut debouncer = new_debouncer(Duration::from_secs(WATCHER_DELAY), None, tx_file2app)?;
     let request_consent_path = format!("{}/request_consent.json", consent_path!());
     let history_consent_path = format!("{}/history_consent.json", consent_path!());
     let twin = twin::get_or_init(Some(&tx_app2client));
@@ -77,24 +77,21 @@ pub async fn run() -> Result<()> {
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_CLIENT2APP_TIMEOUT)) {
             Ok(Message::Authenticated) => {
+                let mut update_validated = Ok(());
+
                 INIT.call_once(|| {
                     /*
-                     * the update validation test "is_system_running" enforces that
+                     * the update validation test "wait_for_system_running" enforces that
                      * omnect-device-service already notified its own success
                      */
                     systemd::notify_ready();
 
-                    // without spawn, the possible reboot crashes
-                    tokio::task::spawn_blocking(move || {
-                        futures_executor::block_on(async {
-                            update_validation::check()
-                                .await
-                                .or_else(|e| anyhow::bail!("{e:?}"))
-                        })
-                    });
+                    update_validated = block_on(async { update_validation::check().await });
 
                     report_states(&request_consent_path, &history_consent_path);
                 });
+
+                update_validated?;
             }
             Ok(Message::Unauthenticated(reason)) => {
                 anyhow::ensure!(

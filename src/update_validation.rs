@@ -13,7 +13,7 @@ static SYSTEM_IS_RUNNING_TIMEOUT_SEC: u64 = 300;
 
 async fn validate() -> Result<()> {
     info!("update validation started");
-    systemd::is_system_running(SYSTEM_IS_RUNNING_TIMEOUT_SEC).await?;
+    systemd::wait_for_system_running(SYSTEM_IS_RUNNING_TIMEOUT_SEC).await?;
 
     /* ToDo: if it returns with an error, we may want to handle the state
      * "degrated" and possibly ignore certain failed services via configuration

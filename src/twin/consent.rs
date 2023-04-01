@@ -37,9 +37,8 @@ impl Twin {
         &mut self,
         desired_consents: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
-        if desired_consents.is_some() {
+        if let Some(desired_consents) = desired_consents {
             let mut new_consents = desired_consents
-                .unwrap()
                 .iter()
                 .map(|e| match (e.is_string(), e.as_str()) {
                     (true, Some(s)) => Ok(s.to_string().to_lowercase()),
