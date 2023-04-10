@@ -42,7 +42,7 @@ fn report_states(request_consent_path: &str, history_consent_path: &str) {
     .for_each(|p| {
         twin::get_or_init(None)
             .report(p)
-            .unwrap_or_else(|e| error!("twin report: {:#?}", e))
+            .unwrap_or_else(|e| error!("twin report: {e:#?}"))
     });
 }
 
@@ -102,7 +102,7 @@ pub async fn run() -> Result<()> {
             }
             Ok(Message::Desired(state, desired)) => {
                 twin.update(state, desired)
-                    .unwrap_or_else(|e| error!("twin update desired properties: {:#?}", e));
+                    .unwrap_or_else(|e| error!("twin update desired properties: {e:#?}"));
             }
             Ok(Message::C2D(msg)) => {
                 twin.cloud_message(msg);
@@ -117,7 +117,7 @@ pub async fn run() -> Result<()> {
             events.unwrap_or_default().iter().for_each(|ev| {
                 if let Some(path) = ev.path.to_str() {
                     twin.report(&ReportProperty::UserConsent(path))
-                        .unwrap_or_else(|e| error!("twin report user consent: {:#?}", e));
+                        .unwrap_or_else(|e| error!("twin report user consent: {e:#?}"));
                 }
             })
         }

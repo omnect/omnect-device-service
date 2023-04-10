@@ -23,7 +23,7 @@ fn main() {
     );
 
     if let Err(e) = omnect_device_service::run() {
-        error!("Application error: {:#?}", e);
+        error!("Application error: {e:#?}");
 
         process::exit(1);
     }

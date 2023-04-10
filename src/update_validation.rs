@@ -85,12 +85,12 @@ pub async fn check() -> Result<()> {
      */
     if Path::new(UPDATE_VALIDATION_FILE).exists() {
         validate().await.or_else(|e| {
-            error!("validate error: {e:?}");
+            error!("validate error: {e:#?}");
             systemd::reboot()
         })?;
 
         finalize().await.or_else(|e| {
-            error!("finalize error: {e:?}");
+            error!("finalize error: {e:#?}");
             systemd::reboot()
         })?;
     }

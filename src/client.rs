@@ -149,7 +149,7 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         if let Err(e) = self.stop() {
-            error!("Client thread returned with: {}", e);
+            error!("Client thread returned with: {e:#?}");
         }
     }
 }

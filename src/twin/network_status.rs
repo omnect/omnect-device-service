@@ -34,10 +34,7 @@ impl Twin {
             .iter()
             .filter(|e| {
                 if !e.is_string() {
-                    error!(
-                        "unexpected format in desired include_network_filter. ignore: {}",
-                        e.to_string()
-                    );
+                    error!("unexpected format in desired include_network_filter. ignore: {e:#?}");
                 }
                 e.is_string()
             })
