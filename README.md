@@ -6,27 +6,33 @@ This module serves as interface between omnect cloud and device to support certa
 - [omnect-device-service](#omnect-device-service)
   - [Instruction](#instruction)
   - [Factory reset](#factory-reset)
+    - [Feature availability](#feature-availability)
     - [Trigger factory reset](#trigger-factory-reset)
     - [Report factory reset status](#report-factory-reset-status)
   - [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
+    - [Feature availability](#feature-availability-1)
     - [Configure current desired general consent](#configure-current-desired-general-consent)
     - [Grant user consent](#grant-user-consent)
     - [Current reported user consent status](#current-reported-user-consent-status)
   - [Reboot](#reboot)
   - [Network status](#network-status)
+    - [Feature availability](#feature-availability-2)
     - [Current reported network status](#current-reported-network-status)
     - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
     - [Refresh Network status](#refresh-network-status)
   - [SSH handling](#ssh-handling)
+    - [Feature availability](#feature-availability-3)
     - [SSH status](#ssh-status)
     - [Enabling SSH](#enabling-ssh)
     - [Disabling SSH](#disabling-ssh)
-  - [Update Validation](#update-validation)
-    - [Criteria for a successful Update](#criteria-for-a-successful-update)
+    - [Current reported ssh status](#current-reported-ssh-status)
+  - [Update validation](#update-validation)
+    - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
 - [Contribution](#contribution)
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
+
 
 ## Instruction
 This module is based on omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
@@ -34,6 +40,15 @@ This module is based on omnect [iot-client-template-rs](https://github.com/omnec
 ## Factory reset
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
+
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"factory_reset":
+{
+}
+```
 
 ### Trigger factory reset
 
@@ -85,10 +100,13 @@ In all other cases there will be an error status and a meaningful message in the
 Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
 
 ```
-"factory_reset_status":
+"factory_reset":
 {
-    "date": "<UTC time of the factory reset status>",
-    "status": "<status>"
+  "status":
+  {
+      "date": "<UTC time of the factory reset status>",
+      "status": "<status>"
+  }
 }
 ```
 
@@ -109,6 +127,15 @@ Adapt the following environment variable in order to configure the directory use
 ```
 # use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
 CONSENT_DIR_PATH: "/my/path"
+```
+
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"device_update_consent":
+{
+}
 ```
 
 ### Configure current desired general consent
@@ -179,22 +206,28 @@ In all other cases there will be an error status and a meaningful message in the
 The module reports the status for a required user consent. For this purpose the module sends a reported property to the cloud.
 
 ```
-"user_consent_request": [
-    {
-        "swupdate": "<version>"
-    }
-]
+"device_update_consent":
+{
+  "user_consent_request": [
+      {
+          "swupdate": "<version>"
+      }
+  ]
+}
 ```
 
 As soon as the consent for a new update has been granted via the direct method "user_consent", this status is reported via the user_consent_history reported property in the module twin.
 
 ```
-"user_consent_history":
+"device_update_consent":
 {
-  "swupdate":
-  [
-    "<version>"
-  ]
+  "user_consent_history":
+  {
+    "swupdate":
+    [
+      "<version>"
+    ]
+  }
 }
 ```
 
@@ -238,60 +271,72 @@ In all other cases there will be an error status:
 
 ## Network status
 
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"network_status":
+{
+}
+```
+
 ### Current reported network status
 
 The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
 
 ```
-"network_interfaces": [
-  {
-    "addr_v4": [
-      "172.17.0.1"
-    ],
-    "addr_v6": [
-      "fe80::42:22ff:fe3b:ad66"
-    ],
-    "mac": "02:42:22:3b:ad:66",
-    "name": "docker0"
-  },
-  {
-    "addr_v4": [
-      "172.25.0.1"
-    ],
-    "addr_v6": [
-      "fe80::42:c3ff:fe87:3c03"
-    ],
-    "mac": "02:42:c3:87:3c:03",
-    "name": "br-04171e27390a"
-  },
-  {
-    "addr_v4": [
-      "192.168.0.84"
-    ],
-    "addr_v6": [
-      "fe80::33d9:9063:897d:4357"
-    ],
-    "mac": "08:00:27:6d:83:36",
-    "name": "enp0s8"
-  },
-  {
-    "addr_v4": [
-      "127.0.0.1"
-    ],
-    "addr_v6": [
-      "::1"
-    ],
-    "mac": "00:00:00:00:00:00",
-    "name": "lo"
-  },
-  {
-    "addr_v6": [
-      "fe80::4c8e:77ff:fec1:10d3"
-    ],
-    "mac": "4e:8e:77:c1:10:d3",
-    "name": "vethbd467ae"
-  }
-]
+"network_status":
+{
+  "interfaces": [
+    {
+      "addr_v4": [
+        "172.17.0.1"
+      ],
+      "addr_v6": [
+        "fe80::42:22ff:fe3b:ad66"
+      ],
+      "mac": "02:42:22:3b:ad:66",
+      "name": "docker0"
+    },
+    {
+      "addr_v4": [
+        "172.25.0.1"
+      ],
+      "addr_v6": [
+        "fe80::42:c3ff:fe87:3c03"
+      ],
+      "mac": "02:42:c3:87:3c:03",
+      "name": "br-04171e27390a"
+    },
+    {
+      "addr_v4": [
+        "192.168.0.84"
+      ],
+      "addr_v6": [
+        "fe80::33d9:9063:897d:4357"
+      ],
+      "mac": "08:00:27:6d:83:36",
+      "name": "enp0s8"
+    },
+    {
+      "addr_v4": [
+        "127.0.0.1"
+      ],
+      "addr_v6": [
+        "::1"
+      ],
+      "mac": "00:00:00:00:00:00",
+      "name": "lo"
+    },
+    {
+      "addr_v6": [
+        "fe80::4c8e:77ff:fec1:10d3"
+      ],
+      "mac": "4e:8e:77:c1:10:d3",
+      "name": "vethbd467ae"
+    }
+  ]
+}
 ```
 
 ### Configure current desired include network filter
@@ -302,7 +347,7 @@ In order to report and filter network adapters by name the following desired pro
 [
   "docker*",
   "*eth*",
-  "wlan0",
+  "wlan0"
 ]
 ```
 If the filter is empty all network adapters are reported. In case the `include_network_filter` property doesn't exis at all no adapters will we reported.
@@ -345,6 +390,15 @@ In all other cases there will be an error status:
 }
 ```
 ## SSH handling
+
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"ssh":
+{
+}
+```
 
 ### SSH status
 
@@ -464,13 +518,29 @@ In all other cases there will be an error status:
 }
 ```
 
-## Update Validation
+
+### Current reported ssh status
+
+The module reports the current ssh status. For this purpose the module reports the following properties to the cloud.
+
+```
+"ssh":
+{
+  "status":
+  {
+    "v4_enabled":false,
+    "v6_enabled":false
+  }
+}
+```
+
+## Update validation
 
 On `iot-hub-device-update` update, after flashing the new root partition, we boot into the new root partition and test if the update was successful.<br>
 We don't set the new root partition permanently yet. On this boot the startup of `iot-hub-device-update` is prevented and has to be triggered by `omnect-device-service`.<br>
 `omnect-device-service` validates if the update was successful. If so, the new root partition is permanently set and the start of `iot-hub-device-update` gets triggered. If not, the device gets rebooted and we boot to the old root partition.
 
-### Criteria for a successful Update
+### Criteria for a successful update
 This service provisions against iothub.
 
 # License

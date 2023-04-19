@@ -133,23 +133,16 @@ impl Client {
             Ok(())
         }));
     }
-
-    pub fn stop(&mut self) -> Result<()> {
-        if self.thread.is_some() {
-            return block_on(async {
-                *self.run.lock().unwrap() = false;
-                self.thread.take().as_mut().unwrap().await?
-            });
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        if let Err(e) = self.stop() {
-            error!("Client thread returned with: {e:#?}");
+        *self.run.lock().unwrap() = false;
+
+        if self.thread.is_some() {
+            if let Err(e) = block_on(async { self.thread.take().as_mut().unwrap().await? }) {
+                error!("Client thread returned with: {e}");
+            }
         }
     }
 }

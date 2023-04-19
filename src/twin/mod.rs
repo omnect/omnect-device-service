@@ -1,4 +1,3 @@
-mod common;
 mod consent;
 mod factory_reset;
 #[cfg(test)]
@@ -6,29 +5,37 @@ mod factory_reset;
 mod mod_test;
 mod network_status;
 mod ssh;
+use crate::twin::{
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
+    ssh::Ssh,
+};
 use crate::Message;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use azure_iot_sdk::client::*;
+use dotenvy;
+use enum_dispatch::enum_dispatch;
+use futures_executor::block_on;
 use log::{info, warn};
 use once_cell::sync::OnceCell;
-use std::sync::mpsc::Sender;
-use std::sync::{Mutex, MutexGuard};
+use serde_json::json;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{mpsc::Sender, Mutex};
+#[cfg(test)]
+use strum::EnumCount;
+use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-static INSTANCE: OnceCell<Mutex<Twin>> = OnceCell::new();
+static INSTANCE: OnceCell<Mutex<Option<Twin>>> = OnceCell::new();
 
 pub struct TwinInstance {
-    inner: &'static Mutex<Twin>,
+    inner: &'static Mutex<Option<Twin>>,
 }
 
 pub fn get_or_init(tx: Option<&Sender<Message>>) -> TwinInstance {
     if let Some(tx) = tx {
         TwinInstance {
-            inner: INSTANCE.get_or_init(|| {
-                Mutex::new(Twin {
-                    tx: Some(tx.clone()),
-                    ..Default::default()
-                })
-            }),
+            inner: INSTANCE.get_or_init(|| Mutex::new(Some(Twin::new(tx.clone())))),
         }
     } else {
         TwinInstance {
@@ -37,23 +44,23 @@ pub fn get_or_init(tx: Option<&Sender<Message>>) -> TwinInstance {
     }
 }
 
-struct TwinLock<'a> {
-    inner: MutexGuard<'a, Twin>,
-}
-
 impl TwinInstance {
-    fn lock(&self) -> TwinLock<'_> {
-        TwinLock {
-            inner: self.inner.lock().unwrap_or_else(|e| e.into_inner()),
-        }
+    pub fn exec<F, T>(&self, f: F) -> Result<T>
+    where
+        F: Fn(&Twin) -> Result<T>,
+    {
+        let guard = &*self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let twin = guard.as_ref().unwrap();
+        f(twin)
     }
 
-    pub fn report(&self, property: &ReportProperty) -> Result<()> {
-        self.lock().inner.report(property)
-    }
-
-    pub fn update(&self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
-        self.lock().inner.update(state, desired)
+    pub fn exec_mut<F, T>(&self, f: F) -> Result<T>
+    where
+        F: Fn(&mut Twin) -> Result<T>,
+    {
+        let guard = &mut *self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let twin = guard.as_mut().unwrap();
+        f(twin)
     }
 
     pub fn get_direct_methods(&self) -> Option<DirectMethodMap> {
@@ -68,7 +75,14 @@ impl TwinInstance {
             String::from("user_consent"),
             Box::new(consent::user_consent),
         );
-        methods.insert(String::from("reboot"), Box::new(common::reboot));
+        methods.insert(
+            String::from("reboot"),
+            IotHubClient::make_direct_method(move |_in_json| {
+                info!("reboot requested");
+                block_on(async { super::systemd::reboot().await })?;
+                Ok(None)
+            }),
+        );
         methods.insert(
             String::from("refresh_network_status"),
             IotHubClient::make_direct_method(move |in_json| {
@@ -102,72 +116,222 @@ impl TwinInstance {
 }
 
 #[derive(Default)]
-struct Twin {
+struct FeatureState {
     tx: Option<Sender<Message>>,
-    include_network_filter: Option<Vec<String>>,
 }
 
-pub enum ReportProperty<'a> {
-    Versions,
-    GeneralConsent,
-    UserConsent(&'a str),
-    FactoryResetStatus(&'a str),
-    FactoryResetResult,
+#[enum_dispatch]
+#[derive(EnumCountMacro, EnumIter)]
+enum TwinFeature {
+    FactoryReset,
+    DeviceUpdateConsent,
     NetworkStatus,
-    SshStatus,
+    Ssh,
+}
+
+#[enum_dispatch(TwinFeature)]
+trait Feature {
+    fn get_name(&self) -> String;
+
+    fn get_version(&self) -> u8;
+
+    fn is_enabled(&self) -> bool;
+
+    fn get_state(&self) -> &FeatureState;
+
+    fn get_state_mut(&mut self) -> &mut FeatureState;
+
+    fn as_any(&self) -> &dyn Any;
+
+    fn report_initial_state(&self) -> Result<()> {
+        Ok(())
+    }
+
+    fn set_tx(&mut self, tx: Sender<Message>) {
+        self.get_state_mut().tx = Some(tx)
+    }
+
+    fn get_tx(&self) -> &Option<Sender<Message>> {
+        &self.get_state().tx
+    }
+
+    fn ensure(&self) -> Result<()> {
+        if !self.is_enabled() {
+            bail!("feature disabled: {}", self.get_name());
+        }
+
+        Ok(())
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        unimplemented!();
+    }
+
+    fn report_availability(&self) -> Result<()> {
+        let value = if self.is_enabled() {
+            json!({ "version": &self.get_version() })
+        } else {
+            json!(null)
+        };
+
+        Twin::report_impl(self.get_tx(), json!({ &self.get_name(): value }))
+    }
+
+    fn start(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct Twin {
+    tx: Option<Sender<Message>>,
+    features: HashMap<TypeId, Box<dyn Feature + Send>>,
 }
 
 impl Twin {
-    fn update(&mut self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
+    pub fn new(tx: Sender<Message>) -> Self {
+        Twin {
+            tx: Some(tx),
+            features: HashMap::from([
+                (
+                    TypeId::of::<FactoryReset>(),
+                    Box::new(FactoryReset::default()) as Box<dyn Feature + Send>,
+                ),
+                (
+                    TypeId::of::<DeviceUpdateConsent>(),
+                    Box::new(DeviceUpdateConsent::default()) as Box<dyn Feature + Send>,
+                ),
+                (
+                    TypeId::of::<NetworkStatus>(),
+                    Box::new(NetworkStatus::default()) as Box<dyn Feature + Send>,
+                ),
+                (
+                    TypeId::of::<Ssh>(),
+                    Box::new(Ssh::default()) as Box<dyn Feature + Send>,
+                ),
+            ]),
+        }
+    }
+
+    pub fn init_features(&mut self) -> Result<()> {
+        dotenvy::from_path_override(Path::new(&format!(
+            "{}/os-release",
+            std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/etc".to_string())
+        )))?;
+
+        // report version
+        let version = json!({
+            "module-version": env!("CARGO_PKG_VERSION"),
+            "azure-sdk-version": IotHubClient::get_sdk_version_string()
+        });
+
+        Self::report_impl(&self.tx, version).context("init_features: report_impl")?;
+
+        for f in self.features.values_mut() {
+            f.set_tx(
+                self.tx
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("tx channel missing"))?
+                    .clone(),
+            );
+        }
+
+        for f in self.features.values_mut() {
+            // report feature availability
+            f.report_availability()?;
+        }
+
+        for f in self.features.values_mut() {
+            if f.is_enabled() {
+                // report initial feature status
+                f.report_initial_state()?;
+            }
+        }
+
+        for f in self.features.values_mut() {
+            if f.is_enabled() {
+                // start feature
+                f.start()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn update(&mut self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
         match state {
             TwinUpdateState::Partial => {
                 if let Some(gc) = desired.get("general_consent") {
-                    self.update_general_consent(gc.as_array())?;
+                    let f = self.get_feature::<DeviceUpdateConsent>()?;
+
+                    if f.is_enabled() {
+                        f.update_general_consent(gc.as_array())?;
+                    }
                 }
 
                 if let Some(inf) = desired.get("include_network_filter") {
-                    self.update_include_network_filter(inf.as_array())?;
+                    let f = self.get_feature_mut::<NetworkStatus>()?;
+
+                    if f.is_enabled() {
+                        f.update_include_network_filter(inf.as_array())?;
+                    }
                 }
             }
             TwinUpdateState::Complete => {
-                self.update_general_consent(desired["desired"]["general_consent"].as_array())?;
-                self.update_include_network_filter(
-                    desired["desired"]["include_network_filter"].as_array(),
-                )?;
+                if desired.get("desired").is_none() {
+                    bail!("update: 'desired' missing while TwinUpdateState::Complete")
+                }
+
+                self.get_feature::<DeviceUpdateConsent>()?
+                    .update_general_consent(desired["desired"]["general_consent"].as_array())?;
+
+                self.get_feature_mut::<NetworkStatus>()?
+                    .update_include_network_filter(
+                        desired["desired"]["include_network_filter"].as_array(),
+                    )?;
             }
         }
         Ok(())
     }
 
-    fn report(&mut self, property: &ReportProperty) -> Result<()> {
-        match property {
-            ReportProperty::Versions => self.report_versions().context("Couldn't report version"),
-            ReportProperty::GeneralConsent => self
-                .report_general_consent()
-                .context("Couldn't report general consent"),
-            ReportProperty::UserConsent(file) => self
-                .report_user_consent(file)
-                .context("Couldn't report user consent"),
-            ReportProperty::FactoryResetStatus(status) => self
-                .report_factory_reset_status(status)
-                .context("Couldn't report factory reset status"),
-            ReportProperty::FactoryResetResult => self
-                .report_factory_reset_result()
-                .context("Couldn't report factory reset result"),
-            ReportProperty::NetworkStatus => self
-                .report_network_status()
-                .context("Couldn't report network status"),
-            ReportProperty::SshStatus => self
-                .report_ssh_status()
-                .context("Couldn't report ssh status"),
-        }
+    fn get_feature<T>(&self) -> Result<&T>
+    where
+        T: Feature + 'static,
+    {
+        let f = self
+            .features
+            .get(&TypeId::of::<T>())
+            .ok_or_else(|| anyhow::anyhow!("failed to get feature"))?
+            .as_any()
+            .downcast_ref::<T>()
+            .ok_or_else(|| anyhow::anyhow!("failed to cast to feature ref"))?;
+
+        f.ensure()?;
+
+        Ok(f)
     }
 
-    fn report_impl(&mut self, value: serde_json::Value) -> Result<()> {
+    fn get_feature_mut<T>(&mut self) -> Result<&mut T>
+    where
+        T: Feature + 'static,
+    {
+        let f = self
+            .features
+            .get_mut(&TypeId::of::<T>())
+            .ok_or_else(|| anyhow::anyhow!("failed to get feature mut"))?
+            .as_any_mut()
+            .downcast_mut::<T>()
+            .ok_or_else(|| anyhow::anyhow!("failed to cast to feature mut"))?;
+
+        f.ensure()?;
+
+        Ok(f)
+    }
+
+    fn report_impl(tx: &Option<Sender<Message>>, value: serde_json::Value) -> Result<()> {
         info!("report: {}", value);
 
-        self.tx
-            .as_ref()
+        tx.as_ref()
             .ok_or_else(|| anyhow::anyhow!("tx channel missing"))?
             .send(Message::Reported(value))
             .map_err(|err| err.into())

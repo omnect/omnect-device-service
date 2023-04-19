@@ -1,26 +1,78 @@
-use super::Twin;
-use crate::{twin, ReportProperty};
+use super::{Feature, FeatureState};
+use crate::twin;
+use crate::twin::Twin;
 use anyhow::{Context, Ok, Result};
 use log::{error, info};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use serde::Serialize;
 use serde_json::json;
 use serde_with::skip_serializing_none;
+use std::any::Any;
 use std::collections::HashMap;
+use std::env;
 
 pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    info!("network status requested");
-
-    twin::get_or_init(None).report(&ReportProperty::NetworkStatus)?;
-
-    Ok(None)
+    twin::get_or_init(None).exec(|twin| {
+        twin.get_feature::<NetworkStatus>()?
+            .refresh_network_status()
+    })
 }
 
-impl Twin {
+#[derive(Default)]
+pub struct NetworkStatus {
+    state: FeatureState,
+    include_network_filter: Option<Vec<String>>,
+}
+
+impl Feature for NetworkStatus {
+    fn get_name(&self) -> String {
+        NetworkStatus::ID.to_string()
+    }
+
+    fn get_version(&self) -> u8 {
+        Self::NETWORK_STATUS_VERSION
+    }
+
+    fn is_enabled(&self) -> bool {
+        !env::vars().any(|(k, v)| k == "SUPPRESS_NETWORK_STATUS" && v == "true")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn get_state_mut(&mut self) -> &mut FeatureState {
+        &mut self.state
+    }
+
+    fn get_state(&self) -> &FeatureState {
+        &self.state
+    }
+}
+
+impl NetworkStatus {
+    const NETWORK_STATUS_VERSION: u8 = 1;
+    const ID: &'static str = "network_status";
+
+    pub fn refresh_network_status(&self) -> Result<Option<serde_json::Value>> {
+        info!("network status requested");
+
+        self.ensure()?;
+
+        self.report_network_status()?;
+
+        Ok(None)
+    }
     pub fn update_include_network_filter(
         &mut self,
         include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
+        self.ensure()?;
+
         if include_network_filter.is_none() {
             if self.include_network_filter.take().is_some() {
                 return self.report_network_status();
@@ -62,11 +114,19 @@ impl Twin {
         }
     }
 
-    pub fn report_network_status(&mut self) -> Result<()> {
+    fn report_network_status(&self) -> Result<()> {
+        self.ensure()?;
+
         if self.include_network_filter.is_none() {
-            return self
-                .report_impl(json!({ "network_interfaces": json!(null) }))
-                .context("report_network_status: report_impl");
+            return Twin::report_impl(
+                self.get_tx(),
+                json!({
+                       "network_status": {
+                           "interfaces": json!(null)
+                   }
+                }),
+            )
+            .context("report_network_status: report_impl");
         }
 
         #[skip_serializing_none]
@@ -122,9 +182,14 @@ impl Twin {
                 };
             });
 
-        self.report_impl(json!({
-            "network_interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
-        }))
+        Twin::report_impl(
+            self.get_tx(),
+            json!({
+                "network_status": {
+                    "interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
+                }
+            }),
+        )
         .context("report_network_status")
     }
 }

@@ -16,16 +16,16 @@ lazy_static! {
     };
 }
 
-pub struct Testrunner {
+pub struct TestEnvironment {
     dirpath: std::string::String,
 }
 
-impl Testrunner {
-    pub fn new(prefix: &str) -> Testrunner {
+impl TestEnvironment {
+    pub fn new(name: &str) -> TestEnvironment {
         lazy_static::initialize(&LOG);
-        let dirpath = format!("{}{}", TMPDIR_FORMAT_STR, prefix);
+        let dirpath = format!("{}{}", TMPDIR_FORMAT_STR, name);
         create_dir_all(&dirpath).unwrap();
-        Testrunner { dirpath }
+        TestEnvironment { dirpath }
     }
 
     pub fn copy_directory(&self, dir: &str) -> PathBuf {
@@ -49,7 +49,7 @@ impl Testrunner {
     }
 }
 
-impl Drop for Testrunner {
+impl Drop for TestEnvironment {
     fn drop(&mut self) {
         // place your cleanup code here
         remove_dir_all(&self.dirpath).unwrap_or_else(|e| {

@@ -2,6 +2,7 @@ use anyhow::{bail, ensure, Context, Result};
 use futures_util::{join, StreamExt};
 use log::{debug, info, trace};
 use sd_notify::NotifyState;
+#[cfg(not(test))]
 use std::process::Command;
 use std::sync::Once;
 use std::time::Duration;
@@ -63,6 +64,7 @@ impl WatchdogHandler {
     }
 }
 
+#[cfg(not(test))]
 pub async fn reboot() -> Result<()> {
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
@@ -81,6 +83,11 @@ pub async fn reboot() -> Result<()> {
             &(true),
         )
         .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub async fn reboot() -> Result<()> {
     Ok(())
 }
 
