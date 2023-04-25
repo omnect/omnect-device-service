@@ -81,7 +81,7 @@ pub async fn reboot() -> Result<()> {
             &(true),
         )
         .await?;
-    return Ok(());
+    Ok(())
 }
 
 pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
