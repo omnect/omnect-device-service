@@ -134,7 +134,6 @@ pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
     }
 }
 
-/* note: doesnt return a bool */
 pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     let system = timeout_at(deadline, zbus::Connection::system()).await??;
