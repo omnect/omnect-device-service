@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - systemd::wait_for_system_running: added timeout handling
  - systemd::reboot: sync journal before reboot
  - module version: also log the short git revision
+ - explicit `cargo update` to fix RUSTSEC-2023-0034
 
 ## [0.10.3] Q1 2023
  - fixed twin update handling when key is not present at all vs. key is null
