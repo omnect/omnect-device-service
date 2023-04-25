@@ -1,6 +1,5 @@
 use super::systemd;
 use anyhow::{Context, Result};
-use futures_executor::block_on;
 use log::{error, info};
 use std::fs;
 use std::path::Path;
@@ -85,15 +84,16 @@ pub async fn check() -> Result<()> {
      * Path::try_exists() here
      */
     if Path::new(UPDATE_VALIDATION_FILE).exists() {
-        validate().await.or_else(|e| {
-            error!("validate error: {e:#?}");
-            block_on(async { systemd::reboot().await })
-        })?;
-
-        finalize().await.or_else(|e| {
-            error!("finalize error: {e:#?}");
-            block_on(async { systemd::reboot().await })
-        })?;
+        let val = validate().await;
+        if val.is_err() {
+            error!("validate error: {:#?}", val.err());
+            systemd::reboot().await?;
+        }
+        let fin = finalize().await;
+        if fin.is_err() {
+            error!("finalize error: {:#?}", fin.err());
+            systemd::reboot().await?;
+        }
     }
 
     Ok(())

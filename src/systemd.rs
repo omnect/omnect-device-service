@@ -135,7 +135,9 @@ pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
 }
 
 pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    let begin = Instant::now();
+    let duration = Duration::from_secs(timeout_secs);
+    let deadline = begin + duration;
     let system = timeout_at(deadline, zbus::Connection::system()).await??;
     let manager = timeout_at(
         deadline,
@@ -147,6 +149,12 @@ pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
     .await??;
 
     loop {
+        // timeout_at doesn't return error/timeout if the future returns immediately, so we have to check.
+        // e.g. manager.system_state() returns immediately if using a caching ManagerProxy
+        if begin.elapsed() >= duration {
+            bail!("wait_for_system_running timeout occurred");
+        }
+
         let system_state = timeout_at(deadline, manager.system_state()).await??;
 
         match system_state.as_str() {
