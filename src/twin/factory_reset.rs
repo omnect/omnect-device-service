@@ -99,7 +99,7 @@ impl Twin {
             );
 
             let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
-                error!("report_factory_reset_result: {:#?}", e);
+                error!("report_factory_reset_result: {e:#?}");
                 String::from("")
             });
             let vec: Vec<&str> = status.split('=').collect();
