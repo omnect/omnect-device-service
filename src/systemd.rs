@@ -2,7 +2,6 @@ use anyhow::{bail, ensure, Context, Result};
 use futures_util::{join, StreamExt};
 use log::{debug, info, trace};
 use sd_notify::NotifyState;
-use std::process;
 use std::process::Command;
 use std::sync::Once;
 use std::time::Duration;
@@ -64,7 +63,7 @@ impl WatchdogHandler {
     }
 }
 
-pub fn reboot() -> Result<()> {
+pub async fn reboot() -> Result<()> {
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
     let _ = Command::new("sudo")
@@ -72,8 +71,8 @@ pub fn reboot() -> Result<()> {
         .arg("--sync")
         .status();
 
-    zbus::blocking::Connection::system()
-        .context("system_reboot: can't get system dbus")?
+    zbus::Connection::system()
+        .await?
         .call_method(
             Some("org.freedesktop.login1"),
             "/org/freedesktop/login1",
@@ -81,9 +80,8 @@ pub fn reboot() -> Result<()> {
             "Reboot",
             &(true),
         )
-        .context("dbus reboot")?;
-
-    process::exit(0);
+        .await?;
+    return Ok(());
 }
 
 pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
@@ -98,13 +96,15 @@ pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
         timeout_at(deadline, manager.start_unit(unit, Mode::Fail))
     );
 
-    let job = job.context("systemd_start_unit: \"{unit}\"")??.into_inner();
+    let job = job
+        .with_context(|| "systemd_start_unit: \"{unit}\"")??
+        .into_inner();
 
     let job_removed = job_removed
-        .context("systemd_job_removed_stream")?
-        .context("failed to get next item in job removed stream")?;
+        .with_context(|| "systemd_job_removed_stream")?
+        .with_context(|| "failed to get next item in job removed stream")?;
 
-    let job_removed_args = job_removed.args().context("get removed args")?;
+    let job_removed_args = job_removed.args().with_context(|| "get removed args")?;
 
     debug!("job removed: {:?}", job_removed_args);
     if job_removed_args.job() == &job {
@@ -119,7 +119,7 @@ pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
     loop {
         let job_removed = timeout_at(deadline, job_removed_stream.next())
             .await?
-            .context("no job_removed signal received")?;
+            .with_context(|| "no job_removed signal received")?;
 
         let job_removed_args = job_removed.args()?;
         debug!("job removed: {:?}", job_removed_args);

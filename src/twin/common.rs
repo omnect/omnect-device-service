@@ -2,13 +2,14 @@ use super::super::systemd;
 use super::Twin;
 use anyhow::{Context, Result};
 use azure_iot_sdk::client::*;
+use futures_executor::block_on;
 use log::info;
 use serde_json::json;
 
 pub fn reboot(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     info!("reboot requested");
 
-    systemd::reboot()?;
+    block_on(async { systemd::reboot().await })?;
 
     Ok(None)
 }
