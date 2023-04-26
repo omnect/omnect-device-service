@@ -2,6 +2,7 @@ use super::super::systemd;
 use super::Twin;
 use crate::{twin, ReportProperty};
 use anyhow::{anyhow, Context, Result};
+use futures_executor::block_on;
 use lazy_static::{__Deref, lazy_static};
 use log::{error, info, warn};
 use serde_json::json;
@@ -67,7 +68,7 @@ pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<se
 
             twin::get_or_init(None).report(&ReportProperty::FactoryResetStatus("in_progress"))?;
 
-            systemd::reboot()?;
+            block_on(async { systemd::reboot().await })?;
 
             Ok(None)
         }
@@ -99,7 +100,7 @@ impl Twin {
             );
 
             let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
-                error!("report_factory_reset_result: {:#?}", e);
+                error!("report_factory_reset_result: {e:#?}");
                 String::from("")
             });
             let vec: Vec<&str> = status.split('=').collect();

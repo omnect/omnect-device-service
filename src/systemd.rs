@@ -1,11 +1,13 @@
-use anyhow::Result;
+use anyhow::{bail, ensure, Context, Result};
 use futures_util::{join, StreamExt};
-use log::{debug, info};
+use log::{debug, info, trace};
 use sd_notify::NotifyState;
+use std::process::Command;
 use std::sync::Once;
-use std::time::Instant;
+use std::time::Duration;
 use std::{thread, time};
 use systemd_zbus::{ManagerProxy, Mode};
+use tokio::time::{timeout_at, Instant};
 
 static SD_NOTIFY_ONCE: Once = Once::new();
 
@@ -51,7 +53,7 @@ impl WatchdogHandler {
     pub fn notify(&mut self) -> Result<()> {
         if let Some(ref mut now) = self.now {
             if u128::from(self.usec) < now.elapsed().as_micros() {
-                debug!("notify watchdog=1");
+                trace!("notify watchdog=1");
                 sd_notify::notify(false, &[NotifyState::Watchdog])?;
                 *now = Instant::now();
             }
@@ -61,9 +63,16 @@ impl WatchdogHandler {
     }
 }
 
-pub fn reboot() -> Result<()> {
-    zbus::blocking::Connection::system()
-        .map_err(|e| anyhow::anyhow!("system_reboot: can't get system dbus: {:?}", e))?
+pub async fn reboot() -> Result<()> {
+    info!("systemd::reboot");
+    //journalctl seems not to have a dbus api
+    let _ = Command::new("sudo")
+        .arg("journalctl")
+        .arg("--sync")
+        .status();
+
+    zbus::Connection::system()
+        .await?
         .call_method(
             Some("org.freedesktop.login1"),
             "/org/freedesktop/login1",
@@ -71,86 +80,101 @@ pub fn reboot() -> Result<()> {
             "Reboot",
             &(true),
         )
-        .map_err(|e| anyhow::anyhow!("dbus reboot: {:?}", e))?;
-
+        .await?;
     Ok(())
 }
 
-pub fn start_unit(unit: &str) -> Result<()> {
-    futures_executor::block_on(async {
-        let conn = zbus::Connection::system()
-            .await
-            .map_err(|e| anyhow::anyhow!("systemd_start_unit: can't get system dbus: {:?}", e))?;
-        let proxy = ManagerProxy::new(&conn).await?;
+pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    let system = timeout_at(deadline, zbus::Connection::system()).await??;
+    let manager = timeout_at(deadline, ManagerProxy::new(&system)).await??;
 
-        let mut job_removed_stream = proxy.receive_job_removed().await?;
-        let (job_removed, job) = join!(
-            job_removed_stream.next(),
-            proxy.start_unit(unit, Mode::Fail),
-        );
+    let mut job_removed_stream = timeout_at(deadline, manager.receive_job_removed()).await??;
 
-        anyhow::ensure!(
-            job.is_ok(),
-            "systemd_start_unit: can't start \"{unit}\": {:?}",
-            job.err()
-        );
-        let job = job.unwrap().into_inner();
+    let (job_removed, job) = join!(
+        timeout_at(deadline, job_removed_stream.next()),
+        timeout_at(deadline, manager.start_unit(unit, Mode::Fail))
+    );
 
-        anyhow::ensure!(
-            job_removed.is_some(),
-            "failed to get next item in job removed stream"
+    let job = job
+        .with_context(|| "systemd_start_unit: \"{unit}\"")??
+        .into_inner();
+
+    let job_removed = job_removed
+        .with_context(|| "systemd_job_removed_stream")?
+        .with_context(|| "failed to get next item in job removed stream")?;
+
+    let job_removed_args = job_removed.args().with_context(|| "get removed args")?;
+
+    debug!("job removed: {:?}", job_removed_args);
+    if job_removed_args.job() == &job {
+        ensure!(
+            job_removed_args.result == "done",
+            "failed to start unit \"{unit}\": {}",
+            job_removed_args.result
         );
-        let job_removed = job_removed.unwrap();
+        return Ok(());
+    }
+
+    loop {
+        let job_removed = timeout_at(deadline, job_removed_stream.next())
+            .await?
+            .with_context(|| "no job_removed signal received")?;
 
         let job_removed_args = job_removed.args()?;
         debug!("job removed: {:?}", job_removed_args);
         if job_removed_args.job() == &job {
-            anyhow::ensure!(
+            ensure!(
                 job_removed_args.result == "done",
                 "failed to start unit \"{unit}\": {}",
                 job_removed_args.result
             );
-        } else {
-            loop {
-                let job_removed = job_removed_stream.next().await.ok_or_else(|| {
-                    anyhow::anyhow!("failed to get next item in job removed stream")
-                })?;
-                let job_removed_args = job_removed.args()?;
-                debug!("job removed: {:?}", job_removed_args);
-                if job_removed_args.job() == &job {
-                    anyhow::ensure!(
-                        job_removed_args.result == "done",
-                        "failed to start unit \"{unit}\": {}",
-                        job_removed_args.result
-                    );
-                    break;
-                }
-            }
+            return Ok(());
         }
-
-        Ok(())
-    })
+    }
 }
 
-/* note: doesnt return a bool */
-pub fn is_system_running() -> Result<()> {
-    let allowed_system_states = vec!["initializing", "starting", "running"];
-    futures_executor::block_on(async {
-        let manager = ManagerProxy::new(&zbus::Connection::system().await?).await?;
-        loop {
-            let system_state = manager.system_state().await?;
-            debug!("system is {system_state}");
-            anyhow::ensure!(
-                { allowed_system_states.contains(&system_state.as_str()) },
-                "system is {system_state}"
-            );
-            if "running" == system_state {
-                break;
-            } else {
-                // ToDo https://github.com/omnect/omnect-device-service/pull/39#discussion_r1142147564
-                thread::sleep(time::Duration::from_millis(100));
-            };
+pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
+    let begin = Instant::now();
+    let duration = Duration::from_secs(timeout_secs);
+    let deadline = begin + duration;
+    let system = timeout_at(deadline, zbus::Connection::system()).await??;
+    let manager = timeout_at(
+        deadline,
+        // here we use manager which explicitly doesn't cache the system state
+        ManagerProxy::builder(&system)
+            .uncached_properties(&["SystemState"])
+            .build(),
+    )
+    .await??;
+
+    loop {
+        // timeout_at doesn't return error/timeout if the future returns immediately, so we have to check.
+        // e.g. manager.system_state() returns immediately if using a caching ManagerProxy
+        if begin.elapsed() >= duration {
+            bail!("wait_for_system_running timeout occurred");
         }
-        Ok(())
-    })
+
+        let system_state = timeout_at(deadline, manager.system_state()).await??;
+
+        match system_state.as_str() {
+            "running" => {
+                debug!("running");
+                return Ok(());
+            }
+            "initializing" | "starting" => {
+                /*
+                 * ToDo https://github.com/omnect/omnect-device-service/pull/39#discussion_r1142147564
+                 * This is tricky because you have to receive system state signals, which blocks if you
+                 * are already in state "running". if you receive the system state on condition after
+                 * you got state "starting" by polling, there would by a race which can result in a
+                 * deadlock of receiving the state signal again.
+                 * So a solution would be to poll, start signal receiving, poll again and stop
+                 * possibly stop receiving.
+                 */
+                thread::sleep(time::Duration::from_millis(100));
+            }
+            _ => bail!("system in error state: \"{system_state}\""),
+        }
+    }
 }

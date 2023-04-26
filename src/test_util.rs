@@ -52,9 +52,9 @@ impl Testrunner {
 impl Drop for Testrunner {
     fn drop(&mut self) {
         // place your cleanup code here
-        remove_dir_all(&self.dirpath).unwrap_or_else(|err| {
+        remove_dir_all(&self.dirpath).unwrap_or_else(|e| {
             // ignore all errors if dir cannot be deleted
-            error!("cannot remove_dir_all: {}", err);
+            error!("cannot remove_dir_all: {e:#?}");
         });
     }
 }
