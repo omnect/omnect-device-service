@@ -33,7 +33,6 @@ This module serves as interface between omnect cloud and device to support certa
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
-
 ## Instruction
 This module is based on omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
 
@@ -47,6 +46,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 "factory_reset":
 {
+  "version": <ver>
 }
 ```
 
@@ -135,6 +135,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 "device_update_consent":
 {
+  "version": <ver>
 }
 ```
 
@@ -277,6 +278,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 "network_status":
 {
+  "version": <ver>
 }
 ```
 
@@ -397,6 +399,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 "ssh":
 {
+  "version": <ver>
 }
 ```
 
