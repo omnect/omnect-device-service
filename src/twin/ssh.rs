@@ -89,11 +89,6 @@ impl Ssh {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn write_authorized_keys(_pubkey: &str) -> Result<()> {
-        Ok(())
-    }
-
     pub fn refresh_ssh_status(&self) -> Result<Option<serde_json::Value>> {
         info!("ssh status requested");
 
@@ -201,6 +196,11 @@ impl Ssh {
         )
         .context("report_ssh_status")
         .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    #[cfg(test)]
+    fn write_authorized_keys(_pubkey: &str) -> Result<()> {
+        Ok(())
     }
 
     #[cfg(test)]

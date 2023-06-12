@@ -204,6 +204,11 @@ impl FactoryReset {
         Ok(status.split('=').map(String::from).collect())
     }
 
+    #[cfg(not(test))]
+    fn exec_cmd(&self, args: Vec<&str>) -> Result<bool> {
+        Ok(Command::new("sudo").args(args).status()?.success())
+    }
+
     #[cfg(test)]
     #[allow(unreachable_patterns)]
     fn factory_reset_status(&self) -> Result<Vec<String>> {
@@ -230,11 +235,6 @@ impl FactoryReset {
                 "0:0\n".to_string(),
             ]),
         }
-    }
-
-    #[cfg(not(test))]
-    fn exec_cmd(&self, args: Vec<&str>) -> Result<bool> {
-        Ok(Command::new("sudo").args(args).status()?.success())
     }
 
     #[cfg(test)]

@@ -86,11 +86,6 @@ pub async fn reboot() -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-pub async fn reboot() -> Result<()> {
-    Ok(())
-}
-
 pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     let system = timeout_at(deadline, zbus::Connection::system()).await??;
@@ -184,4 +179,9 @@ pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
             _ => bail!("system in error state: \"{system_state}\""),
         }
     }
+}
+
+#[cfg(test)]
+pub async fn reboot() -> Result<()> {
+    Ok(())
 }
