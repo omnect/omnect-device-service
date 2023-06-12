@@ -45,8 +45,8 @@ mod mod_test {
 
             let test_env = TestEnvironment::new(testcase_name.as_str());
 
-            env::set_var("OS_RELEASE_DIR_PATH", test_env.get_dirpath().as_str());
-            env::set_var("CONSENT_DIR_PATH", test_env.get_dirpath().as_str());
+            env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
+            env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
             test_files.iter().for_each(|file| {
                 test_env.copy_file(file);
                 ()
@@ -204,7 +204,7 @@ mod mod_test {
                 .iter()
                 .any(|f| f == &json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}})));
 
-            assert!(twin.get_feature::<FactoryReset>().is_err());
+            assert!(twin.feature::<FactoryReset>().is_err());
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -258,7 +258,7 @@ mod mod_test {
     #[tokio::test]
     async fn update_and_report_general_consent_failed_test1() {
         let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            let usr_consent = twin.get_feature::<DeviceUpdateConsent>();
+            let usr_consent = twin.feature::<DeviceUpdateConsent>();
 
             assert!(usr_consent.is_ok());
 
@@ -461,13 +461,67 @@ mod mod_test {
             recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
 
             assert_eq!(
-                twin.get_feature::<DeviceUpdateConsent>()
+                twin.feature::<DeviceUpdateConsent>()
                     .unwrap()
                     .user_consent(json!({
                       "test_component": "1.0.0"
                     }))
                     .unwrap(),
                 None
+            );
+        };
+
+        TestCase::run(test_files, test_dirs, vec![], test);
+    }
+
+    #[tokio::test]
+    async fn consent_invalid_component_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let test_dirs = vec!["testfiles/positive/test_component"];
+
+        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
+            assert!(twin.init_features().is_ok());
+
+            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+
+            assert_eq!(
+                twin.feature::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .user_consent(json!({
+                      "test/_component": "1.0.0"
+                    }))
+                    .unwrap_err()
+                    .to_string(),
+                "user_consent: invalid component name"
+            );
+
+            assert_eq!(
+                twin.feature::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .user_consent(json!({
+                      "test_component": 1
+                    }))
+                    .unwrap_err()
+                    .to_string(),
+                "user_consent: unexpected parameter format"
+            );
+
+            assert_eq!(
+                twin.feature::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .user_consent(json!({
+                      "test_component1": "1.0.0",
+                      "test_component2": "1.0.0"
+                    }))
+                    .unwrap_err()
+                    .to_string(),
+                "user_consent: unexpected parameter format"
             );
         };
 
@@ -488,7 +542,7 @@ mod mod_test {
 
             recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
 
-            let factory_reset = twin.get_feature::<FactoryReset>().unwrap();
+            let factory_reset = twin.feature::<FactoryReset>().unwrap();
 
             assert_eq!(
                 factory_reset
@@ -551,7 +605,7 @@ mod mod_test {
             recv_exact_num_msgs(6, &rx);
 
             assert_eq!(
-                twin.get_feature::<FactoryReset>()
+                twin.feature::<FactoryReset>()
                     .unwrap()
                     .reset_to_factory_settings(json!({
                         "type": 1,
@@ -754,7 +808,7 @@ mod mod_test {
             recv_exact_num_msgs(0, &rx);
 
             assert!(twin
-                .get_feature::<NetworkStatus>()
+                .feature::<NetworkStatus>()
                 .unwrap()
                 .refresh_network_status()
                 .is_ok());
@@ -779,7 +833,7 @@ mod mod_test {
             recv_exact_num_msgs(6, &rx);
 
             assert!(twin
-                .get_feature::<Ssh>()
+                .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({ "pubkey": "" }),)
                 .unwrap_err()
@@ -787,7 +841,7 @@ mod mod_test {
                 .starts_with("Empty ssh pubkey"));
 
             assert!(twin
-                .get_feature::<Ssh>()
+                .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({}),)
                 .unwrap_err()
@@ -795,7 +849,7 @@ mod mod_test {
                 .starts_with("No ssh pubkey given"));
 
             assert!(twin
-                .get_feature::<Ssh>()
+                .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({ "": "" }),)
                 .unwrap_err()
@@ -803,7 +857,7 @@ mod mod_test {
                 .starts_with("No ssh pubkey given"));
 
             assert!(twin
-                .get_feature::<Ssh>()
+                .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({ "pubkey": "mykey" }))
                 .is_err());
@@ -829,11 +883,7 @@ mod mod_test {
 
             recv_exact_num_msgs(6, &rx);
 
-            assert!(twin
-                .get_feature::<Ssh>()
-                .unwrap()
-                .refresh_ssh_status()
-                .is_ok());
+            assert!(twin.feature::<Ssh>().unwrap().refresh_ssh_status().is_ok());
 
             let reported_results = recv_exact_num_msgs(1, &rx);
 

@@ -1,7 +1,7 @@
 use super::{Feature, FeatureState};
 use crate::twin;
 use crate::twin::Twin;
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result};
 use log::{error, info};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use serde::Serialize;
@@ -12,10 +12,7 @@ use std::collections::HashMap;
 use std::env;
 
 pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| {
-        twin.get_feature::<NetworkStatus>()?
-            .refresh_network_status()
-    })
+    twin::get_or_init(None).exec(|twin| twin.feature::<NetworkStatus>()?.refresh_network_status())
 }
 
 #[derive(Default)]
@@ -25,16 +22,16 @@ pub struct NetworkStatus {
 }
 
 impl Feature for NetworkStatus {
-    fn get_name(&self) -> String {
+    fn name(&self) -> String {
         NetworkStatus::ID.to_string()
     }
 
-    fn get_version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::NETWORK_STATUS_VERSION
     }
 
     fn is_enabled(&self) -> bool {
-        !env::vars().any(|(k, v)| k == "SUPPRESS_NETWORK_STATUS" && v == "true")
+        env::var("SUPPRESS_NETWORK_STATUS") != Ok("true".to_string())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -45,11 +42,11 @@ impl Feature for NetworkStatus {
         self
     }
 
-    fn get_state_mut(&mut self) -> &mut FeatureState {
+    fn state_mut(&mut self) -> &mut FeatureState {
         &mut self.state
     }
 
-    fn get_state(&self) -> &FeatureState {
+    fn state(&self) -> &FeatureState {
         &self.state
     }
 }
@@ -119,7 +116,7 @@ impl NetworkStatus {
 
         if self.include_network_filter.is_none() {
             return Twin::report_impl(
-                self.get_tx(),
+                self.tx(),
                 json!({
                        "network_status": {
                            "interfaces": json!(null)
@@ -183,7 +180,7 @@ impl NetworkStatus {
             });
 
         Twin::report_impl(
-            self.get_tx(),
+            self.tx(),
             json!({
                 "network_status": {
                     "interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())

@@ -3,7 +3,7 @@ use crate::consent_path;
 use crate::twin;
 use crate::twin::Twin;
 use crate::Message;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info};
 use notify::{INotifyWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, DebouncedEventKind, Debouncer};
@@ -39,7 +39,7 @@ macro_rules! history_consent_path {
 
 pub fn user_consent(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     twin::get_or_init(None).exec(|twin| {
-        twin.get_feature::<DeviceUpdateConsent>()?
+        twin.feature::<DeviceUpdateConsent>()?
             .user_consent(in_json.to_owned())
     })
 }
@@ -51,23 +51,23 @@ pub struct DeviceUpdateConsent {
 }
 
 impl Feature for DeviceUpdateConsent {
-    fn get_name(&self) -> String {
+    fn name(&self) -> String {
         DeviceUpdateConsent::ID.to_string()
     }
 
-    fn get_version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::USER_CONSENT_VERSION
     }
 
     fn is_enabled(&self) -> bool {
-        !env::vars().any(|(k, v)| k == "SUPPRESS_DEVICE_UPDATE_USER_CONSENT" && v == "true")
+        env::var("SUPPRESS_DEVICE_UPDATE_USER_CONSENT") != Ok("true".to_string())
     }
 
     fn report_initial_state(&self) -> Result<()> {
         self.ensure()?;
-        Self::report_general_consent(self.get_tx())?;
-        Self::report_user_consent(self.get_tx(), &request_consent_path!())?;
-        Self::report_user_consent(self.get_tx(), &history_consent_path!())
+        Self::report_general_consent(self.tx())?;
+        Self::report_user_consent(self.tx(), &request_consent_path!())?;
+        Self::report_user_consent(self.tx(), &history_consent_path!())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -79,11 +79,11 @@ impl Feature for DeviceUpdateConsent {
         self.observe_consent()
     }
 
-    fn get_state_mut(&mut self) -> &mut FeatureState {
+    fn state_mut(&mut self) -> &mut FeatureState {
         &mut self.state
     }
 
-    fn get_state(&self) -> &FeatureState {
+    fn state(&self) -> &FeatureState {
         &self.state
     }
 }
@@ -99,8 +99,12 @@ impl DeviceUpdateConsent {
         self.ensure()?;
 
         match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
+            //match in_json.pointer(pointer) {
             Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
                 let (component, version) = map.iter().next().unwrap();
+                if component.contains(std::path::is_separator) {
+                    bail!("user_consent: invalid component name")
+                }
                 serde_json::to_writer_pretty(
                     OpenOptions::new()
                         .write(true)
@@ -118,13 +122,13 @@ impl DeviceUpdateConsent {
 
                 Ok(None)
             }
-            _ => anyhow::bail!("unexpected parameter format"),
+            _ => anyhow::bail!("user_consent: unexpected parameter format"),
         }
     }
 
     pub fn observe_consent(&mut self) -> Result<()> {
         let tx = Some(
-            self.get_tx()
+            self.tx()
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("observe_consent: tx channel missing"))?
                 .clone(),
@@ -230,7 +234,7 @@ impl DeviceUpdateConsent {
             info!("no general consent defined in desired properties. current general_consent is reported.");
         };
 
-        Self::report_general_consent(self.get_tx())
+        Self::report_general_consent(self.tx())
             .context("update_general_consent: report_general_consent")
     }
 

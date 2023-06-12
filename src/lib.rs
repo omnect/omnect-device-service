@@ -22,12 +22,7 @@ pub async fn run() -> Result<()> {
     let (tx_app2client, rx_app2client) = mpsc::channel();
     let twin = twin::get_or_init(Some(&tx_app2client));
 
-    client.run(
-        None,
-        twin.get_direct_methods(),
-        tx_client2app,
-        rx_app2client,
-    );
+    client.run(None, twin.direct_methods(), tx_client2app, rx_app2client);
 
     loop {
         match rx_client2app.recv_timeout(Duration::from_secs(RX_TIMEOUT_SECS)) {

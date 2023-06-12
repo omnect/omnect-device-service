@@ -48,10 +48,6 @@ impl EventHandler for ClientEventHandler {
         Ok(())
     }
 
-    fn get_c2d_message_property_keys(&self) -> Vec<&'static str> {
-        vec!["p1", "p2"]
-    }
-
     fn handle_twin_desired(
         &self,
         state: TwinUpdateState,

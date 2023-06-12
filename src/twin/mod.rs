@@ -63,7 +63,7 @@ impl TwinInstance {
         f(twin)
     }
 
-    pub fn get_direct_methods(&self) -> Option<DirectMethodMap> {
+    pub fn direct_methods(&self) -> Option<DirectMethodMap> {
         let mut methods = DirectMethodMap::new();
         methods.insert(
             String::from("factory_reset"),
@@ -131,15 +131,15 @@ enum TwinFeature {
 
 #[enum_dispatch(TwinFeature)]
 trait Feature {
-    fn get_name(&self) -> String;
+    fn name(&self) -> String;
 
-    fn get_version(&self) -> u8;
+    fn version(&self) -> u8;
 
     fn is_enabled(&self) -> bool;
 
-    fn get_state(&self) -> &FeatureState;
+    fn state(&self) -> &FeatureState;
 
-    fn get_state_mut(&mut self) -> &mut FeatureState;
+    fn state_mut(&mut self) -> &mut FeatureState;
 
     fn as_any(&self) -> &dyn Any;
 
@@ -148,16 +148,16 @@ trait Feature {
     }
 
     fn set_tx(&mut self, tx: Sender<Message>) {
-        self.get_state_mut().tx = Some(tx)
+        self.state_mut().tx = Some(tx)
     }
 
-    fn get_tx(&self) -> &Option<Sender<Message>> {
-        &self.get_state().tx
+    fn tx(&self) -> &Option<Sender<Message>> {
+        &self.state().tx
     }
 
     fn ensure(&self) -> Result<()> {
         if !self.is_enabled() {
-            bail!("feature disabled: {}", self.get_name());
+            bail!("feature disabled: {}", self.name());
         }
 
         Ok(())
@@ -169,12 +169,12 @@ trait Feature {
 
     fn report_availability(&self) -> Result<()> {
         let value = if self.is_enabled() {
-            json!({ "version": &self.get_version() })
+            json!({ "version": &self.version() })
         } else {
             json!(null)
         };
 
-        Twin::report_impl(self.get_tx(), json!({ &self.get_name(): value }))
+        Twin::report_impl(self.tx(), json!({ &self.name(): value }))
     }
 
     fn start(&mut self) -> Result<()> {
@@ -262,7 +262,7 @@ impl Twin {
         match state {
             TwinUpdateState::Partial => {
                 if let Some(gc) = desired.get("general_consent") {
-                    let f = self.get_feature::<DeviceUpdateConsent>()?;
+                    let f = self.feature::<DeviceUpdateConsent>()?;
 
                     if f.is_enabled() {
                         f.update_general_consent(gc.as_array())?;
@@ -270,7 +270,7 @@ impl Twin {
                 }
 
                 if let Some(inf) = desired.get("include_network_filter") {
-                    let f = self.get_feature_mut::<NetworkStatus>()?;
+                    let f = self.feature_mut::<NetworkStatus>()?;
 
                     if f.is_enabled() {
                         f.update_include_network_filter(inf.as_array())?;
@@ -282,10 +282,10 @@ impl Twin {
                     bail!("update: 'desired' missing while TwinUpdateState::Complete")
                 }
 
-                self.get_feature::<DeviceUpdateConsent>()?
+                self.feature::<DeviceUpdateConsent>()?
                     .update_general_consent(desired["desired"]["general_consent"].as_array())?;
 
-                self.get_feature_mut::<NetworkStatus>()?
+                self.feature_mut::<NetworkStatus>()?
                     .update_include_network_filter(
                         desired["desired"]["include_network_filter"].as_array(),
                     )?;
@@ -294,7 +294,7 @@ impl Twin {
         Ok(())
     }
 
-    fn get_feature<T>(&self) -> Result<&T>
+    fn feature<T>(&self) -> Result<&T>
     where
         T: Feature + 'static,
     {
@@ -311,7 +311,7 @@ impl Twin {
         Ok(f)
     }
 
-    fn get_feature_mut<T>(&mut self) -> Result<&mut T>
+    fn feature_mut<T>(&mut self) -> Result<&mut T>
     where
         T: Feature + 'static,
     {

@@ -44,7 +44,7 @@ impl TestEnvironment {
         path
     }
 
-    pub fn get_dirpath(&self) -> String {
+    pub fn dirpath(&self) -> String {
         self.dirpath.clone()
     }
 }

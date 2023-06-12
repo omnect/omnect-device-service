@@ -25,7 +25,7 @@ lazy_static! {
 
 pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
     twin::get_or_init(None).exec(|twin| {
-        twin.get_feature::<FactoryReset>()?
+        twin.feature::<FactoryReset>()?
             .reset_to_factory_settings(in_json.to_owned())
     })
 }
@@ -36,16 +36,16 @@ pub struct FactoryReset {
 }
 
 impl Feature for FactoryReset {
-    fn get_name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn get_version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::FACTORY_RESET_VERSION
     }
 
     fn is_enabled(&self) -> bool {
-        !env::vars().any(|(k, v)| k == "SUPPRESS_FACTORY_RESET" && v == "true")
+        env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
     }
 
     fn report_initial_state(&self) -> Result<()> {
@@ -56,11 +56,11 @@ impl Feature for FactoryReset {
         self
     }
 
-    fn get_state_mut(&mut self) -> &mut FeatureState {
+    fn state_mut(&mut self) -> &mut FeatureState {
         &mut self.state
     }
 
-    fn get_state(&self) -> &FeatureState {
+    fn state(&self) -> &FeatureState {
         &self.state
     }
 }
@@ -130,7 +130,7 @@ impl FactoryReset {
         self.ensure()?;
 
         Twin::report_impl(
-            self.get_tx(),
+            self.tx(),
             json!({
                 "factory_reset": {
                     "status": {
@@ -147,7 +147,7 @@ impl FactoryReset {
     fn report_factory_reset_result(&self) -> Result<()> {
         self.ensure()?;
 
-        if let Ok(status) = self.get_factory_reset_status() {
+        if let Ok(status) = self.factory_reset_status() {
             let status: Vec<&str> = status.iter().map(AsRef::as_ref).collect();
             let status = match status[..] {
                 ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
@@ -185,7 +185,7 @@ impl FactoryReset {
     }
 
     #[cfg(not(test))]
-    fn get_factory_reset_status(&self) -> Result<Vec<String>> {
+    fn factory_reset_status(&self) -> Result<Vec<String>> {
         let output = Command::new("sudo")
             .arg("fw_printenv")
             .arg("factory-reset-status")
@@ -206,7 +206,7 @@ impl FactoryReset {
 
     #[cfg(test)]
     #[allow(unreachable_patterns)]
-    fn get_factory_reset_status(&self) -> Result<Vec<String>> {
+    fn factory_reset_status(&self) -> Result<Vec<String>> {
         match std::env::var("TEST_FACTORY_RESET_RESULT")
             .unwrap_or("succeeded".to_string())
             .as_str()

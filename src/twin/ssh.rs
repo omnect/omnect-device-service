@@ -15,15 +15,15 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 pub fn refresh_ssh_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.get_feature::<Ssh>()?.refresh_ssh_status())
+    twin::get_or_init(None).exec(|twin| twin.feature::<Ssh>()?.refresh_ssh_status())
 }
 
 pub fn open_ssh(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.get_feature::<Ssh>()?.open_ssh(in_json.to_owned()))
+    twin::get_or_init(None).exec(|twin| twin.feature::<Ssh>()?.open_ssh(in_json.to_owned()))
 }
 
 pub fn close_ssh(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.get_feature::<Ssh>()?.close_ssh())
+    twin::get_or_init(None).exec(|twin| twin.feature::<Ssh>()?.close_ssh())
 }
 
 #[derive(Default)]
@@ -32,16 +32,16 @@ pub struct Ssh {
 }
 
 impl Feature for Ssh {
-    fn get_name(&self) -> String {
+    fn name(&self) -> String {
         Ssh::ID.to_string()
     }
 
-    fn get_version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::SSH_VERSION
     }
 
     fn is_enabled(&self) -> bool {
-        !env::vars().any(|(k, v)| k == "SUPPRESS_SSH_HANDLING" && v == "true")
+        env::var("SUPPRESS_SSH_HANDLING") != Ok("true".to_string())
     }
 
     fn report_initial_state(&self) -> Result<()> {
@@ -52,11 +52,11 @@ impl Feature for Ssh {
         self
     }
 
-    fn get_state_mut(&mut self) -> &mut FeatureState {
+    fn state_mut(&mut self) -> &mut FeatureState {
         &mut self.state
     }
 
-    fn get_state(&self) -> &FeatureState {
+    fn state(&self) -> &FeatureState {
         &self.state
     }
 }
@@ -192,7 +192,7 @@ impl Ssh {
         debug!("ssh report: {:#?}", ssh_report);
 
         Twin::report_impl(
-            self.get_tx(),
+            self.tx(),
             json!({
                     "ssh": {
                         "status": json!(ssh_report)
@@ -218,7 +218,7 @@ impl Ssh {
         };
 
         Twin::report_impl(
-            self.get_tx(),
+            self.tx(),
             json!({
                     "ssh": {
                         "status": json!(ssh_report)
