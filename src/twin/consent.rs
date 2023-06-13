@@ -3,7 +3,7 @@ use crate::consent_path;
 use crate::twin;
 use crate::twin::Twin;
 use crate::Message;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use log::{debug, error, info};
 use notify::{INotifyWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, DebouncedEventKind, Debouncer};
@@ -102,19 +102,33 @@ impl DeviceUpdateConsent {
             //match in_json.pointer(pointer) {
             Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
                 let (component, version) = map.iter().next().unwrap();
-                if component.contains(std::path::is_separator) {
-                    bail!("user_consent: invalid component name")
-                }
+                ensure!(
+                    !component.contains(std::path::is_separator),
+                    "user_consent: invalid component name: {component}"
+                );
+
+                let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
+                let path = Path::new(&path_string);
+                let path_canonicalized = path.clone().canonicalize().context(format!(
+                    "user_consent: invalid path {}",
+                    path.to_string_lossy()
+                ))?;
+
+                // ensure path is valid and absolute and not a link
+                ensure!(
+                    path_canonicalized
+                        .to_string_lossy()
+                        .eq(path_string.as_str()),
+                    "user_consent: non-absolute path {}",
+                    path.to_string_lossy()
+                );
+
                 serde_json::to_writer_pretty(
                     OpenOptions::new()
                         .write(true)
                         .create(false)
                         .truncate(true)
-                        .open(format!(
-                            "{}/{}/user_consent.json",
-                            consent_path!(),
-                            component
-                        ))
+                        .open(path)
                         .context("user_consent: open user_consent.json for write")?,
                     &json!({ "consent": version }),
                 )

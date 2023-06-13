@@ -17,6 +17,12 @@ mod mod_test {
 
     struct TestCase;
 
+    struct TestAttributes<'a> {
+        twin: &'a mut Twin,
+        rx: Receiver<Message>,
+        dir: PathBuf,
+    }
+
     impl TestCase {
         fn run<TestFn>(
             test_files: Vec<&str>,
@@ -24,7 +30,7 @@ mod mod_test {
             env_vars: Vec<(&str, &str)>,
             test: TestFn,
         ) where
-            TestFn: Fn(&mut Twin, &Receiver<Message>),
+            TestFn: Fn(&mut TestAttributes),
         {
             let (tx, rx) = mpsc::channel();
             let guard = twin::get_or_init(Some(&tx.clone()));
@@ -35,8 +41,6 @@ mod mod_test {
                 *twin_lock = Some(Twin::new(tx.clone()));
             }
 
-            let twin = twin_lock.as_mut().unwrap();
-
             let testcase_name: String = thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(10)
@@ -44,6 +48,12 @@ mod mod_test {
                 .collect();
 
             let test_env = TestEnvironment::new(testcase_name.as_str());
+
+            let mut test_attr = TestAttributes {
+                twin: twin_lock.as_mut().unwrap(),
+                rx: rx,
+                dir: PathBuf::from(test_env.dirpath()),
+            };
 
             env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
@@ -59,7 +69,7 @@ mod mod_test {
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
 
-            test(twin, &rx);
+            test(&mut test_attr);
 
             env::remove_var("OS_RELEASE_DIR_PATH");
             env::remove_var("CONSENT_DIR_PATH");
@@ -97,11 +107,11 @@ mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
             let reported_results =
-                recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+                recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -166,11 +176,11 @@ mod mod_test {
         ];
         let env_vars = vec![("SUPPRESS_FACTORY_RESET", "true")];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
             let reported_results =
-                recv_exact_num_msgs((TwinFeature::COUNT + 5).try_into().unwrap(), &rx);
+                recv_exact_num_msgs((TwinFeature::COUNT + 5).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -195,16 +205,16 @@ mod mod_test {
                 .iter()
                 .any(|f| f == &json!({"device_update_consent":{"general_consent":["swupdate"]}})));
             assert!(reported_results
-                .iter()
-                .any(|f| f == &json!({"device_update_consent":{"user_consent_request":[{"swupdate":"<version>"}]}})));
+                    .iter()
+                    .any(|f| f == &json!({"device_update_consent":{"user_consent_request":[{"swupdate":"<version>"}]}})));
             assert!(reported_results
-                .iter()
-                .any(|f| f == &json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})));
+                    .iter()
+                    .any(|f| f == &json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})));
             assert!(reported_results
                 .iter()
                 .any(|f| f == &json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}})));
 
-            assert!(twin.feature::<FactoryReset>().is_err());
+            assert!(test_attr.twin.feature::<FactoryReset>().is_err());
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -217,37 +227,48 @@ mod mod_test {
             ("SUPPRESS_NETWORK_STATUS", "true"),
         ];
 
-        let test = |twin: &mut Twin, _rx: &Receiver<Message>| {
-            assert!(twin.update(TwinUpdateState::Partial, json!("")).is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr
+                .twin
+                .update(TwinUpdateState::Partial, json!(""))
+                .is_ok());
             assert_eq!(
-                twin.update(TwinUpdateState::Partial, json!({"general_consent": {}}))
+                test_attr
+                    .twin
+                    .update(TwinUpdateState::Partial, json!({"general_consent": {}}))
                     .unwrap_err()
                     .to_string(),
                 "feature disabled: device_update_consent"
             );
             assert_eq!(
-                twin.update(
-                    TwinUpdateState::Partial,
-                    json!({"include_network_filter": []})
-                )
-                .unwrap_err()
-                .to_string(),
+                test_attr
+                    .twin
+                    .update(
+                        TwinUpdateState::Partial,
+                        json!({"include_network_filter": []})
+                    )
+                    .unwrap_err()
+                    .to_string(),
                 "feature disabled: network_status"
             );
 
             assert_eq!(
-                twin.update(TwinUpdateState::Complete, json!(""))
+                test_attr
+                    .twin
+                    .update(TwinUpdateState::Complete, json!(""))
                     .unwrap_err()
                     .to_string(),
                 "update: 'desired' missing while TwinUpdateState::Complete"
             );
             assert_eq!(
-                twin.update(
-                    TwinUpdateState::Complete,
-                    json!({"desired": {"general_consent": {}}})
-                )
-                .unwrap_err()
-                .to_string(),
+                test_attr
+                    .twin
+                    .update(
+                        TwinUpdateState::Complete,
+                        json!({"desired": {"general_consent": {}}})
+                    )
+                    .unwrap_err()
+                    .to_string(),
                 "feature disabled: device_update_consent"
             );
         };
@@ -257,8 +278,8 @@ mod mod_test {
 
     #[tokio::test]
     async fn update_and_report_general_consent_failed_test1() {
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            let usr_consent = twin.feature::<DeviceUpdateConsent>();
+        let test = |test_attr: &mut TestAttributes| {
+            let usr_consent = test_attr.twin.feature::<DeviceUpdateConsent>();
 
             assert!(usr_consent.is_ok());
 
@@ -273,7 +294,7 @@ mod mod_test {
                 .to_string()
                 .starts_with("report_general_consent: open consent_conf.json")));
 
-            recv_exact_num_msgs(0, &rx);
+            recv_exact_num_msgs(0, &test_attr.rx);
 
             let err = usr_consent
                 .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
@@ -283,7 +304,7 @@ mod mod_test {
                 .to_string()
                 .starts_with("update_general_consent: parse desired_consents")));
 
-            recv_exact_num_msgs(0, &rx);
+            recv_exact_num_msgs(0, &test_attr.rx);
 
             let err = usr_consent
                 .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
@@ -293,7 +314,7 @@ mod mod_test {
                 .to_string()
                 .starts_with("update_general_consent: open consent_conf.json")));
 
-            recv_exact_num_msgs(0, &rx);
+            recv_exact_num_msgs(0, &test_attr.rx);
         };
 
         TestCase::run(vec![], vec![], vec![], test);
@@ -313,14 +334,14 @@ mod mod_test {
             ("SUPPRESS_NETWORK_STATUS", "true"),
         ];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            let err = twin.init_features().unwrap_err();
+        let test = |test_attr: &mut TestAttributes| {
+            let err = test_attr.twin.init_features().unwrap_err();
 
             assert!(err.chain().any(|e| e
                 .to_string()
                 .starts_with("report_user_consent: serde_json::from_reader")));
 
-            recv_exact_num_msgs(7, &rx);
+            recv_exact_num_msgs(7, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -335,16 +356,17 @@ mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(TwinUpdateState::Complete, json!({"desired": {}}))
                 .is_ok());
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -355,14 +377,15 @@ mod mod_test {
                 })
             );
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(
                     TwinUpdateState::Partial,
                     json!({"general_consent": ["SWUPDATE2", "SWUPDATE1"]})
                 )
                 .is_ok());
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -373,11 +396,12 @@ mod mod_test {
                 })
             );
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(TwinUpdateState::Complete, json!({"desired": {}}))
                 .is_ok());
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -401,10 +425,10 @@ mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
@@ -425,7 +449,7 @@ mod mod_test {
 
             std::thread::sleep(Duration::from_secs(2));
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -455,13 +479,15 @@ mod mod_test {
 
         let test_dirs = vec!["testfiles/positive/test_component"];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
-                twin.feature::<DeviceUpdateConsent>()
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
                     .unwrap()
                     .user_consent(json!({
                       "test_component": "1.0.0"
@@ -485,24 +511,28 @@ mod mod_test {
 
         let test_dirs = vec!["testfiles/positive/test_component"];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
-                twin.feature::<DeviceUpdateConsent>()
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
                     .unwrap()
                     .user_consent(json!({
                       "test/_component": "1.0.0"
                     }))
                     .unwrap_err()
                     .to_string(),
-                "user_consent: invalid component name"
+                "user_consent: invalid component name: test/_component"
             );
 
             assert_eq!(
-                twin.feature::<DeviceUpdateConsent>()
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
                     .unwrap()
                     .user_consent(json!({
                       "test_component": 1
@@ -513,7 +543,9 @@ mod mod_test {
             );
 
             assert_eq!(
-                twin.feature::<DeviceUpdateConsent>()
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
                     .unwrap()
                     .user_consent(json!({
                       "test_component1": "1.0.0",
@@ -522,6 +554,71 @@ mod mod_test {
                     .unwrap_err()
                     .to_string(),
                 "user_consent: unexpected parameter format"
+            );
+
+            env::set_var("CONSENT_DIR_PATH", "/../my_path");
+
+            assert_eq!(
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .user_consent(json!({
+                      "test_component": "1.0.0"
+                    }))
+                    .unwrap_err()
+                    .to_string(),
+                "user_consent: invalid path /../my_path/test_component/user_consent.json"
+            );
+
+            let mut test_dir = test_attr.dir.clone();
+            test_dir.push("test_component");
+            test_dir.push("..");
+
+            env::set_var("CONSENT_DIR_PATH", &test_dir);
+
+            test_dir.push("test_component");
+            test_dir.push("user_consent.json");
+
+            assert_eq!(
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .user_consent(json!({
+                      "test_component": "1.0.0"
+                    }))
+                    .unwrap_err()
+                    .to_string(),
+                format!(
+                    "user_consent: non-absolute path {}",
+                    test_dir.to_str().unwrap()
+                )
+            );
+
+            let mut test_dir = test_attr.dir.clone();
+            test_dir.push("test_component");
+            test_dir.push(".");
+
+            env::set_var("CONSENT_DIR_PATH", &test_dir);
+
+            test_dir.push("test_component");
+            test_dir.push("user_consent.json");
+
+            assert_eq!(
+                test_attr
+                    .twin
+                    .feature::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .user_consent(json!({
+                      "test_component": "1.0.0"
+                    }))
+                    .unwrap_err()
+                    .to_string(),
+                format!(
+                    "user_consent: invalid path {}",
+                    test_dir.to_str().unwrap()
+                )
             );
         };
 
@@ -537,12 +634,12 @@ mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
 
-            let factory_reset = twin.feature::<FactoryReset>().unwrap();
+            let factory_reset = test_attr.twin.feature::<FactoryReset>().unwrap();
 
             assert_eq!(
                 factory_reset
@@ -572,7 +669,7 @@ mod mod_test {
                 }),)
                 .is_ok());
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
             let reported = format!("{:?}", reported_results.first().unwrap());
 
             let re = format!(
@@ -599,13 +696,15 @@ mod mod_test {
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(6, &rx);
+            recv_exact_num_msgs(6, &test_attr.rx);
 
             assert_eq!(
-                twin.feature::<FactoryReset>()
+                test_attr
+                    .twin
+                    .feature::<FactoryReset>()
                     .unwrap()
                     .reset_to_factory_settings(json!({
                         "type": 1,
@@ -615,7 +714,7 @@ mod mod_test {
                 None
             );
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
             let reported = format!("{:?}", reported_results.first().unwrap());
 
             let re = format!(
@@ -646,10 +745,10 @@ mod mod_test {
                 "unexpected_factory_reset_result_format",
             ),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(5, &rx);
+            recv_exact_num_msgs(5, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -667,10 +766,10 @@ mod mod_test {
                 "normal_boot_without_factory_reset",
             ),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(5, &rx);
+            recv_exact_num_msgs(5, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -688,10 +787,10 @@ mod mod_test {
                 "unexpected_restore_settings_error",
             ),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            let reported_results = recv_exact_num_msgs(6, &rx);
+            let reported_results = recv_exact_num_msgs(6, &test_attr.rx);
             assert!(reported_results.iter().any(|f| {
                 let reported = format!("{:?}", f);
                 let reported = reported.as_str();
@@ -724,10 +823,10 @@ mod mod_test {
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("TEST_FACTORY_RESET_RESULT", "unexpected_factory_reset_type"),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            let reported_results = recv_exact_num_msgs(6, &rx);
+            let reported_results = recv_exact_num_msgs(6, &test_attr.rx);
             assert!(reported_results.iter().any(|f| {
                 let reported = format!("{:?}", f);
                 let reported = reported.as_str();
@@ -757,19 +856,20 @@ mod mod_test {
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(5, &rx);
+            recv_exact_num_msgs(5, &test_attr.rx);
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(
                     TwinUpdateState::Partial,
                     json!({"include_network_filter": []}),
                 )
                 .is_ok());
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -780,40 +880,44 @@ mod mod_test {
                 })
             );
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(
                     TwinUpdateState::Partial,
                     json!({"include_network_filter": []}),
                 )
                 .is_ok());
 
-            recv_exact_num_msgs(0, &rx);
+            recv_exact_num_msgs(0, &test_attr.rx);
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(
                     TwinUpdateState::Partial,
                     json!({ "include_network_filter": ["*"] }),
                 )
                 .is_ok());
 
-            recv_exact_num_msgs(1, &rx);
+            recv_exact_num_msgs(1, &test_attr.rx);
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .update(
                     TwinUpdateState::Partial,
                     json!({ "include_network_filter": ["*"] }),
                 )
                 .is_ok());
 
-            recv_exact_num_msgs(0, &rx);
+            recv_exact_num_msgs(0, &test_attr.rx);
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .feature::<NetworkStatus>()
                 .unwrap()
                 .refresh_network_status()
                 .is_ok());
 
-            recv_exact_num_msgs(1, &rx);
+            recv_exact_num_msgs(1, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -827,12 +931,13 @@ mod mod_test {
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(6, &rx);
+            recv_exact_num_msgs(6, &test_attr.rx);
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({ "pubkey": "" }),)
@@ -840,7 +945,8 @@ mod mod_test {
                 .to_string()
                 .starts_with("Empty ssh pubkey"));
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({}),)
@@ -848,7 +954,8 @@ mod mod_test {
                 .to_string()
                 .starts_with("No ssh pubkey given"));
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({ "": "" }),)
@@ -856,7 +963,8 @@ mod mod_test {
                 .to_string()
                 .starts_with("No ssh pubkey given"));
 
-            assert!(twin
+            assert!(test_attr
+                .twin
                 .feature::<Ssh>()
                 .unwrap()
                 .open_ssh(json!({ "pubkey": "mykey" }))
@@ -878,14 +986,19 @@ mod mod_test {
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
         ];
-        let test = |twin: &mut Twin, rx: &Receiver<Message>| {
-            assert!(twin.init_features().is_ok());
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(6, &rx);
+            recv_exact_num_msgs(6, &test_attr.rx);
 
-            assert!(twin.feature::<Ssh>().unwrap().refresh_ssh_status().is_ok());
+            assert!(test_attr
+                .twin
+                .feature::<Ssh>()
+                .unwrap()
+                .refresh_ssh_status()
+                .is_ok());
 
-            let reported_results = recv_exact_num_msgs(1, &rx);
+            let reported_results = recv_exact_num_msgs(1, &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
