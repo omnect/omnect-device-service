@@ -48,10 +48,6 @@ impl EventHandler for ClientEventHandler {
         Ok(())
     }
 
-    fn get_c2d_message_property_keys(&self) -> Vec<&'static str> {
-        vec!["p1", "p2"]
-    }
-
     fn handle_twin_desired(
         &self,
         state: TwinUpdateState,
@@ -133,23 +129,16 @@ impl Client {
             Ok(())
         }));
     }
-
-    pub fn stop(&mut self) -> Result<()> {
-        if self.thread.is_some() {
-            return block_on(async {
-                *self.run.lock().unwrap() = false;
-                self.thread.take().as_mut().unwrap().await?
-            });
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        if let Err(e) = self.stop() {
-            error!("Client thread returned with: {e:#?}");
+        *self.run.lock().unwrap() = false;
+
+        if self.thread.is_some() {
+            if let Err(e) = block_on(async { self.thread.take().as_mut().unwrap().await? }) {
+                error!("Client thread returned with: {e}");
+            }
         }
     }
 }

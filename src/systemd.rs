@@ -2,6 +2,7 @@ use anyhow::{bail, ensure, Context, Result};
 use futures_util::{join, StreamExt};
 use log::{debug, info, trace};
 use sd_notify::NotifyState;
+#[cfg(not(test))]
 use std::process::Command;
 use std::sync::Once;
 use std::time::Duration;
@@ -63,6 +64,7 @@ impl WatchdogHandler {
     }
 }
 
+#[cfg(not(test))]
 pub async fn reboot() -> Result<()> {
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
@@ -177,4 +179,9 @@ pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
             _ => bail!("system in error state: \"{system_state}\""),
         }
     }
+}
+
+#[cfg(test)]
+pub async fn reboot() -> Result<()> {
+    Ok(())
 }
