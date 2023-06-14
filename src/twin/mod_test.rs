@@ -33,7 +33,7 @@ mod mod_test {
             TestFn: Fn(&mut TestAttributes),
         {
             let (tx, rx) = mpsc::channel();
-            let guard = twin::get_or_init(Some(&tx.clone()));
+            let guard = twin::get_or_init(Some(&tx));
             let twin_lock = guard.inner.lock();
             let twin_lock = &mut *twin_lock.unwrap();
 

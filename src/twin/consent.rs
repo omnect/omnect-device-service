@@ -109,7 +109,7 @@ impl DeviceUpdateConsent {
 
                 let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
                 let path = Path::new(&path_string);
-                let path_canonicalized = path.clone().canonicalize().context(format!(
+                let path_canonicalized = path.canonicalize().context(format!(
                     "user_consent: invalid path {}",
                     path.to_string_lossy()
                 ))?;
