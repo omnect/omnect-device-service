@@ -39,5 +39,5 @@ impl Feature for WifiCommissioning {
 
 impl WifiCommissioning {
     const WIFI_COMMISSIONING_VERSION: u8 = 1;
-    const ID: &'static str = "wifi";
+    const ID: &'static str = "wifi_commissioning";
 }
