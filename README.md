@@ -50,6 +50,11 @@ The availability of the feature is reported by the following module twin propert
 }
 ```
 
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_FACTORY_RESET=true
+```
+
 ### Trigger factory reset
 
 **Direct method: factory reset**
@@ -137,6 +142,11 @@ The availability of the feature is reported by the following module twin propert
 {
   "version": <ver>
 }
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_DEVICE_UPDATE_USER_CONSENT=true
 ```
 
 ### Configure current desired general consent
@@ -282,6 +292,11 @@ The availability of the feature is reported by the following module twin propert
 }
 ```
 
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_NETWORK_STATUS=true
+```
+
 ### Current reported network status
 
 The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
@@ -401,6 +416,11 @@ The availability of the feature is reported by the following module twin propert
 {
   "version": <ver>
 }
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_SSH_HANDLING=true
 ```
 
 ### SSH status

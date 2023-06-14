@@ -23,7 +23,7 @@ pub struct NetworkStatus {
 
 impl Feature for NetworkStatus {
     fn name(&self) -> String {
-        NetworkStatus::ID.to_string()
+        Self::ID.to_string()
     }
 
     fn version(&self) -> u8 {

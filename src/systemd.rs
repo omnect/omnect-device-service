@@ -71,7 +71,8 @@ pub async fn reboot() -> Result<()> {
     let _ = Command::new("sudo")
         .arg("journalctl")
         .arg("--sync")
-        .status();
+        .status()
+        .context("reboot: failed to execute 'journalctl --sync'")?;
 
     zbus::Connection::system()
         .await?

@@ -5,9 +5,10 @@ mod factory_reset;
 mod mod_test;
 mod network_status;
 mod ssh;
+mod wifi_commissioning;
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-    ssh::Ssh,
+    ssh::Ssh, wifi_commissioning::WifiCommissioning,
 };
 use crate::Message;
 use anyhow::{bail, Context, Result};
@@ -208,6 +209,10 @@ impl Twin {
                 (
                     TypeId::of::<Ssh>(),
                     Box::new(Ssh::default()) as Box<dyn Feature + Send>,
+                ),
+                (
+                    TypeId::of::<WifiCommissioning>(),
+                    Box::new(WifiCommissioning::default()) as Box<dyn Feature + Send>,
                 ),
             ]),
         }
