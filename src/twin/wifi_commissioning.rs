@@ -18,7 +18,7 @@ impl Feature for WifiCommissioning {
 
     fn is_enabled(&self) -> bool {
         if let Ok(value) = env::var("DISTRO_FEATURES") {
-            value.contains("wifi-commissioning")
+            value.split(' ').any(|value| value == "wifi-commissioning")
         } else {
             false
         }

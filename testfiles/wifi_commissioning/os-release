@@ -1,0 +1,1 @@
+DISTRO_FEATURES="acl alsa argp bluetooth debuginfod ext2 ipv4 ipv6 largefile pcmcia usbgadget usbhost wifi xattr nfs zeroconf pci 3g nfc x11 vfat seccomp largefile opengl ptest multiarch wayland vulkan polkit wifi-commissioning flash-mode-2 iotedge persistent-var-log resize-data systemd virtualization pulseaudio gobject-introspection-data ldconfig"

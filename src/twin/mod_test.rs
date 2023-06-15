@@ -111,7 +111,7 @@ mod mod_test {
             assert!(test_attr.twin.init_features().is_ok());
 
             let reported_results =
-                recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
+                recv_exact_num_msgs((TwinFeature::COUNT + 8).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -133,6 +133,12 @@ mod mod_test {
             assert!(reported_results
                 .iter()
                 .any(|f| f == &json!({"network_status":{"version":1}})));
+            assert!(reported_results
+                .iter()
+                .any(|f| f == &json!({"reboot":{"version":1}})));
+            assert!(!reported_results
+                .iter()
+                .any(|f| f == &json!({"wifi_commissioning":{"version":1}})));
             assert!(reported_results
                 .iter()
                 .any(|f| f == &json!({"device_update_consent":{"general_consent":["swupdate"]}})));
@@ -180,7 +186,7 @@ mod mod_test {
             assert!(test_attr.twin.init_features().is_ok());
 
             let reported_results =
-                recv_exact_num_msgs((TwinFeature::COUNT + 5).try_into().unwrap(), &test_attr.rx);
+                recv_exact_num_msgs((TwinFeature::COUNT + 7).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
                 reported_results.first().unwrap(),
@@ -203,6 +209,12 @@ mod mod_test {
                 .any(|f| f == &json!({"network_status":{"version":1}})));
             assert!(reported_results
                 .iter()
+                .any(|f| f == &json!({"reboot":{"version":1}})));
+            assert!(!reported_results
+                .iter()
+                .any(|f| f == &json!({"wifi_commissioning":{"version":1}})));
+            assert!(reported_results
+                .iter()
                 .any(|f| f == &json!({"device_update_consent":{"general_consent":["swupdate"]}})));
             assert!(reported_results
                     .iter()
@@ -215,6 +227,28 @@ mod mod_test {
                 .any(|f| f == &json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}})));
 
             assert!(test_attr.twin.feature::<FactoryReset>().is_err());
+        };
+
+        TestCase::run(test_files, vec![], env_vars, test);
+    }
+
+    #[test]
+    fn wifi_commissioning_feature_test() {
+        let test_files = vec!["testfiles/wifi_commissioning/os-release"];
+        let env_vars = vec![
+            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
+            ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
+        ];
+        let test = |test_attr: &mut TestAttributes| {
+            assert!(test_attr.twin.init_features().is_ok());
+
+            let reported_results = recv_exact_num_msgs(8, &test_attr.rx);
+
+            assert!(reported_results
+                .iter()
+                .any(|f| f == &json!({"wifi_commissioning":{"version":1}})));
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -332,6 +366,7 @@ mod mod_test {
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
         ];
 
         let test = |test_attr: &mut TestAttributes| {
@@ -341,7 +376,7 @@ mod mod_test {
                 .to_string()
                 .starts_with("report_user_consent: serde_json::from_reader")));
 
-            recv_exact_num_msgs(7, &test_attr.rx);
+            recv_exact_num_msgs(9, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -359,7 +394,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 8).try_into().unwrap(), &test_attr.rx);
 
             assert!(test_attr
                 .twin
@@ -428,7 +463,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 8).try_into().unwrap(), &test_attr.rx);
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
@@ -482,7 +517,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 8).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
                 test_attr
@@ -514,7 +549,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 8).try_into().unwrap(), &test_attr.rx);
 
             assert_eq!(
                 test_attr
@@ -615,10 +650,7 @@ mod mod_test {
                     }))
                     .unwrap_err()
                     .to_string(),
-                format!(
-                    "user_consent: invalid path {}",
-                    test_dir.to_str().unwrap()
-                )
+                format!("user_consent: invalid path {}", test_dir.to_str().unwrap())
             );
         };
 
@@ -637,7 +669,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs((TwinFeature::COUNT + 6).try_into().unwrap(), &test_attr.rx);
+            recv_exact_num_msgs((TwinFeature::COUNT + 8).try_into().unwrap(), &test_attr.rx);
 
             let factory_reset = test_attr.twin.feature::<FactoryReset>().unwrap();
 
@@ -695,11 +727,12 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
         ];
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(6, &test_attr.rx);
+            recv_exact_num_msgs(8, &test_attr.rx);
 
             assert_eq!(
                 test_attr
@@ -740,6 +773,7 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
             (
                 "TEST_FACTORY_RESET_RESULT",
                 "unexpected_factory_reset_result_format",
@@ -748,7 +782,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(5, &test_attr.rx);
+            recv_exact_num_msgs(7, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -761,6 +795,7 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
             (
                 "TEST_FACTORY_RESET_RESULT",
                 "normal_boot_without_factory_reset",
@@ -769,7 +804,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(5, &test_attr.rx);
+            recv_exact_num_msgs(7, &test_attr.rx);
         };
 
         TestCase::run(test_files, vec![], env_vars, test);
@@ -782,6 +817,7 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
             (
                 "TEST_FACTORY_RESET_RESULT",
                 "unexpected_restore_settings_error",
@@ -790,7 +826,7 @@ mod mod_test {
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            let reported_results = recv_exact_num_msgs(6, &test_attr.rx);
+            let reported_results = recv_exact_num_msgs(8, &test_attr.rx);
             assert!(reported_results.iter().any(|f| {
                 let reported = format!("{:?}", f);
                 let reported = reported.as_str();
@@ -821,12 +857,13 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
             ("TEST_FACTORY_RESET_RESULT", "unexpected_factory_reset_type"),
         ];
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            let reported_results = recv_exact_num_msgs(6, &test_attr.rx);
+            let reported_results = recv_exact_num_msgs(8, &test_attr.rx);
             assert!(reported_results.iter().any(|f| {
                 let reported = format!("{:?}", f);
                 let reported = reported.as_str();
@@ -855,11 +892,12 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_REBOOT", "true"),
         ];
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(5, &test_attr.rx);
+            recv_exact_num_msgs(7, &test_attr.rx);
 
             assert!(test_attr
                 .twin
@@ -930,11 +968,12 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
         ];
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(6, &test_attr.rx);
+            recv_exact_num_msgs(8, &test_attr.rx);
 
             assert!(test_attr
                 .twin
@@ -985,11 +1024,12 @@ mod mod_test {
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
         ];
         let test = |test_attr: &mut TestAttributes| {
             assert!(test_attr.twin.init_features().is_ok());
 
-            recv_exact_num_msgs(6, &test_attr.rx);
+            recv_exact_num_msgs(8, &test_attr.rx);
 
             assert!(test_attr
                 .twin
