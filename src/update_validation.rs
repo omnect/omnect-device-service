@@ -52,7 +52,8 @@ async fn finalize() -> Result<()> {
     anyhow::ensure!(
         Command::new("sudo")
             .args(["fw_setenv", "bootpart", omnect_validate_update_part])
-            .status()?
+            .status()
+            .context("finalize: failed to execute 'fw_setenv bootpart'")?
             .success(),
         "\"fw_setenv bootpart {omnect_validate_update_part}\" failed"
     );
@@ -61,7 +62,8 @@ async fn finalize() -> Result<()> {
         Command::new("sudo")
             .arg("fw_setenv")
             .arg("omnect_validate_update")
-            .status()?
+            .status()
+            .context("finalize: failed to execute 'fw_setenv omnect_validate_update'")?
             .success(),
         "\"fw_setenv omnect_validate_update\" failed"
     );
@@ -70,7 +72,8 @@ async fn finalize() -> Result<()> {
         Command::new("sudo")
             .arg("fw_setenv")
             .arg("omnect_validate_update_part")
-            .status()?
+            .status()
+            .context("finalize: failed to execute 'fw_setenv omnect_validate_update_part'")?
             .success(),
         "\"fw_setenv omnect_validate_update_part\" failed"
     );

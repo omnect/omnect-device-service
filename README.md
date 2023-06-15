@@ -15,17 +15,21 @@ This module serves as interface between omnect cloud and device to support certa
     - [Grant user consent](#grant-user-consent)
     - [Current reported user consent status](#current-reported-user-consent-status)
   - [Reboot](#reboot)
-  - [Network status](#network-status)
     - [Feature availability](#feature-availability-2)
+    - [Trigger reboot](#trigger-reboot)
+  - [Network status](#network-status)
+    - [Feature availability](#feature-availability-3)
     - [Current reported network status](#current-reported-network-status)
     - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
     - [Refresh Network status](#refresh-network-status)
   - [SSH handling](#ssh-handling)
-    - [Feature availability](#feature-availability-3)
+    - [Feature availability](#feature-availability-4)
     - [SSH status](#ssh-status)
     - [Enabling SSH](#enabling-ssh)
     - [Disabling SSH](#disabling-ssh)
     - [Current reported ssh status](#current-reported-ssh-status)
+  - [Wifi commissioning service](#wifi-commissioning-service)
+    - [Feature availability](#feature-availability-5)
   - [Update validation](#update-validation)
     - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
@@ -48,6 +52,11 @@ The availability of the feature is reported by the following module twin propert
 {
   "version": <ver>
 }
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_FACTORY_RESET=true
 ```
 
 ### Trigger factory reset
@@ -137,6 +146,11 @@ The availability of the feature is reported by the following module twin propert
 {
   "version": <ver>
 }
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_DEVICE_UPDATE_USER_CONSENT=true
 ```
 
 ### Configure current desired general consent
@@ -234,6 +248,23 @@ As soon as the consent for a new update has been granted via the direct method "
 
 ## Reboot
 
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"reboot":
+{
+  "version": <ver>
+}
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_REBOOT=true
+```
+
+### Trigger reboot
+
 A direct method to trigger a device reboot.
 
 **Direct method: reboot**
@@ -280,6 +311,11 @@ The availability of the feature is reported by the following module twin propert
 {
   "version": <ver>
 }
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_NETWORK_STATUS=true
 ```
 
 ### Current reported network status
@@ -401,6 +437,11 @@ The availability of the feature is reported by the following module twin propert
 {
   "version": <ver>
 }
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_SSH_HANDLING=true
 ```
 
 ### SSH status
@@ -534,6 +575,18 @@ The module reports the current ssh status. For this purpose the module reports t
     "v4_enabled":false,
     "v6_enabled":false
   }
+}
+```
+
+## Wifi commissioning service
+
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"wifi_commissioning":
+{
+  "version": <ver>
 }
 ```
 

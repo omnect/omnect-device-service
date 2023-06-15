@@ -4,17 +4,18 @@ mod factory_reset;
 #[path = "mod_test.rs"]
 mod mod_test;
 mod network_status;
+mod reboot;
 mod ssh;
+mod wifi_commissioning;
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-    ssh::Ssh,
+    reboot::Reboot, ssh::Ssh, wifi_commissioning::WifiCommissioning,
 };
 use crate::Message;
 use anyhow::{bail, Context, Result};
 use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
-use futures_executor::block_on;
 use log::{info, warn};
 use once_cell::sync::OnceCell;
 use serde_json::json;
@@ -79,7 +80,7 @@ impl TwinInstance {
             String::from("reboot"),
             IotHubClient::make_direct_method(move |_in_json| {
                 info!("reboot requested");
-                block_on(async { super::systemd::reboot().await })?;
+                reboot::reboot()?;
                 Ok(None)
             }),
         );
@@ -194,20 +195,28 @@ impl Twin {
             tx: Some(tx),
             features: HashMap::from([
                 (
-                    TypeId::of::<FactoryReset>(),
-                    Box::new(FactoryReset::default()) as Box<dyn Feature + Send>,
-                ),
-                (
                     TypeId::of::<DeviceUpdateConsent>(),
                     Box::new(DeviceUpdateConsent::default()) as Box<dyn Feature + Send>,
+                ),
+                (
+                    TypeId::of::<FactoryReset>(),
+                    Box::new(FactoryReset::default()) as Box<dyn Feature + Send>,
                 ),
                 (
                     TypeId::of::<NetworkStatus>(),
                     Box::new(NetworkStatus::default()) as Box<dyn Feature + Send>,
                 ),
                 (
+                    TypeId::of::<Reboot>(),
+                    Box::new(Reboot::default()) as Box<dyn Feature + Send>,
+                ),
+                (
                     TypeId::of::<Ssh>(),
                     Box::new(Ssh::default()) as Box<dyn Feature + Send>,
+                ),
+                (
+                    TypeId::of::<WifiCommissioning>(),
+                    Box::new(WifiCommissioning::default()) as Box<dyn Feature + Send>,
                 ),
             ]),
         }

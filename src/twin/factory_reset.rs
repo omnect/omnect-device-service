@@ -189,15 +189,16 @@ impl FactoryReset {
         let output = Command::new("sudo")
             .arg("fw_printenv")
             .arg("factory-reset-status")
-            .output()?;
+            .output()
+            .context("factory_reset_status: failed to execute 'fw_printenv factory-reset-status'")?;
 
         anyhow::ensure!(
             output.status.success(),
-            "failed to get factory-reset-status"
+            "factory_reset_status: command returned with error"
         );
 
         let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
-            error!("report_factory_reset_result: {:#?}", e);
+            error!("factory_reset_status: report_factory_reset_result: {:#?}", e);
             String::from("")
         });
 
@@ -206,7 +207,11 @@ impl FactoryReset {
 
     #[cfg(not(test))]
     fn exec_cmd(&self, args: Vec<&str>) -> Result<bool> {
-        Ok(Command::new("sudo").args(args).status()?.success())
+        Ok(Command::new("sudo")
+            .args(&args)
+            .status()
+            .context(format!("exec_cmd: failed to execute '{:?}'", &args))?
+            .success())
     }
 
     #[cfg(test)]

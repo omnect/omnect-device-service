@@ -52,7 +52,7 @@ pub struct DeviceUpdateConsent {
 
 impl Feature for DeviceUpdateConsent {
     fn name(&self) -> String {
-        DeviceUpdateConsent::ID.to_string()
+        Self::ID.to_string()
     }
 
     fn version(&self) -> u8 {

@@ -33,7 +33,7 @@ pub struct Ssh {
 
 impl Feature for Ssh {
     fn name(&self) -> String {
-        Ssh::ID.to_string()
+        Self::ID.to_string()
     }
 
     fn version(&self) -> u8 {
@@ -74,7 +74,8 @@ impl Ssh {
             .args(["-u", "omnect", "tee", Self::AUTHORIZED_KEYS_PATH])
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .context("write_authorized_keys: failed to execute command")?;
 
         match child.stdin.as_mut() {
             Some(child_stdin) => child_stdin.write_all(format!("{}\n", pubkey).as_bytes())?,
