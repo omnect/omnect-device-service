@@ -17,10 +17,7 @@ fn main() {
         env!("CARGO_PKG_VERSION"),
         env!("GIT_SHORT_REV")
     );
-    info!(
-        "azure sdk version: {}",
-        IotHubClient::get_sdk_version_string()
-    );
+    info!("azure sdk version: {}", IotHubClient::sdk_version_string());
 
     if let Err(e) = omnect_device_service::run() {
         error!("Application error: {e:#?}");

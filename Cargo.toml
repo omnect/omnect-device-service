@@ -1,6 +1,6 @@
 [package]
 name = "omnect-device-service"
-version = "0.11.2"
+version = "0.11.3"
 edition = "2021"
 description = "This service allows remote features like: user fw update consent, factory reset, network adapter status and reboot."
 authors = ["omnect@conplement.de"]
@@ -12,7 +12,7 @@ build = "src/build.rs"
 
 [dependencies]
 anyhow = "1.0"
-azure-iot-sdk = { git = "ssh://git@github.com/omnect/azure-iot-sdk.git", tag = "0.9.4", features = [
+azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.9.5", features = [
     "module_client",
 ] }
 dotenvy = "0.15"
