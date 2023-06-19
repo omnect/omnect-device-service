@@ -117,7 +117,7 @@ mod mod_test {
                 reported_results.first().unwrap(),
                 &json!({
                     "module-version": env!("CARGO_PKG_VERSION"),
-                    "azure-sdk-version": IotHubClient::get_sdk_version_string()
+                    "azure-sdk-version": IotHubClient::sdk_version_string()
                 })
             );
 
@@ -192,7 +192,7 @@ mod mod_test {
                 reported_results.first().unwrap(),
                 &json!({
                     "module-version": env!("CARGO_PKG_VERSION"),
-                    "azure-sdk-version": IotHubClient::get_sdk_version_string()
+                    "azure-sdk-version": IotHubClient::sdk_version_string()
                 })
             );
             assert!(reported_results
