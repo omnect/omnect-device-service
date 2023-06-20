@@ -231,7 +231,7 @@ impl Twin {
         // report version
         let version = json!({
             "module-version": env!("CARGO_PKG_VERSION"),
-            "azure-sdk-version": IotHubClient::get_sdk_version_string()
+            "azure-sdk-version": IotHubClient::sdk_version_string()
         });
 
         Self::report_impl(&self.tx, version).context("init_features: report_impl")?;

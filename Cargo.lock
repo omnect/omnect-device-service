@@ -330,8 +330,8 @@ dependencies = [
 
 [[package]]
 name = "azure-iot-sdk"
-version = "0.9.4"
-source = "git+ssh://git@github.com/omnect/azure-iot-sdk.git?tag=0.9.4#4af809977683268ee044931bf75f1d8ffc3434f2"
+version = "0.9.5"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.9.5#586b956fa944cd3ff6e953d702ea7a53a63bf68b"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
@@ -344,7 +344,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk-sys"
 version = "0.5.8"
-source = "git+ssh://git@github.com/omnect/azure-iot-sdk-sys.git?tag=0.5.8#e171e65f2b8d6512b43d7a7f8f38aba2a37be1cf"
+source = "git+https://github.com/omnect/azure-iot-sdk-sys.git?tag=0.5.8#e171e65f2b8d6512b43d7a7f8f38aba2a37be1cf"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -632,7 +632,7 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 [[package]]
 name = "eis-utils"
 version = "0.2.6"
-source = "git+ssh://git@github.com/omnect/eis-utils.git?tag=0.2.6#350681dd0e8f277346fa2acfd72fd0164e9fce29"
+source = "git+https://github.com/omnect/eis-utils.git?tag=0.2.6#350681dd0e8f277346fa2acfd72fd0164e9fce29"
 dependencies = [
  "aziot-cert-client-async",
  "aziot-cert-common",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.11.2"
+version = "0.11.3"
 dependencies = [
  "anyhow",
  "azure-iot-sdk",
