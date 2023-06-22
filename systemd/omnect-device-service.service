@@ -4,7 +4,6 @@ After=network-online.target time-sync.target aziot-identityd.service
 Wants=network-online.target time-sync.target aziot-identityd.service
 StartLimitBurst=10
 StartLimitIntervalSec=120
-StartLimitAction=reboot-force
 
 [Service]
 EnvironmentFile=-/etc/omnect/omnect-device-service.env
