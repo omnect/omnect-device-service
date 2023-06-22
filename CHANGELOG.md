@@ -5,13 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] Q2 2023
+ - systemd: removed enforcing reboot on errors
+
 ## [0.11.3] Q2 2023
  - updated to azure-iot-sdk 0.9.5
  - changed omnect git dependencies from ssh to https url's
 
 ## [0.11.2] Q2 2023
  - added feature toggle for reboot direct method
- - added feature reporting for wifi-commissioning-gatt-service 
+ - added feature reporting for wifi-commissioning-gatt-service
  - improved error messages
 
 ## [0.11.1] Q2 2023
