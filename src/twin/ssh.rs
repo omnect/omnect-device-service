@@ -1,36 +1,22 @@
-use super::{Feature, FeatureState};
-use crate::twin;
-use crate::twin::Twin;
+use super::Feature;
 use anyhow::{Context, Result};
-#[cfg(not(test))]
-use log::debug;
+use async_trait::async_trait;
 use log::info;
 use serde::Serialize;
 use serde_json::json;
-use std::any::Any;
-use std::env;
-#[cfg(not(test))]
-use std::io::Write;
-#[cfg(not(test))]
-use std::process::{Command, Stdio};
+use std::{any::Any, env};
+#[cfg(not(any(test, feature = "mock")))]
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+};
+use tokio::sync::mpsc::Sender;
 
-pub fn refresh_ssh_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.feature::<Ssh>()?.refresh_ssh_status())
-}
-
-pub fn open_ssh(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.feature::<Ssh>()?.open_ssh(in_json.to_owned()))
-}
-
-pub fn close_ssh(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.feature::<Ssh>()?.close_ssh())
-}
-
-#[derive(Default)]
 pub struct Ssh {
-    state: FeatureState,
+    tx_reported_properties: Sender<serde_json::Value>,
 }
 
+#[async_trait(?Send)]
 impl Feature for Ssh {
     fn name(&self) -> String {
         Self::ID.to_string()
@@ -44,20 +30,12 @@ impl Feature for Ssh {
         env::var("SUPPRESS_SSH_HANDLING") != Ok("true".to_string())
     }
 
-    fn report_initial_state(&self) -> Result<()> {
-        self.report_ssh_status()
+    async fn report_initial_state(&self) -> Result<()> {
+        self.report_ssh_status().await
     }
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn state_mut(&mut self) -> &mut FeatureState {
-        &mut self.state
-    }
-
-    fn state(&self) -> &FeatureState {
-        &self.state
     }
 }
 
@@ -65,10 +43,16 @@ impl Ssh {
     const SSH_VERSION: u8 = 1;
     const ID: &'static str = "ssh";
     const SSH_RULE: &'static str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "mock")))]
     const AUTHORIZED_KEYS_PATH: &'static str = "/home/omnect/.ssh/authorized_keys";
 
-    #[cfg(not(test))]
+    pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
+        Ssh {
+            tx_reported_properties,
+        }
+    }
+
+    #[cfg(not(any(test, feature = "mock")))]
     fn write_authorized_keys(pubkey: &str) -> Result<()> {
         let mut child = Command::new("sudo")
             .args(["-u", "omnect", "tee", Self::AUTHORIZED_KEYS_PATH])
@@ -90,17 +74,17 @@ impl Ssh {
         Ok(())
     }
 
-    pub fn refresh_ssh_status(&self) -> Result<Option<serde_json::Value>> {
+    pub async fn refresh_ssh_status(&self) -> Result<Option<serde_json::Value>> {
         info!("ssh status requested");
 
         self.ensure()?;
 
-        self.report_ssh_status()?;
+        self.report_ssh_status().await?;
 
         Ok(None)
     }
 
-    pub fn open_ssh(&self, in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
+    pub async fn open_ssh(&self, in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
         info!("open ssh requested {in_json}");
 
         self.ensure()?;
@@ -118,12 +102,12 @@ impl Ssh {
         v6.append_replace("filter", "INPUT", Self::SSH_RULE)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        self.report_ssh_status()?;
+        self.report_ssh_status().await?;
 
         Ok(None)
     }
 
-    pub fn close_ssh(&self) -> Result<Option<serde_json::Value>> {
+    pub async fn close_ssh(&self) -> Result<Option<serde_json::Value>> {
         info!("close ssh requested");
 
         self.ensure()?;
@@ -138,13 +122,13 @@ impl Ssh {
         // clear authorized_keys
         Self::write_authorized_keys("")?;
 
-        self.report_ssh_status()?;
+        self.report_ssh_status().await?;
 
         Ok(None)
     }
 
-    #[cfg(not(test))]
-    fn report_ssh_status(&self) -> Result<()> {
+    #[cfg(not(any(test, feature = "mock")))]
+    async fn report_ssh_status(&self) -> Result<()> {
         self.ensure()?;
 
         #[derive(Debug, Serialize)]
@@ -185,27 +169,24 @@ impl Ssh {
             p => anyhow::bail!("Unexpected input policy: {p}"),
         };
 
-        debug!("ssh report: {:#?}", ssh_report);
-
-        Twin::report_impl(
-            self.tx(),
-            json!({
+        self.tx_reported_properties
+            .send(json!({
                     "ssh": {
                         "status": json!(ssh_report)
                     }
-            }),
-        )
-        .context("report_ssh_status")
-        .map_err(|e| anyhow::anyhow!("{e}"))
+            }))
+            .await
+            .context("report_ssh_status")
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "mock"))]
     fn write_authorized_keys(_pubkey: &str) -> Result<()> {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn report_ssh_status(&self) -> Result<()> {
+    #[cfg(any(test, feature = "mock"))]
+    async fn report_ssh_status(&self) -> Result<()> {
         #[derive(Debug, Serialize)]
         struct SshReport {
             #[serde(default)]
@@ -218,15 +199,14 @@ impl Ssh {
             v6_enabled: false,
         };
 
-        Twin::report_impl(
-            self.tx(),
-            json!({
+        self.tx_reported_properties
+            .send(json!({
                     "ssh": {
                         "status": json!(ssh_report)
                     }
-            }),
-        )
-        .context("report_ssh_status")
-        .map_err(|e| anyhow::anyhow!("{e}"))
+            }))
+            .await
+            .context("report_ssh_status")
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }

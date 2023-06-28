@@ -1,24 +1,16 @@
-use super::{Feature, FeatureState};
-use crate::twin;
-use crate::twin::Twin;
+use super::Feature;
 use anyhow::{Context, Result};
-use log::{error, info};
+use log::{debug, error, info};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use serde::Serialize;
 use serde_json::json;
 use serde_with::skip_serializing_none;
-use std::any::Any;
-use std::collections::HashMap;
-use std::env;
+use std::{any::Any, collections::HashMap, env};
+use tokio::sync::mpsc::Sender;
 
-pub fn refresh_network_status(_in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| twin.feature::<NetworkStatus>()?.refresh_network_status())
-}
-
-#[derive(Default)]
 pub struct NetworkStatus {
-    state: FeatureState,
     include_network_filter: Option<Vec<String>>,
+    tx_reported_properties: Sender<serde_json::Value>,
 }
 
 impl Feature for NetworkStatus {
@@ -41,38 +33,45 @@ impl Feature for NetworkStatus {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-
-    fn state_mut(&mut self) -> &mut FeatureState {
-        &mut self.state
-    }
-
-    fn state(&self) -> &FeatureState {
-        &self.state
-    }
 }
 
 impl NetworkStatus {
     const NETWORK_STATUS_VERSION: u8 = 1;
     const ID: &'static str = "network_status";
 
-    pub fn refresh_network_status(&self) -> Result<Option<serde_json::Value>> {
+    pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
+        NetworkStatus {
+            include_network_filter: None,
+            tx_reported_properties,
+        }
+    }
+
+    pub async fn refresh_network_status(&self) -> Result<Option<serde_json::Value>> {
         info!("network status requested");
 
         self.ensure()?;
 
-        self.report_network_status()?;
+        self.report_network_status().await?;
 
         Ok(None)
     }
-    pub fn update_include_network_filter(
+
+    pub async fn update_include_network_filter(
         &mut self,
         include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
         self.ensure()?;
 
+        debug!(
+            "update_include_network_filter: current filter={:?}",
+            self.include_network_filter
+        );
+
+        debug!("update_include_network_filter: new filter={include_network_filter:?}");
+
         if include_network_filter.is_none() {
             if self.include_network_filter.take().is_some() {
-                return self.report_network_status();
+                return self.report_network_status().await;
             }
 
             return Ok(());
@@ -104,26 +103,37 @@ impl NetworkStatus {
         {
             self.include_network_filter
                 .replace(new_include_network_filter);
-            self.report_network_status()
+
+            debug!(
+                "update_include_network_filter: resulting filter={:?}",
+                self.include_network_filter
+            );
+
+            self.report_network_status().await
         } else {
             info!("desired include_network_filter didn't change");
             Ok(())
         }
     }
 
-    fn report_network_status(&self) -> Result<()> {
+    async fn report_network_status(&self) -> Result<()> {
         self.ensure()?;
 
+        debug!(
+            "report_network_status: filter={:?}",
+            self.include_network_filter
+        );
+
         if self.include_network_filter.is_none() {
-            return Twin::report_impl(
-                self.tx(),
-                json!({
+            return self
+                .tx_reported_properties
+                .send(json!({
                        "network_status": {
                            "interfaces": json!(null)
                    }
-                }),
-            )
-            .context("report_network_status: report_impl");
+                }))
+                .await
+                .context("report_network_status: report_impl");
         }
 
         #[skip_serializing_none]
@@ -179,14 +189,13 @@ impl NetworkStatus {
                 };
             });
 
-        Twin::report_impl(
-            self.tx(),
-            json!({
+        self.tx_reported_properties
+            .send(json!({
                 "network_status": {
                     "interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
                 }
-            }),
-        )
-        .context("report_network_status")
+            }))
+            .await
+            .context("report_network_status")
     }
 }

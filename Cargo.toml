@@ -1,6 +1,6 @@
 [package]
 name = "omnect-device-service"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 description = "This service allows remote features like: user fw update consent, factory reset, network adapter status and reboot."
 authors = ["omnect@conplement.de"]
@@ -11,9 +11,13 @@ build = "src/build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0"
-azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.9.5", features = [
-    "module_client",
+anyhow = "=1.0.71"
+async-trait = "0.1"
+#azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.10.0", features = [
+#   "module_client",
+#] }
+azure-iot-sdk = { git = "https://github.com/JanZachmann/azure-iot-sdk.git", branch = "async-api", features = [
+   "module_client"
 ] }
 dotenvy = "0.15"
 env_logger = "0.8"
@@ -37,11 +41,14 @@ strum_macros = "0.24"
 systemd-zbus = "0.1"
 # ToDo: set to 0.3 once we support rust 1.63
 time = { version = "=0.3.19", features = ["formatting"] }
+#time = { version = "0.3", features = ["formatting"] }
 tokio = "1"
-zbus = { version = "3", default-features = false, features = ["tokio"] }
+# ToDo: set to 3.0 once we support rust 1.65
+zbus = { version = "=3.13.1", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 cp_r = "0.5"
+mockall = "0.11"
 rand = "0.8"
 regex = "1"
 stdext = "0.3"
@@ -49,3 +56,4 @@ stdext = "0.3"
 [features]
 bootloader_uboot = []
 bootloader_grub = []
+mock = []

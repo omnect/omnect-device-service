@@ -2,11 +2,9 @@ use anyhow::{bail, ensure, Context, Result};
 use futures_util::{join, StreamExt};
 use log::{debug, info, trace};
 use sd_notify::NotifyState;
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "mock")))]
 use std::process::Command;
-use std::sync::Once;
-use std::time::Duration;
-use std::{thread, time};
+use std::{sync::Once, thread, time, time::Duration};
 use systemd_zbus::{ManagerProxy, Mode};
 use tokio::time::{timeout_at, Instant};
 
@@ -24,31 +22,23 @@ pub struct WatchdogHandler {
     now: Option<Instant>,
 }
 
-impl Default for WatchdogHandler {
-    fn default() -> Self {
-        WatchdogHandler {
-            usec: u64::MAX,
-            now: None,
-        }
-    }
-}
-
 impl WatchdogHandler {
-    pub fn init(&mut self) -> Result<()> {
-        self.usec = u64::MAX;
+    pub fn new() -> Self {
+        let mut usec = u64::MAX;
+        let mut now = None;
 
-        if sd_notify::watchdog_enabled(false, &mut self.usec) {
-            self.usec /= 2;
-            self.now = Some(Instant::now());
+        if sd_notify::watchdog_enabled(false, &mut usec) {
+            usec /= 2;
+            now = Some(Instant::now());
         }
 
         info!(
             "watchdog settings: enabled: {} interval: {}µs",
-            self.now.is_some(),
-            self.usec
+            now.is_some(),
+            usec
         );
 
-        Ok(())
+        WatchdogHandler { usec, now }
     }
 
     pub fn notify(&mut self) -> Result<()> {
@@ -64,7 +54,7 @@ impl WatchdogHandler {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "mock")))]
 pub async fn reboot() -> Result<()> {
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
@@ -109,7 +99,7 @@ pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
 
     let job_removed_args = job_removed.args().with_context(|| "get removed args")?;
 
-    debug!("job removed: {:?}", job_removed_args);
+    debug!("job removed: {job_removed_args:?}");
     if job_removed_args.job() == &job {
         ensure!(
             job_removed_args.result == "done",
@@ -125,7 +115,7 @@ pub async fn start_unit(timeout_secs: u64, unit: &str) -> Result<()> {
             .with_context(|| "no job_removed signal received")?;
 
         let job_removed_args = job_removed.args()?;
-        debug!("job removed: {:?}", job_removed_args);
+        debug!("job removed: {job_removed_args:?}");
         if job_removed_args.job() == &job {
             ensure!(
                 job_removed_args.result == "done",
@@ -162,7 +152,7 @@ pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
 
         match system_state.as_str() {
             "running" => {
-                debug!("running");
+                debug!("wait_for_system_running: system_state == running");
                 return Ok(());
             }
             "initializing" | "starting" => {
@@ -182,7 +172,7 @@ pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "mock"))]
 pub async fn reboot() -> Result<()> {
     Ok(())
 }
