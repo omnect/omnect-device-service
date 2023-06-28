@@ -2,7 +2,7 @@ use super::{Feature, FeatureState};
 use crate::twin;
 use crate::twin::Twin;
 use anyhow::{Context, Result};
-use log::{error, info};
+use log::{debug, error, info};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use serde::Serialize;
 use serde_json::json;
@@ -64,11 +64,22 @@ impl NetworkStatus {
 
         Ok(None)
     }
+
     pub fn update_include_network_filter(
         &mut self,
         include_network_filter: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
         self.ensure()?;
+
+        debug!(
+            "update_include_network_filter: current filter={:?}",
+            self.include_network_filter
+        );
+
+        debug!(
+            "update_include_network_filter: new filter={:?}",
+            include_network_filter
+        );
 
         if include_network_filter.is_none() {
             if self.include_network_filter.take().is_some() {
@@ -104,6 +115,12 @@ impl NetworkStatus {
         {
             self.include_network_filter
                 .replace(new_include_network_filter);
+
+            debug!(
+                "update_include_network_filter: resulting filter={:?}",
+                self.include_network_filter
+            );
+
             self.report_network_status()
         } else {
             info!("desired include_network_filter didn't change");
@@ -113,6 +130,11 @@ impl NetworkStatus {
 
     fn report_network_status(&self) -> Result<()> {
         self.ensure()?;
+
+        debug!(
+            "report_network_status: filter={:?}",
+            self.include_network_filter
+        );
 
         if self.include_network_filter.is_none() {
             return Twin::report_impl(

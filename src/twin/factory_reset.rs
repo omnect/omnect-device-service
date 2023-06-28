@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::env;
 #[cfg(not(test))]
 use std::process::Command;
+use std::thread;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -118,6 +119,9 @@ impl FactoryReset {
 
                 self.report_factory_reset_status("in_progress")?;
 
+                // @ToDo: fix by making report_factory_reset_status() async and awaiting the result before reboot
+                thread::sleep(std::time::Duration::from_millis(500));
+
                 block_on(async { systemd::reboot().await })?;
 
                 Ok(None)
@@ -190,7 +194,9 @@ impl FactoryReset {
             .arg("fw_printenv")
             .arg("factory-reset-status")
             .output()
-            .context("factory_reset_status: failed to execute 'fw_printenv factory-reset-status'")?;
+            .context(
+                "factory_reset_status: failed to execute 'fw_printenv factory-reset-status'",
+            )?;
 
         anyhow::ensure!(
             output.status.success(),
@@ -198,7 +204,10 @@ impl FactoryReset {
         );
 
         let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
-            error!("factory_reset_status: report_factory_reset_result: {:#?}", e);
+            error!(
+                "factory_reset_status: report_factory_reset_result: {:#?}",
+                e
+            );
             String::from("")
         });
 
