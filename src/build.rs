@@ -1,6 +1,9 @@
 use std::process::Command;
 
 fn main() {
+    #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
+    compile_error!("Either feature 'bootloader_grub' xor 'bootloader_uboot' must be enabled.");
+
     let git_short_rev = String::from_utf8(
         Command::new("git")
             .args(["rev-parse", "--short", "HEAD"])

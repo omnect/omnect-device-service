@@ -45,3 +45,7 @@ cp_r = "0.5"
 rand = "0.8"
 regex = "1"
 stdext = "0.3"
+
+[features]
+bootloader_uboot = []
+bootloader_grub = []

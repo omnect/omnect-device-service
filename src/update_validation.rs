@@ -11,6 +11,9 @@ static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 static IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC: u64 = 60;
 static SYSTEM_IS_RUNNING_TIMEOUT_SEC: u64 = 300;
 
+#[cfg(feature = "bootloader_grub")]
+static GRUB_ENV_FILE: &str = "/boot/EFI/BOOT/grubenv";
+
 async fn validate() -> Result<()> {
     info!("update validation started");
     systemd::wait_for_system_running(SYSTEM_IS_RUNNING_TIMEOUT_SEC).await?;
@@ -35,7 +38,86 @@ async fn validate() -> Result<()> {
     Ok(())
 }
 
-async fn finalize() -> Result<()> {
+#[cfg(feature = "bootloader_grub")]
+async fn finalize_grub() -> Result<()> {
+    let list_output = Command::new("grub-editenv")
+        .arg(GRUB_ENV_FILE)
+        .arg("list")
+        .output()
+        .with_context(|| "failed to execute 'grub-editenv list'")?;
+    anyhow::ensure!(
+        list_output.status.success(),
+        "grub-editenv list: command returned with error"
+    );
+    let list_output = String::from_utf8(list_output.stdout)?;
+    let list_output = list_output.split('\n');
+    let mut omnect_validate_update_part: String = "".to_string();
+    for i in list_output {
+        let mut j = i.split('=');
+        if j.next()
+            .with_context(|| "failed to split grub-editenv line")?
+            == "omnect_validate_update_part"
+        {
+            omnect_validate_update_part = j
+                .last()
+                .with_context(|| "failed to get omnect_validate_update_part value")?
+                .to_string();
+            break;
+        }
+    }
+    anyhow::ensure!(
+        !omnect_validate_update_part.is_empty(),
+        "omnect_validate_update_part not set"
+    );
+
+    let set_omnect_os_boot = format!("omnect_os_boot={omnect_validate_update_part}");
+    anyhow::ensure!(
+        Command::new("sudo")
+            .args([
+                "grub-editenv",
+                GRUB_ENV_FILE,
+                "set",
+                set_omnect_os_boot.as_str()
+            ])
+            .status()
+            .with_context(|| "finalize: failed to set omnect_os_boot")?
+            .success(),
+        "\"grub-editenv set {set_omnect_os_boot}\" failed"
+    );
+
+    anyhow::ensure!(
+        Command::new("sudo")
+            .args([
+                "grub-editenv",
+                GRUB_ENV_FILE,
+                "unset",
+                "omnect_validate_update"
+            ])
+            .status()
+            .with_context(|| "finalize: failed to unset omnect_validate_update")?
+            .success(),
+        "\"grub-editenv unset omnect_validate_update\" failed"
+    );
+
+    anyhow::ensure!(
+        Command::new("sudo")
+            .args([
+                "grub-editenv",
+                GRUB_ENV_FILE,
+                "unset",
+                "omnect_validate_update_part"
+            ])
+            .status()
+            .with_context(|| "finalize: failed to unset omnect_validate_update_part")?
+            .success(),
+        "\"grub-editenv unset omnect_validate_update_part\" failed"
+    );
+
+    Ok(())
+}
+
+#[cfg(feature = "bootloader_uboot")]
+async fn finalize_uboot() -> Result<()> {
     let omnect_validate_update_part = Command::new("sudo")
         .arg("fw_printenv")
         .arg("omnect_validate_update_part")
@@ -77,6 +159,16 @@ async fn finalize() -> Result<()> {
             .success(),
         "\"fw_setenv omnect_validate_update_part\" failed"
     );
+
+    Ok(())
+}
+
+async fn finalize() -> Result<()> {
+    #[cfg(feature = "bootloader_uboot")]
+    finalize_uboot().await?;
+
+    #[cfg(feature = "bootloader_grub")]
+    finalize_grub().await?;
 
     Ok(())
 }
