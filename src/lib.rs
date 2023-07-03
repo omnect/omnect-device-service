@@ -1,10 +1,7 @@
+pub mod bootloader_env;
 pub mod client;
-#[cfg(feature = "bootloader_grub")]
-pub mod grub_env;
 pub mod systemd;
 pub mod twin;
-#[cfg(feature = "bootloader_uboot")]
-pub mod uboot_env;
 pub mod update_validation;
 
 use anyhow::Result;

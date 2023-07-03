@@ -1,13 +1,11 @@
+use super::bootloader_env::bootloader_env::{
+    bootloader_env, set_bootloader_env, unset_bootloader_env,
+};
 use super::systemd;
 use anyhow::{Context, Result};
 use log::{error, info};
 use std::fs;
 use std::path::Path;
-
-#[cfg(feature = "bootloader_grub")]
-use super::grub_env::{bootloader_env, set_bootloader_env, unset_bootloader_env};
-#[cfg(feature = "bootloader_uboot")]
-use super::uboot_env::{bootloader_env, set_bootloader_env, unset_bootloader_env};
 
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";

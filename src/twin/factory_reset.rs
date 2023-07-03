@@ -1,8 +1,7 @@
-#[cfg(feature = "bootloader_grub")]
-use super::super::grub_env::{bootloader_env, set_bootloader_env, unset_bootloader_env};
+#[cfg(not(test))]
+use super::super::bootloader_env::bootloader_env::bootloader_env;
+use super::super::bootloader_env::bootloader_env::{set_bootloader_env, unset_bootloader_env};
 use super::super::systemd;
-#[cfg(feature = "bootloader_uboot")]
-use super::super::uboot_env::{bootloader_env, set_bootloader_env, unset_bootloader_env};
 use super::{Feature, FeatureState};
 use crate::twin;
 use crate::twin::Twin;
@@ -14,7 +13,6 @@ use serde_json::json;
 use std::any::Any;
 use std::collections::HashMap;
 use std::env;
-#[cfg(not(test))]
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
