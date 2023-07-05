@@ -4,7 +4,7 @@ use std::process::Command;
 pub fn bootloader_env(key: &str) -> Result<String> {
     let value = Command::new("sudo").arg("fw_printenv").arg(key).output()?;
     if !value.status.success() {
-        bail!("fw_printenv {} failed", key);
+        bail!("fw_printenv {key} failed");
     }
     let value = String::from_utf8(value.stdout)?;
     let mut value = value

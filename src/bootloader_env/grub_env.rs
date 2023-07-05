@@ -15,7 +15,7 @@ pub fn bootloader_env(key: &str) -> Result<String> {
     );
     let list = String::from_utf8(list.stdout)?;
     let list = list.split('\n');
-    let mut value: String = "".to_string();
+    let mut value = "".to_string();
     for i in list {
         let mut j = i.split('=');
         if j.next()
