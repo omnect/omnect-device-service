@@ -35,7 +35,7 @@ pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
 pub fn unset_bootloader_env(key: &str) -> Result<()> {
     ensure!(
         Command::new("sudo")
-            .args(["fw_setenv", key, ""])
+            .args(["fw_setenv", key])
             .status()
             .with_context(|| "failed to execute \"fw_setenv {key}\"")?
             .success(),
