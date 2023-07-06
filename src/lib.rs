@@ -1,7 +1,9 @@
+pub mod bootloader_env;
 pub mod client;
 pub mod systemd;
 pub mod twin;
 pub mod update_validation;
+
 use anyhow::Result;
 use azure_iot_sdk::client::*;
 use client::{Client, Message};

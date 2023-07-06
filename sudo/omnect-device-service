@@ -1,16 +1,3 @@
-# update validation finalization
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_update_part
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv bootpart [2-3]
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv omnect_validate_update
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv omnect_validate_update_part
-
-# factory reset
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv factory-reset-status
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv factory-reset [1-4]
-# warning: using a wildcard here; options: use regex or multiple occurrences of the call with different possible input
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv factory-reset-restore-list *
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv factory-reset-status
-
 # write ssh authorized_key
 omnect_device_service ALL=(omnect) NOPASSWD: /usr/bin/tee /home/omnect/.ssh/authorized_keys
 

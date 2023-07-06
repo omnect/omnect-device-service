@@ -1,9 +1,11 @@
+use super::bootloader_env::bootloader_env::{
+    bootloader_env, set_bootloader_env, unset_bootloader_env,
+};
 use super::systemd;
-use anyhow::{Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use log::{error, info};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
@@ -36,47 +38,14 @@ async fn validate() -> Result<()> {
 }
 
 async fn finalize() -> Result<()> {
-    let omnect_validate_update_part = Command::new("sudo")
-        .arg("fw_printenv")
-        .arg("omnect_validate_update_part")
-        .output()?;
-    if !omnect_validate_update_part.status.success() {
-        anyhow::bail!("fw_printenv omnect_validate_update_part failed");
-    }
-    let omnect_validate_update_part = String::from_utf8(omnect_validate_update_part.stdout)?;
-    let omnect_validate_update_part = match omnect_validate_update_part.split('=').last() {
-        Some(omnect_validate_update_part) => omnect_validate_update_part.trim(),
-        None => anyhow::bail!("omnect_validate_update_part split failed"),
-    };
-
-    anyhow::ensure!(
-        Command::new("sudo")
-            .args(["fw_setenv", "bootpart", omnect_validate_update_part])
-            .status()
-            .context("finalize: failed to execute 'fw_setenv bootpart'")?
-            .success(),
-        "\"fw_setenv bootpart {omnect_validate_update_part}\" failed"
+    let omnect_validate_update_part = bootloader_env("omnect_validate_update_part")?;
+    ensure!(
+        !omnect_validate_update_part.is_empty(),
+        "omnect_validate_update_part not set"
     );
-
-    anyhow::ensure!(
-        Command::new("sudo")
-            .arg("fw_setenv")
-            .arg("omnect_validate_update")
-            .status()
-            .context("finalize: failed to execute 'fw_setenv omnect_validate_update'")?
-            .success(),
-        "\"fw_setenv omnect_validate_update\" failed"
-    );
-
-    anyhow::ensure!(
-        Command::new("sudo")
-            .arg("fw_setenv")
-            .arg("omnect_validate_update_part")
-            .status()
-            .context("finalize: failed to execute 'fw_setenv omnect_validate_update_part'")?
-            .success(),
-        "\"fw_setenv omnect_validate_update_part\" failed"
-    );
+    set_bootloader_env("omnect_os_bootpart", omnect_validate_update_part.as_str())?;
+    unset_bootloader_env("omnect_validate_update")?;
+    unset_bootloader_env("omnect_validate_update_part")?;
 
     Ok(())
 }
@@ -91,11 +60,13 @@ pub async fn check() -> Result<()> {
         if val.is_err() {
             error!("validate error: {:#?}", val.err());
             systemd::reboot().await?;
+            bail!("validate failed");
         }
         let fin = finalize().await;
         if fin.is_err() {
             error!("finalize error: {:#?}", fin.err());
             systemd::reboot().await?;
+            bail!("finalize failed");
         }
     }
 

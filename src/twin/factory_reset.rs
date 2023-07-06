@@ -1,3 +1,6 @@
+#[cfg(not(test))]
+use super::super::bootloader_env::bootloader_env::bootloader_env;
+use super::super::bootloader_env::bootloader_env::{set_bootloader_env, unset_bootloader_env};
 use super::super::systemd;
 use super::{Feature, FeatureState};
 use crate::twin;
@@ -10,8 +13,6 @@ use serde_json::json;
 use std::any::Any;
 use std::collections::HashMap;
 use std::env;
-#[cfg(not(test))]
-use std::process::Command;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -102,19 +103,8 @@ impl FactoryReset {
 
         match &in_json["type"].as_u64() {
             Some(reset_type) => {
-                anyhow::ensure!(
-                    self.exec_cmd(vec![
-                        "fw_setenv",
-                        "factory-reset-restore-list",
-                        restore_paths.as_str()
-                    ])?,
-                    "failed to set factory-reset-restore-list in u-boot env"
-                );
-
-                anyhow::ensure!(
-                    self.exec_cmd(vec!["fw_setenv", "factory-reset", &reset_type.to_string()])?,
-                    "failed to set factory-reset type in u-boot env"
-                );
+                set_bootloader_env("factory-reset-restore-list", restore_paths.as_str())?;
+                set_bootloader_env("factory-reset", &reset_type.to_string())?;
 
                 self.report_factory_reset_status("in_progress")?;
 
@@ -148,25 +138,18 @@ impl FactoryReset {
         self.ensure()?;
 
         if let Ok(status) = self.factory_reset_status() {
-            let status: Vec<&str> = status.iter().map(AsRef::as_ref).collect();
-            let status = match status[..] {
-                ["factory-reset-status", "0:0\n"] => Ok(("succeeded", true)),
-                ["factory-reset-status", "1:-\n"] => Ok(("unexpected factory reset type", true)),
-                ["factory-reset-status", "2:-\n"] => {
-                    Ok(("unexpected restore settings error", true))
-                }
-                ["factory-reset-status", "\n"] => Ok(("normal boot without factory reset", false)),
-                ["factory-reset-status", _] => Ok(("failed", true)),
+            let status = match status.as_str() {
+                "0:0" => Ok(("succeeded", true)),
+                "1:-" => Ok(("unexpected factory reset type", true)),
+                "2:-" => Ok(("unexpected restore settings error", true)),
+                "" => Ok(("normal boot without factory reset", false)),
                 _ => Err(anyhow!("unexpected factory reset result format")),
             };
 
             match status {
                 Ok((update_twin, true)) => {
                     self.report_factory_reset_status(update_twin)?;
-                    anyhow::ensure!(
-                        self.exec_cmd(vec!["fw_setenv", "factory-reset-status"])?,
-                        "failed to reset factory-reset-status"
-                    );
+                    unset_bootloader_env("factory-reset-status")?;
 
                     info!("factory reset result: {}", update_twin);
                 }
@@ -178,72 +161,29 @@ impl FactoryReset {
                 }
             };
         } else {
-            error!("fw_printenv command not supported");
+            error!("getting factory reset status failed");
         }
 
         Ok(())
     }
 
     #[cfg(not(test))]
-    fn factory_reset_status(&self) -> Result<Vec<String>> {
-        let output = Command::new("sudo")
-            .arg("fw_printenv")
-            .arg("factory-reset-status")
-            .output()
-            .context("factory_reset_status: failed to execute 'fw_printenv factory-reset-status'")?;
-
-        anyhow::ensure!(
-            output.status.success(),
-            "factory_reset_status: command returned with error"
-        );
-
-        let status = String::from_utf8(output.stdout).unwrap_or_else(|e| {
-            error!("factory_reset_status: report_factory_reset_result: {:#?}", e);
-            String::from("")
-        });
-
-        Ok(status.split('=').map(String::from).collect())
-    }
-
-    #[cfg(not(test))]
-    fn exec_cmd(&self, args: Vec<&str>) -> Result<bool> {
-        Ok(Command::new("sudo")
-            .args(&args)
-            .status()
-            .context(format!("exec_cmd: failed to execute '{:?}'", &args))?
-            .success())
+    fn factory_reset_status(&self) -> Result<String> {
+        bootloader_env("factory-reset-status")
     }
 
     #[cfg(test)]
     #[allow(unreachable_patterns)]
-    fn factory_reset_status(&self) -> Result<Vec<String>> {
+    fn factory_reset_status(&self) -> Result<String> {
         match std::env::var("TEST_FACTORY_RESET_RESULT")
             .unwrap_or("succeeded".to_string())
             .as_str()
         {
-            "unexpected_factory_reset_result_format" => {
-                Ok(vec!["factory-reset-status".to_string()])
-            }
-            "normal_boot_without_factory_reset" => {
-                Ok(vec!["factory-reset-status".to_string(), "\n".to_string()])
-            }
-            "unexpected_restore_settings_error" => Ok(vec![
-                "factory-reset-status".to_string(),
-                "2:-\n".to_string(),
-            ]),
-            "unexpected_factory_reset_type" => Ok(vec![
-                "factory-reset-status".to_string(),
-                "1:-\n".to_string(),
-            ]),
-            _ | "succeeded" => Ok(vec![
-                "factory-reset-status".to_string(),
-                "0:0\n".to_string(),
-            ]),
+            "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),
+            "normal_boot_without_factory_reset" => Ok("".to_string()),
+            "unexpected_restore_settings_error" => Ok("2:-".to_string()),
+            "unexpected_factory_reset_type" => Ok("1:-".to_string()),
+            _ | "succeeded" => Ok("0:0".to_string()),
         }
-    }
-
-    #[cfg(test)]
-    fn exec_cmd(&self, _args: Vec<&str>) -> Result<bool> {
-        Ok(true)
     }
 }
