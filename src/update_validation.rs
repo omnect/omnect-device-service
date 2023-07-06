@@ -2,7 +2,7 @@ use super::bootloader_env::bootloader_env::{
     bootloader_env, set_bootloader_env, unset_bootloader_env,
 };
 use super::systemd;
-use anyhow::{Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use log::{error, info};
 use std::fs;
 use std::path::Path;
@@ -39,7 +39,7 @@ async fn validate() -> Result<()> {
 
 async fn finalize() -> Result<()> {
     let omnect_validate_update_part = bootloader_env("omnect_validate_update_part")?;
-    anyhow::ensure!(
+    ensure!(
         !omnect_validate_update_part.is_empty(),
         "omnect_validate_update_part not set"
     );
@@ -60,11 +60,13 @@ pub async fn check() -> Result<()> {
         if val.is_err() {
             error!("validate error: {:#?}", val.err());
             systemd::reboot().await?;
+            bail!("validate failed");
         }
         let fin = finalize().await;
         if fin.is_err() {
             error!("finalize error: {:#?}", fin.err());
             systemd::reboot().await?;
+            bail!("finalize failed");
         }
     }
 
