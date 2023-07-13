@@ -28,8 +28,14 @@ This module serves as interface between omnect cloud and device to support certa
     - [Enabling SSH](#enabling-ssh)
     - [Disabling SSH](#disabling-ssh)
     - [Current reported ssh status](#current-reported-ssh-status)
-  - [Wifi commissioning service](#wifi-commissioning-service)
+  - [SSH Tunnel](#ssh-tunnel)
     - [Feature availability](#feature-availability-5)
+    - [SSH tunnel status](#ssh-tunnel-status)
+    - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
+    - [Opening the SSH Tunnel](#open-ssh-tunnel)
+    - [Closing the SSH Tunnel](#close-ssh-tunnel)
+  - [Wifi commissioning service](#wifi-commissioning-service)
+    - [Feature availability](#feature-availability-6)
   - [Update validation](#update-validation)
     - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
@@ -575,6 +581,151 @@ The module reports the current ssh status. For this purpose the module reports t
     "v4_enabled":false,
     "v6_enabled":false
   }
+}
+```
+
+## SSH Tunnel handling
+
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"ssh_tunnel":
+{
+  "version": <ver>
+}
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_SSH_TUNNEL=true
+```
+
+### Access to Device SSH Public Key
+
+This creates a single-use ssh key pair and retrieves the public key of the key pair. A signed certificate for this public key is then expected as an argument with a subsequent `open_ssh_tunnel` call.
+
+**Direct method: get_ssh_pub_key**
+
+Method Name: `get_ssh_pub_key`
+
+Payload:
+```
+{
+  "tunnel_id": "<uuid identifying the tunnel>",
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statuscode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {
+    "key": "<PEM formatted ssh public key>"
+  }
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+
+### Opening the SSH tunnel
+
+This creates a ssh tunnel to the bastion host, which can then be used to open an SSH connection to the device. This method therefore starts a SSH reverse tunnel connection to the bastion host and binds it there to a uniquely named socket. The connection to the device can then be established across this socket.
+
+**Note:** The tunnel is maintained open only for 5 minutes, if no connection has been established after this time, it will automatically close.
+
+**Direct method: open_ssh_tunnel**
+
+Method Name: `open_ssh_tunnel`
+
+Payload:
+```
+{
+  "tunnel_id": "<uuid identifying the tunnel>",
+  "certificate": "<PEM formatted ssh certificate which the device uses to create the tunnel>"
+  "host": "<hostname of the bastion host>"
+  "port": "<ssh port on the bastion host>"
+  "user": "<ssh user on the bastion host>"
+  "socket_path": "<socket path on the bastion host>"
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statuscode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+
+### Closing the SSH tunnel
+
+This closes an existing ssh tunnel. Typically, the ssh tunnel is terminated automatically, once it is not used any longer. This method provides a fallback to cancel an existing connection. This is facilitated by sending control commands to the SSH tunnel master socket.
+
+**Direct method: close_ssh_tunnel**
+
+Method Name: `open_ssh_tunnel`
+
+Payload:
+```
+{
+  "tunnel_id": "<uuid identifying the tunnel>"
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statuscode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
 }
 ```
 
