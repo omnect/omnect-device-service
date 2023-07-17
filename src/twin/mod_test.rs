@@ -83,6 +83,7 @@ mod mod_test {
             });
 
             // set env vars
+            env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
 
@@ -119,6 +120,7 @@ mod mod_test {
             }
 
             // cleanup env vars
+            env::remove_var("SSH_TUNNEL_DIR_PATH");
             env::remove_var("OS_RELEASE_DIR_PATH");
             env::remove_var("CONSENT_DIR_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
@@ -150,6 +152,11 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"ssh":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -250,6 +257,11 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"ssh":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
