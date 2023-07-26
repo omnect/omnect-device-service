@@ -331,7 +331,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.10.0"
-source = "git+https://github.com/JanZachmann/azure-iot-sdk.git?branch=async-api#eda8432a9f367431d8f0d3757b8a173583c7d2f7"
+source = "git+https://github.com/JanZachmann/azure-iot-sdk.git?branch=async-api#8b7f52ecf7e366158bfb7f94056000d514018e76"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -345,7 +345,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk-sys"
 version = "0.6.0"
-source = "git+https://github.com/JanZachmann/azure-iot-sdk-sys.git?branch=az-sdk-convenience-layer#545bc319f0c40a20837dca52ed35f4e9a329f498"
+source = "git+https://github.com/omnect/azure-iot-sdk-sys.git?tag=0.6.0#cdfdcbeac73f97b204e0ff5dfecd170cfb8ce290"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -645,7 +645,7 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 [[package]]
 name = "eis-utils"
 version = "0.3.0"
-source = "git+https://github.com/janzachmann/eis-utils.git?branch=async_api#0ea28c7c667ade7bd21944e560ae167ee7a7df4a"
+source = "git+https://github.com/omnect/eis-utils.git?tag=0.3.0#8baffddba778dde438441cc05de8bb9d3336bd44"
 dependencies = [
  "aziot-cert-client-async",
  "aziot-cert-common",
