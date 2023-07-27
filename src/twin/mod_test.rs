@@ -312,6 +312,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -470,12 +471,13 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -858,6 +860,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -934,6 +937,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -961,6 +965,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -988,6 +993,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -1036,6 +1042,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("TEST_FACTORY_RESET_RESULT", "unexpected_factory_reset_type"),
@@ -1081,6 +1088,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1091,7 +1099,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1161,12 +1169,13 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1232,6 +1241,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1247,7 +1257,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
