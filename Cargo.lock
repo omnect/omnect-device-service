@@ -1622,6 +1622,7 @@ dependencies = [
  "network-interface",
  "notify",
  "notify-debouncer-mini",
+ "omnect-device-service",
  "once_cell",
  "rand",
  "regex",

@@ -1,47 +1,33 @@
-#[cfg(all(feature = "bootloader_grub", not(any(test, feature = "mock"))))]
-use super::grub_env;
-#[cfg(all(feature = "bootloader_uboot", not(any(test, feature = "mock"))))]
-use super::uboot_env;
+#[cfg(feature = "bootloader_grub")]
+use super::grub_env::{
+    bootloader_env as get, set_bootloader_env as set, unset_bootloader_env as unset,
+};
+#[cfg(feature = "bootloader_uboot")]
+use super::uboot_env::{
+    bootloader_env as get, set_bootloader_env as set, unset_bootloader_env as unset,
+};
 use anyhow::Result;
 
-#[cfg(not(any(test, feature = "mock")))]
+#[allow(unreachable_code, unused_variables)]
 pub fn bootloader_env(key: &str) -> Result<String> {
-    #[cfg(feature = "bootloader_grub")]
-    return grub_env::bootloader_env(key);
+    #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    return get(key);
 
-    #[cfg(feature = "bootloader_uboot")]
-    return uboot_env::bootloader_env(key);
-}
-
-#[cfg(not(any(test, feature = "mock")))]
-pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
-    #[cfg(feature = "bootloader_grub")]
-    return grub_env::set_bootloader_env(key, value);
-
-    #[cfg(feature = "bootloader_uboot")]
-    return uboot_env::set_bootloader_env(key, value);
-}
-
-#[cfg(not(any(test, feature = "mock")))]
-pub fn unset_bootloader_env(key: &str) -> Result<()> {
-    #[cfg(feature = "bootloader_grub")]
-    return grub_env::unset_bootloader_env(key);
-
-    #[cfg(feature = "bootloader_uboot")]
-    return uboot_env::unset_bootloader_env(key);
-}
-
-#[cfg(any(test, feature = "mock"))]
-pub fn bootloader_env(_key: &str) -> Result<String> {
     Ok("".to_string())
 }
 
-#[cfg(any(test, feature = "mock"))]
-pub fn set_bootloader_env(_key: &str, _value: &str) -> Result<()> {
+#[allow(unreachable_code, unused_variables)]
+pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
+    #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    return set(key, value);
+
     Ok(())
 }
 
-#[cfg(any(test, feature = "mock"))]
-pub fn unset_bootloader_env(_key: &str) -> Result<()> {
+#[allow(unreachable_code, unused_variables)]
+pub fn unset_bootloader_env(key: &str) -> Result<()> {
+    #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    return unset(key);
+
     Ok(())
 }

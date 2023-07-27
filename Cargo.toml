@@ -17,7 +17,7 @@ async-trait = "0.1"
 #   "module_client",
 #] }
 azure-iot-sdk = { git = "https://github.com/JanZachmann/azure-iot-sdk.git", branch = "async-api", features = [
-   "module_client"
+   "module_client",
 ] }
 dotenvy = "0.15"
 env_logger = "0.8"
@@ -52,8 +52,10 @@ mockall = "0.11"
 rand = "0.8"
 regex = "1"
 stdext = "0.3"
+omnect-device-service = { path = ".", features = ["mock"] }
 
 [features]
+default = []
 bootloader_uboot = []
 bootloader_grub = []
 mock = []

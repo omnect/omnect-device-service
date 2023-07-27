@@ -1,13 +1,10 @@
-#[cfg(not(any(test, feature = "mock")))]
-use super::super::bootloader_env::bootloader_env::bootloader_env;
-use super::super::bootloader_env::bootloader_env::{set_bootloader_env, unset_bootloader_env};
-#[cfg(not(any(test, feature = "mock")))]
+use super::super::bootloader_env::bootloader_env::{
+    bootloader_env, {set_bootloader_env, unset_bootloader_env},
+};
 use super::super::systemd;
 use super::Feature;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-#[cfg(not(any(test, feature = "mock")))]
-use futures_executor::block_on;
 use lazy_static::{__Deref, lazy_static};
 use log::{error, info, warn};
 use serde_json::json;
@@ -98,8 +95,7 @@ impl FactoryReset {
 
                 self.report_factory_reset_status("in_progress").await?;
 
-                #[cfg(not(any(test, feature = "mock")))]
-                block_on(async { systemd::reboot().await })?;
+                systemd::reboot().await?;
 
                 Ok(None)
             }
@@ -157,23 +153,21 @@ impl FactoryReset {
         Ok(())
     }
 
-    #[cfg(not(any(test, feature = "mock")))]
-    fn factory_reset_status(&self) -> Result<String> {
-        bootloader_env("factory-reset-status")
-    }
-
-    #[cfg(any(test, feature = "mock"))]
     #[allow(unreachable_patterns)]
     fn factory_reset_status(&self) -> Result<String> {
-        match std::env::var("TEST_FACTORY_RESET_RESULT")
-            .unwrap_or("succeeded".to_string())
-            .as_str()
-        {
-            "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),
-            "normal_boot_without_factory_reset" => Ok("".to_string()),
-            "unexpected_restore_settings_error" => Ok("2:-".to_string()),
-            "unexpected_factory_reset_type" => Ok("1:-".to_string()),
-            _ | "succeeded" => Ok("0:0".to_string()),
+        if cfg!(feature = "mock") {
+            match std::env::var("TEST_FACTORY_RESET_RESULT")
+                .unwrap_or("succeeded".to_string())
+                .as_str()
+            {
+                "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),
+                "normal_boot_without_factory_reset" => Ok("".to_string()),
+                "unexpected_restore_settings_error" => Ok("2:-".to_string()),
+                "unexpected_factory_reset_type" => Ok("1:-".to_string()),
+                _ | "succeeded" => Ok("0:0".to_string()),
+            }
+        } else {
+            bootloader_env("factory-reset-status")
         }
     }
 }

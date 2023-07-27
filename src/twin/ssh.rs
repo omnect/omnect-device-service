@@ -5,7 +5,7 @@ use log::info;
 use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env};
-#[cfg(not(any(test, feature = "mock")))]
+#[cfg(not(feature = "mock"))]
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -43,7 +43,7 @@ impl Ssh {
     const SSH_VERSION: u8 = 1;
     const ID: &'static str = "ssh";
     const SSH_RULE: &'static str = "-p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT";
-    #[cfg(not(any(test, feature = "mock")))]
+    #[cfg(not(feature = "mock"))]
     const AUTHORIZED_KEYS_PATH: &'static str = "/home/omnect/.ssh/authorized_keys";
 
     pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
@@ -52,7 +52,7 @@ impl Ssh {
         }
     }
 
-    #[cfg(not(any(test, feature = "mock")))]
+    #[cfg(not(feature = "mock"))]
     fn write_authorized_keys(pubkey: &str) -> Result<()> {
         let mut child = Command::new("sudo")
             .args(["-u", "omnect", "tee", Self::AUTHORIZED_KEYS_PATH])
@@ -127,7 +127,7 @@ impl Ssh {
         Ok(None)
     }
 
-    #[cfg(not(any(test, feature = "mock")))]
+    #[cfg(not(feature = "mock"))]
     async fn report_ssh_status(&self) -> Result<()> {
         self.ensure()?;
 
@@ -180,12 +180,12 @@ impl Ssh {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    #[cfg(any(test, feature = "mock"))]
+    #[cfg(feature = "mock")]
     fn write_authorized_keys(_pubkey: &str) -> Result<()> {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "mock"))]
+    #[cfg(feature = "mock")]
     async fn report_ssh_status(&self) -> Result<()> {
         #[derive(Debug, Serialize)]
         struct SshReport {

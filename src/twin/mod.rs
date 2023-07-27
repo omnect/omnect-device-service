@@ -1,6 +1,6 @@
 mod consent;
 mod factory_reset;
-#[cfg(any(test, feature = "mock"))]
+#[cfg(feature = "mock")]
 #[path = "mod_test.rs"]
 mod mod_test;
 mod network_status;
@@ -22,7 +22,7 @@ use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::FutureExt;
-use log::{info, error};
+use log::{error, info};
 use serde_json::json;
 use std::{
     any::{Any, TypeId},

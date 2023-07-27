@@ -1,17 +1,22 @@
+/*
+    call tests always single threaded since otherwise setting special test env vars clashes:
+
+    'cargo test -- --test-threads=1'
+*/
 #[cfg(test)]
 mod mod_test {
     use super::super::*;
     use crate::test_util::mod_test::TestEnvironment;
     use crate::{consent_path, history_consent_path};
+    use futures_executor::block_on;
     use mockall::{mock, predicate::*};
-    use rand::distributions::Alphanumeric;
-    use rand::{thread_rng, Rng};
+    use rand::{
+        distributions::Alphanumeric,
+        {thread_rng, Rng},
+    };
     use regex::Regex;
     use serde_json::json;
-    use std::env;
-    use std::fs::OpenOptions;
-    use std::path::PathBuf;
-    use std::time::Duration;
+    use std::{env, fs::OpenOptions, path::PathBuf, time::Duration};
 
     mock! {
         MyIotHub {}
@@ -26,7 +31,7 @@ mod mod_test {
                 tx_direct_method: Option<DirectMethodSender>,
                 tx_incoming_message: Option<IncomingMessageObserver>,
             ) -> Result<Box<Self>>;
-            fn from_identity_service(
+            async fn from_identity_service(
                 _tx_connection_status: Option<mpsc::Sender<AuthenticationStatus>>,
                 _tx_twin_desired: Option<mpsc::Sender<(TwinUpdateState, serde_json::Value)>>,
                 _tx_direct_method: Option<DirectMethodSender>,
@@ -309,8 +314,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn wifi_commissioning_feature_test() {
+    #[tokio::test]
+    async fn wifi_commissioning_feature_test() {
         let test_files = vec!["testfiles/wifi_commissioning/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -775,8 +780,8 @@ mod mod_test {
         TestCase::run(test_files, test_dirs, vec![], expect, test);
     }
 
-    #[test]
-    fn reset_to_factory_settings_test() {
+    #[tokio::test]
+    async fn reset_to_factory_settings_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
             "testfiles/positive/consent_conf.json",
@@ -931,8 +936,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn factory_reset_unexpected_result_test() {
+    #[tokio::test]
+    async fn factory_reset_unexpected_result_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -958,8 +963,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn factory_reset_normal_result_test() {
+    #[tokio::test]
+    async fn factory_reset_normal_result_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -985,8 +990,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn factory_reset_unexpected_setting_test() {
+    #[tokio::test]
+    async fn factory_reset_unexpected_setting_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -1033,8 +1038,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn factory_reset_unexpected_type_test() {
+    #[tokio::test]
+    async fn factory_reset_unexpected_type_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -1078,8 +1083,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn update_report_and_refresh_network_status_test() {
+    #[tokio::test]
+    async fn update_report_and_refresh_network_status_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -1158,8 +1163,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn open_ssh_test() {
+    #[tokio::test]
+    async fn open_ssh_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -1229,8 +1234,8 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[test]
-    fn refresh_ssh_test() {
+    #[tokio::test]
+    async fn refresh_ssh_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),

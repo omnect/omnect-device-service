@@ -2,7 +2,7 @@ use anyhow::{bail, ensure, Context, Result};
 use futures_util::{join, StreamExt};
 use log::{debug, info, trace};
 use sd_notify::NotifyState;
-#[cfg(not(any(test, feature = "mock")))]
+#[cfg(not(feature = "mock"))]
 use std::process::Command;
 use std::{sync::Once, thread, time, time::Duration};
 use systemd_zbus::{ManagerProxy, Mode};
@@ -54,7 +54,7 @@ impl WatchdogHandler {
     }
 }
 
-#[cfg(not(any(test, feature = "mock")))]
+#[cfg(not(feature = "mock"))]
 pub async fn reboot() -> Result<()> {
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
@@ -172,7 +172,7 @@ pub async fn wait_for_system_running(timeout_secs: u64) -> Result<()> {
     }
 }
 
-#[cfg(any(test, feature = "mock"))]
+#[cfg(feature = "mock")]
 pub async fn reboot() -> Result<()> {
     Ok(())
 }
