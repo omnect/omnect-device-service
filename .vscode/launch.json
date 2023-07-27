@@ -13,7 +13,7 @@
           "build",
           "--bin=omnect-device-service",
           "--package=omnect-device-service",
-          "--features=mock,bootloader_uboot"
+          "--features=mock"
         ],
         "filter": {
           "name": "omnect-device-service",
