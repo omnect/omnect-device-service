@@ -356,7 +356,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(TwinUpdateState::Partial, json!(""))
+                    .handle_desired(TwinUpdateState::Partial, json!(""))
                     .await
             })
             .is_ok());
@@ -365,7 +365,7 @@ mod mod_test {
                 block_on(async {
                     test_attr
                         .twin
-                        .update(TwinUpdateState::Partial, json!({"general_consent": {}}))
+                        .handle_desired(TwinUpdateState::Partial, json!({"general_consent": {}}))
                         .await
                 })
                 .unwrap_err()
@@ -377,7 +377,7 @@ mod mod_test {
                 block_on(async {
                     test_attr
                         .twin
-                        .update(
+                        .handle_desired(
                             TwinUpdateState::Partial,
                             json!({"include_network_filter": []}),
                         )
@@ -392,18 +392,18 @@ mod mod_test {
                 block_on(async {
                     test_attr
                         .twin
-                        .update(TwinUpdateState::Complete, json!(""))
+                        .handle_desired(TwinUpdateState::Complete, json!(""))
                         .await
                 })
                 .unwrap_err()
                 .to_string(),
-                "update: 'desired' missing while TwinUpdateState::Complete"
+                "handle_desired: 'desired' missing while TwinUpdateState::Complete"
             );
             assert_eq!(
                 block_on(async {
                     test_attr
                         .twin
-                        .update(
+                        .handle_desired(
                             TwinUpdateState::Complete,
                             json!({"desired": {"general_consent": {}}}),
                         )
@@ -536,7 +536,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(TwinUpdateState::Complete, json!({"desired": {}}))
+                    .handle_desired(TwinUpdateState::Complete, json!({"desired": {}}))
                     .await
             })
             .is_ok());
@@ -544,7 +544,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(
+                    .handle_desired(
                         TwinUpdateState::Partial,
                         json!({"general_consent": ["SWUPDATE2", "SWUPDATE1"]}),
                     )
@@ -555,7 +555,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(TwinUpdateState::Complete, json!({"desired": {}}))
+                    .handle_desired(TwinUpdateState::Complete, json!({"desired": {}}))
                     .await
             })
             .is_ok());
@@ -1108,7 +1108,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(
+                    .handle_desired(
                         TwinUpdateState::Partial,
                         json!({"include_network_filter": []}),
                     )
@@ -1119,7 +1119,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(
+                    .handle_desired(
                         TwinUpdateState::Partial,
                         json!({"include_network_filter": []}),
                     )
@@ -1130,7 +1130,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(
+                    .handle_desired(
                         TwinUpdateState::Partial,
                         json!({ "include_network_filter": ["*"] }),
                     )
@@ -1141,7 +1141,7 @@ mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .update(
+                    .handle_desired(
                         TwinUpdateState::Partial,
                         json!({ "include_network_filter": ["*"] }),
                     )

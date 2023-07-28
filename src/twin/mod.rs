@@ -170,44 +170,6 @@ impl Twin {
         Ok(())
     }
 
-    pub async fn update(
-        &mut self,
-        state: TwinUpdateState,
-        desired: serde_json::Value,
-    ) -> Result<()> {
-        match state {
-            TwinUpdateState::Partial => {
-                if let Some(gc) = desired.get("general_consent") {
-                    self.feature::<DeviceUpdateConsent>()?
-                        .update_general_consent(gc.as_array())
-                        .await?;
-                }
-
-                if let Some(inf) = desired.get("include_network_filter") {
-                    self.feature_mut::<NetworkStatus>()?
-                        .update_include_network_filter(inf.as_array())
-                        .await?;
-                }
-            }
-            TwinUpdateState::Complete => {
-                if desired.get("desired").is_none() {
-                    bail!("update: 'desired' missing while TwinUpdateState::Complete")
-                }
-
-                self.feature::<DeviceUpdateConsent>()?
-                    .update_general_consent(desired["desired"]["general_consent"].as_array())
-                    .await?;
-
-                self.feature_mut::<NetworkStatus>()?
-                    .update_include_network_filter(
-                        desired["desired"]["include_network_filter"].as_array(),
-                    )
-                    .await?;
-            }
-        }
-        Ok(())
-    }
-
     fn feature<T>(&self) -> Result<&T>
     where
         T: Feature + 'static,
@@ -276,12 +238,44 @@ impl Twin {
         Ok(())
     }
 
-    async fn handle_desired(&mut self, state: TwinUpdateState, desired: serde_json::Value) {
+    async fn handle_desired(
+        &mut self,
+        state: TwinUpdateState,
+        desired: serde_json::Value,
+    ) -> Result<()> {
         info!("desired: {state:#?}, {desired}");
 
-        self.update(state, desired.to_owned())
-            .await
-            .unwrap_or_else(|e| error!("twin update desired properties: {e:#?}"));
+        match state {
+            TwinUpdateState::Partial => {
+                if let Some(gc) = desired.get("general_consent") {
+                    self.feature::<DeviceUpdateConsent>()?
+                        .update_general_consent(gc.as_array())
+                        .await?;
+                }
+
+                if let Some(inf) = desired.get("include_network_filter") {
+                    self.feature_mut::<NetworkStatus>()?
+                        .update_include_network_filter(inf.as_array())
+                        .await?;
+                }
+            }
+            TwinUpdateState::Complete => {
+                if desired.get("desired").is_none() {
+                    bail!("handle_desired: 'desired' missing while TwinUpdateState::Complete")
+                }
+
+                self.feature::<DeviceUpdateConsent>()?
+                    .update_general_consent(desired["desired"]["general_consent"].as_array())
+                    .await?;
+
+                self.feature_mut::<NetworkStatus>()?
+                    .update_include_network_filter(
+                        desired["desired"]["include_network_filter"].as_array(),
+                    )
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     async fn handle_direct_method(
@@ -321,7 +315,7 @@ impl Twin {
         .await
         {
             Ok(result) => result.context("handle_report_property: couldn't report property"),
-            Err(_) => Err(anyhow!("handle_report_property: timeout occured")),
+            Err(_) => Err(anyhow!("handle_report_property: timeout occurred")),
         }
     }
 
@@ -370,7 +364,7 @@ impl Twin {
                 },
                 desired = rx_twin_desired.recv() => {
                     let (state, desired) = desired.unwrap();
-                    twin.handle_desired(state, desired).await;
+                    twin.handle_desired(state, desired).await.unwrap_or_else(|e| error!("twin update desired properties: {e:#?}"));
                 },
                 reported = rx_reported_properties.recv()=> {
                     twin.handle_report_property(reported.unwrap()).await?;
