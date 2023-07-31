@@ -331,7 +331,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.10.0"
-source = "git+https://github.com/JanZachmann/azure-iot-sdk.git?branch=async-api#8b7f52ecf7e366158bfb7f94056000d514018e76"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.10.0#1054cf8a1cca161b936cbe7a510c1712403f42a5"
 dependencies = [
  "anyhow",
  "async-trait",
