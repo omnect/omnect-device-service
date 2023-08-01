@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - introduced cargo feature "mock"
    - usefull for host testing
    - automatically used by cargo test
+ - updated to rust toolchain to v1.65
 
 ## [0.12.0] Q2 2023
  - added abstraction layer `bootloader_env` for uboot and grub

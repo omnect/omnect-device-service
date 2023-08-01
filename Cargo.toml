@@ -11,7 +11,7 @@ repository = "git@github.com:omnect/omnect-device-service.git"
 version = "0.13.0"
 
 [dependencies]
-anyhow = "=1.0.71"
+anyhow = "1.0"
 async-trait = "0.1"
 azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.10.0", features = [
    "module_client",
@@ -36,12 +36,9 @@ serde_with = "2.2"
 strum = "0.24"
 strum_macros = "0.24"
 systemd-zbus = "0.1"
-# ToDo: set to 0.3 once we support rust 1.63
-time = { version = "=0.3.19", features = ["formatting"] }
-#time = { version = "0.3", features = ["formatting"] }
+time = { version = "=0.3.23", features = ["formatting"] }
 tokio = "1"
-# ToDo: set to 3.0 once we support rust 1.65
-zbus = { version = "=3.13.1", default-features = false, features = ["tokio"] }
+zbus = { version = "3", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 cp_r = "0.5"

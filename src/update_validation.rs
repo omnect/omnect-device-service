@@ -50,11 +50,7 @@ async fn finalize() -> Result<()> {
 }
 
 pub async fn check() -> Result<()> {
-    /*
-     * ToDo: as soon as we can switch to rust >=1.63 replace by:
-     * 'if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {'
-     */
-    if Path::new(UPDATE_VALIDATION_FILE).exists() {
+    if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
         let val = validate().await;
         if val.is_err() {
             systemd::reboot().await?;
