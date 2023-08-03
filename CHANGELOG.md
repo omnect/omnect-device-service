@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] Q3 2023
+ - replaced channel/thread based event dispatching by async dispatching based on azure-iot-sdk 0.10.0
+ - introduced mockall crate for unit tests
+ - introduced cargo feature "mock"
+   - usefull for host testing
+   - automatically used by cargo test
+ - updated to rust toolchain to v1.65
+
 ## [0.12.0] Q2 2023
  - added abstraction layer `bootloader_env` for uboot and grub
    -> support for grub and uboot environment variables

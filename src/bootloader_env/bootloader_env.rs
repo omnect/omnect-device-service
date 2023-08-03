@@ -1,47 +1,33 @@
-#[cfg(all(feature = "bootloader_grub", not(test)))]
-use super::grub_env;
-#[cfg(all(feature = "bootloader_uboot", not(test)))]
-use super::uboot_env;
+#[cfg(feature = "bootloader_grub")]
+use super::grub_env::{
+    bootloader_env as get, set_bootloader_env as set, unset_bootloader_env as unset,
+};
+#[cfg(feature = "bootloader_uboot")]
+use super::uboot_env::{
+    bootloader_env as get, set_bootloader_env as set, unset_bootloader_env as unset,
+};
 use anyhow::Result;
 
-#[cfg(not(test))]
+#[allow(unreachable_code, unused_variables)]
 pub fn bootloader_env(key: &str) -> Result<String> {
-    #[cfg(feature = "bootloader_grub")]
-    return grub_env::bootloader_env(key);
+    #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    return get(key);
 
-    #[cfg(feature = "bootloader_uboot")]
-    return uboot_env::bootloader_env(key);
-}
-
-#[cfg(not(test))]
-pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
-    #[cfg(feature = "bootloader_grub")]
-    return grub_env::set_bootloader_env(key, value);
-
-    #[cfg(feature = "bootloader_uboot")]
-    return uboot_env::set_bootloader_env(key, value);
-}
-
-#[cfg(not(test))]
-pub fn unset_bootloader_env(key: &str) -> Result<()> {
-    #[cfg(feature = "bootloader_grub")]
-    return grub_env::unset_bootloader_env(key);
-
-    #[cfg(feature = "bootloader_uboot")]
-    return uboot_env::unset_bootloader_env(key);
-}
-
-#[cfg(test)]
-pub fn bootloader_env(_key: &str) -> Result<String> {
     Ok("".to_string())
 }
 
-#[cfg(test)]
-pub fn set_bootloader_env(_key: &str, _value: &str) -> Result<()> {
+#[allow(unreachable_code, unused_variables)]
+pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
+    #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    return set(key, value);
+
     Ok(())
 }
 
-#[cfg(test)]
-pub fn unset_bootloader_env(_key: &str) -> Result<()> {
+#[allow(unreachable_code, unused_variables)]
+pub fn unset_bootloader_env(key: &str) -> Result<()> {
+    #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    return unset(key);
+
     Ok(())
 }

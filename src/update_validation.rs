@@ -3,9 +3,8 @@ use super::bootloader_env::bootloader_env::{
 };
 use super::systemd;
 use anyhow::{bail, ensure, Context, Result};
-use log::{error, info};
-use std::fs;
-use std::path::Path;
+use log::{debug, info};
+use std::{fs, path::Path};
 
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
@@ -14,7 +13,7 @@ static IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC: u64 = 60;
 static SYSTEM_IS_RUNNING_TIMEOUT_SEC: u64 = 300;
 
 async fn validate() -> Result<()> {
-    info!("update validation started");
+    debug!("update validation started");
     systemd::wait_for_system_running(SYSTEM_IS_RUNNING_TIMEOUT_SEC).await?;
 
     /* ToDo: if it returns with an error, we may want to handle the state
@@ -23,7 +22,7 @@ async fn validate() -> Result<()> {
     info!("system is running");
 
     // remove iot-hub-device-service barrier file and start service as part of validation
-    info!("starting deviceupdate-agent.service");
+    debug!("starting deviceupdate-agent.service");
     fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
 
     systemd::start_unit(
@@ -31,7 +30,7 @@ async fn validate() -> Result<()> {
         IOT_HUB_DEVICE_UPDATE_SERVICE,
     )
     .await?;
-    info!("successfully started iot-hub-device-update");
+    debug!("successfully started iot-hub-device-update");
 
     info!("successfully validated update");
     Ok(())
@@ -51,23 +50,19 @@ async fn finalize() -> Result<()> {
 }
 
 pub async fn check() -> Result<()> {
-    /*
-     * ToDo: as soon as we can switch to rust >=1.63 we should use
-     * Path::try_exists() here
-     */
-    if Path::new(UPDATE_VALIDATION_FILE).exists() {
+    if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
         let val = validate().await;
         if val.is_err() {
-            error!("validate error: {:#?}", val.err());
             systemd::reboot().await?;
-            bail!("validate failed");
+            bail!("validate error: {:#?}", val.err());
         }
         let fin = finalize().await;
         if fin.is_err() {
-            error!("finalize error: {:#?}", fin.err());
             systemd::reboot().await?;
-            bail!("finalize failed");
+            bail!("finalize error: {:#?}", fin.err());
         }
+    } else {
+        info!("no update to be validated")
     }
 
     Ok(())

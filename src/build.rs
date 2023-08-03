@@ -1,8 +1,14 @@
 use std::process::Command;
 
 fn main() {
-    #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
-    compile_error!("Either feature 'bootloader_grub' xor 'bootloader_uboot' must be enabled.");
+    #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot", feature = "mock")))]
+    compile_error!("Either feature 'bootloader_grub' xor 'bootloader_uboot' xor 'mock' must be enabled.");
+    #[cfg(all(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+    compile_error!("Either feature 'bootloader_grub' xor 'bootloader_uboot' xor 'mock' must be enabled.");
+    #[cfg(all(feature = "bootloader_grub", feature = "mock"))]
+    compile_error!("Either feature 'bootloader_grub' xor 'bootloader_uboot' xor 'mock' must be enabled.");
+    #[cfg(all(feature = "bootloader_uboot", feature = "mock"))]
+    compile_error!("Either feature 'bootloader_grub' xor 'bootloader_uboot' xor 'mock' must be enabled.");
 
     let git_short_rev = String::from_utf8(
         Command::new("git")

@@ -1,9 +1,17 @@
+pub mod bootloader_env;
+pub mod systemd;
+mod test_util;
+pub mod twin;
+pub mod update_validation;
+
 use azure_iot_sdk::client::*;
 use env_logger::{Builder, Env};
 use log::{error, info};
 use std::process;
+use twin::Twin;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     log_panics::init();
 
     if cfg!(debug_assertions) {
@@ -19,7 +27,7 @@ fn main() {
     );
     info!("azure sdk version: {}", IotHubClient::sdk_version_string());
 
-    if let Err(e) = omnect_device_service::run() {
+    if let Err(e) = Twin::run(None).await {
         error!("Application error: {e:#?}");
 
         process::exit(1);

@@ -12,7 +12,8 @@
         "args": [
           "build",
           "--bin=omnect-device-service",
-          "--package=omnect-device-service"
+          "--package=omnect-device-service",
+          "--features=mock"
         ],
         "filter": {
           "name": "omnect-device-service",
@@ -23,7 +24,8 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "RUST_BACKTRACE": "1",
-        "CONSENT_DIR_PATH": "${workspaceFolder}/testfiles"
+        "CONSENT_DIR_PATH": "${workspaceFolder}/testfiles/positive",
+        "RUST_LOG": "debug"
       }
     },
     {

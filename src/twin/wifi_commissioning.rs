@@ -1,11 +1,8 @@
-use super::{Feature, FeatureState};
-use std::any::Any;
-use std::env;
+use super::Feature;
+use std::{any::Any, env};
 
 #[derive(Default)]
-pub struct WifiCommissioning {
-    state: FeatureState,
-}
+pub struct WifiCommissioning {}
 
 impl Feature for WifiCommissioning {
     fn name(&self) -> String {
@@ -26,14 +23,6 @@ impl Feature for WifiCommissioning {
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn state_mut(&mut self) -> &mut FeatureState {
-        &mut self.state
-    }
-
-    fn state(&self) -> &FeatureState {
-        &self.state
     }
 }
 

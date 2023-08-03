@@ -1,20 +1,16 @@
-#[cfg(not(test))]
-use super::super::bootloader_env::bootloader_env::bootloader_env;
-use super::super::bootloader_env::bootloader_env::{set_bootloader_env, unset_bootloader_env};
+use super::super::bootloader_env::bootloader_env::{
+    bootloader_env, {set_bootloader_env, unset_bootloader_env},
+};
 use super::super::systemd;
-use super::{Feature, FeatureState};
-use crate::twin;
-use crate::twin::Twin;
+use super::Feature;
 use anyhow::{anyhow, Context, Result};
-use futures_executor::block_on;
+use async_trait::async_trait;
 use lazy_static::{__Deref, lazy_static};
 use log::{error, info, warn};
 use serde_json::json;
-use std::any::Any;
-use std::collections::HashMap;
-use std::env;
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
+use std::{any::Any, collections::HashMap, env};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use tokio::sync::mpsc::Sender;
 
 lazy_static! {
     static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
@@ -24,18 +20,11 @@ lazy_static! {
     };
 }
 
-pub fn reset_to_factory_settings(in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-    twin::get_or_init(None).exec(|twin| {
-        twin.feature::<FactoryReset>()?
-            .reset_to_factory_settings(in_json.to_owned())
-    })
-}
-
-#[derive(Default)]
 pub struct FactoryReset {
-    state: FeatureState,
+    tx_reported_properties: Sender<serde_json::Value>,
 }
 
+#[async_trait(?Send)]
 impl Feature for FactoryReset {
     fn name(&self) -> String {
         Self::ID.to_string()
@@ -49,20 +38,12 @@ impl Feature for FactoryReset {
         env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
     }
 
-    fn report_initial_state(&self) -> Result<()> {
-        self.report_factory_reset_result()
+    async fn report_initial_state(&self) -> Result<()> {
+        self.report_factory_reset_result().await
     }
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn state_mut(&mut self) -> &mut FeatureState {
-        &mut self.state
-    }
-
-    fn state(&self) -> &FeatureState {
-        &self.state
     }
 }
 
@@ -70,11 +51,17 @@ impl FactoryReset {
     const FACTORY_RESET_VERSION: u8 = 1;
     const ID: &'static str = "factory_reset";
 
-    pub fn reset_to_factory_settings(
+    pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
+        FactoryReset {
+            tx_reported_properties,
+        }
+    }
+
+    pub async fn reset_to_factory_settings(
         &self,
         in_json: serde_json::Value,
     ) -> Result<Option<serde_json::Value>> {
-        info!("factory reset requested: {}", in_json);
+        info!("factory reset requested: {in_json}");
 
         self.ensure()?;
 
@@ -106,9 +93,9 @@ impl FactoryReset {
                 set_bootloader_env("factory-reset-restore-list", restore_paths.as_str())?;
                 set_bootloader_env("factory-reset", &reset_type.to_string())?;
 
-                self.report_factory_reset_status("in_progress")?;
+                self.report_factory_reset_status("in_progress").await?;
 
-                block_on(async { systemd::reboot().await })?;
+                systemd::reboot().await?;
 
                 Ok(None)
             }
@@ -116,12 +103,11 @@ impl FactoryReset {
         }
     }
 
-    fn report_factory_reset_status(&self, status: &str) -> Result<()> {
+    async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
         self.ensure()?;
 
-        Twin::report_impl(
-            self.tx(),
-            json!({
+        self.tx_reported_properties
+            .send(json!({
                 "factory_reset": {
                     "status": {
                         "status": status,
@@ -129,12 +115,12 @@ impl FactoryReset {
                         .context("report_factory_reset_status: format time to Rfc3339")?,
                     }
                 }
-            }),
-        )
-        .context("report_factory_reset_status: report_impl")
+            }))
+            .await
+            .context("report_factory_reset_status: report_impl")
     }
 
-    fn report_factory_reset_result(&self) -> Result<()> {
+    async fn report_factory_reset_result(&self) -> Result<()> {
         self.ensure()?;
 
         if let Ok(status) = self.factory_reset_status() {
@@ -148,16 +134,16 @@ impl FactoryReset {
 
             match status {
                 Ok((update_twin, true)) => {
-                    self.report_factory_reset_status(update_twin)?;
+                    self.report_factory_reset_status(update_twin).await?;
                     unset_bootloader_env("factory-reset-status")?;
 
-                    info!("factory reset result: {}", update_twin);
+                    info!("factory reset result: {update_twin}");
                 }
                 Ok((update_twin, false)) => {
-                    info!("factory reset result: {}", update_twin);
+                    info!("factory reset result: {update_twin}");
                 }
                 Err(update_twin) => {
-                    warn!("factory reset result: {}", update_twin);
+                    warn!("factory reset result: {update_twin}");
                 }
             };
         } else {
@@ -167,23 +153,21 @@ impl FactoryReset {
         Ok(())
     }
 
-    #[cfg(not(test))]
+    #[allow(unreachable_patterns, clippy::wildcard_in_or_patterns)]
     fn factory_reset_status(&self) -> Result<String> {
-        bootloader_env("factory-reset-status")
-    }
-
-    #[cfg(test)]
-    #[allow(unreachable_patterns)]
-    fn factory_reset_status(&self) -> Result<String> {
-        match std::env::var("TEST_FACTORY_RESET_RESULT")
-            .unwrap_or("succeeded".to_string())
-            .as_str()
-        {
-            "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),
-            "normal_boot_without_factory_reset" => Ok("".to_string()),
-            "unexpected_restore_settings_error" => Ok("2:-".to_string()),
-            "unexpected_factory_reset_type" => Ok("1:-".to_string()),
-            _ | "succeeded" => Ok("0:0".to_string()),
+        if cfg!(feature = "mock") {
+            match std::env::var("TEST_FACTORY_RESET_RESULT")
+                .unwrap_or_else(|_|"succeeded".to_string())
+                .as_str()
+            {
+                "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),
+                "normal_boot_without_factory_reset" => Ok("".to_string()),
+                "unexpected_restore_settings_error" => Ok("2:-".to_string()),
+                "unexpected_factory_reset_type" => Ok("1:-".to_string()),
+                _ | "succeeded" => Ok("0:0".to_string()),
+            }
+        } else {
+            bootloader_env("factory-reset-status")
         }
     }
 }
