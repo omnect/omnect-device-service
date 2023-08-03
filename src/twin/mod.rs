@@ -126,7 +126,7 @@ impl Twin {
         }
     }
 
-    pub async fn init_features(&mut self) -> Result<()> {
+    pub async fn init(&mut self) -> Result<()> {
         dotenvy::from_path_override(Path::new(&format!(
             "{}/os-release",
             std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/etc".to_string())
@@ -220,7 +220,7 @@ impl Twin {
                     systemd::notify_ready();
                     update_validated = update_validation::check().await;
 
-                    self.init_features().await?;
+                    self.init().await?;
 
                     self.authenticated_once = true;
                 };

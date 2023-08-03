@@ -1,8 +1,3 @@
-/*
-    call tests always single threaded since otherwise setting special test env vars clashes:
-
-    'cargo test -- --test-threads=1'
-*/
 #[cfg(test)]
 mod mod_test {
     use super::super::*;
@@ -48,7 +43,6 @@ mod mod_test {
             async fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()>;
             async fn twin_report(&mut self, reported: serde_json::Value) -> Result<()>;
         }
-
     }
 
     struct TestCase;
@@ -226,7 +220,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], vec![], expect, test);
@@ -308,7 +302,7 @@ mod mod_test {
 
         let test = |test_attr: &'_ mut TestConfig| {
             assert!(test_attr.twin.feature::<FactoryReset>().is_err());
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -337,7 +331,7 @@ mod mod_test {
             assert!(test_attr.twin.feature::<NetworkStatus>().is_err());
             assert!(test_attr.twin.feature::<Ssh>().is_err());
             assert!(test_attr.twin.feature::<Reboot>().is_err());
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -487,7 +481,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            let err = block_on(async { test_attr.twin.init_features().await }).unwrap_err();
+            let err = block_on(async { test_attr.twin.init().await }).unwrap_err();
 
             assert!(err.chain().any(|e| e
                 .to_string()
@@ -531,7 +525,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             assert!(block_on(async {
                 test_attr
@@ -593,7 +587,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
@@ -636,7 +630,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             assert_eq!(
                 test_attr
@@ -672,7 +666,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             assert_eq!(
                 test_attr
@@ -815,7 +809,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             let factory_reset = test_attr.twin.feature::<FactoryReset>().unwrap();
 
@@ -915,7 +909,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             let factory_reset = test_attr.twin.feature::<FactoryReset>().unwrap();
 
@@ -957,7 +951,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -984,7 +978,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1032,7 +1026,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1077,7 +1071,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1103,7 +1097,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             assert!(block_on(async {
                 test_attr
@@ -1178,7 +1172,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             assert!(block_on(async {
                 test_attr
@@ -1259,7 +1253,7 @@ mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init_features().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
 
             assert!(block_on(async {
                 test_attr
