@@ -95,7 +95,7 @@ pub struct Twin {
 impl Twin {
     pub fn new(client: Box<dyn IotHub>) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
-        let (_tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+        let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
         Twin {
             iothub_client: client,
@@ -128,7 +128,7 @@ impl Twin {
                 ),
                 (
                     TypeId::of::<SshTunnel>(),
-                    Box::new(SshTunnel::new()) as Box<dyn Feature>,
+                    Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
                 ),
                 (
                     TypeId::of::<WifiCommissioning>(),

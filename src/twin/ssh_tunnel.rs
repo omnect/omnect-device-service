@@ -1,6 +1,7 @@
 use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use azure_iot_sdk::client::IotMessage;
 use futures::executor;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ use std::any::Any;
 use std::env;
 use std::fs;
 use std::io::Write;
+use std::ops::Drop;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -17,8 +19,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
-
-use std::ops::Drop;
 
 static SSH_KEY_TYPE: &str = "ed25519";
 static SSH_PORT: u16 = 22;
@@ -92,6 +92,7 @@ fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
 }
 
 pub struct SshTunnel {
+    tx_outgoing_message: Sender<IotMessage>,
 }
 
 #[async_trait(?Send)]
@@ -113,12 +114,40 @@ impl Feature for SshTunnel {
     }
 }
 
+async fn notify_tunnel_termination(
+    tx_outgoing_message: Sender<IotMessage>,
+    tunnel_id: &str,
+    error: Option<&str>,
+) -> Result<()> {
+    let msg = IotMessage::builder()
+        .set_body(
+            serde_json::to_vec(&serde_json::json!({
+                "tunnel_id": tunnel_id,
+                "error": error.unwrap_or("none"),
+            }))
+            .unwrap(),
+        )
+        .set_content_type("application/json")
+        .set_content_encoding("utf-8")
+        .build()
+        .unwrap();
+
+    tx_outgoing_message
+        .send(msg)
+        .await
+        .context("notify_tunnel_termination")
+        .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
 impl SshTunnel {
     const SSH_TUNNEL_VERSION: u8 = 1;
     const ID: &'static str = "ssh_tunnel";
 
-    pub fn new() -> Self {
+    pub fn new(
+        tx_outgoing_message: Sender<IotMessage>,
+    ) -> Self {
         SshTunnel {
+            tx_outgoing_message,
         }
     }
 
@@ -238,26 +267,35 @@ impl SshTunnel {
         let stdout = ssh_process.stdout.take().unwrap();
         let mut reader = BufReader::new(stdout).lines();
 
-        let spawn_id = tunnel_id.clone();
-        tokio::spawn(async move {
-            info!("Waiting for connection to close: {}", spawn_id);
-            let output = match ssh_process.wait_with_output().await {
-                Ok(output) => output,
-                Err(err) => {
-                    error!("Could not retrieve output from ssh process: {}", err);
+        tokio::spawn({
+            let tunnel_id = tunnel_id.clone();
+            let tx = self.tx_outgoing_message.clone();
+
+            async move {
+                info!("Waiting for connection to close: {}", tunnel_id);
+                let output = match ssh_process.wait_with_output().await {
+                    Ok(output) => output,
+                    Err(err) => {
+                        error!("Could not retrieve output from ssh process: {}", err);
+                        return;
+                    }
+                };
+
+                if !output.status.success() {
+                    error!(
+                        "Failed to establish ssh tunnel: {}",
+                        str::from_utf8(&output.stderr).unwrap()
+                    );
                     return;
                 }
-            };
 
-            if !output.status.success() {
-                error!(
-                    "Failed to establish ssh tunnel: {}",
-                    str::from_utf8(&output.stderr).unwrap()
-                );
-                return;
+                let result = notify_tunnel_termination(tx, &tunnel_id, None).await;
+                if let Err(err) = result {
+                    warn!("Failed to send tunnel update to cloud: {err}");
+                }
+
+                info!("Closed ssh tunnel: {}", tunnel_id);
             }
-
-            info!("Closed ssh tunnel: {}", spawn_id);
         });
 
         let response = executor::block_on(reader.next_line());
