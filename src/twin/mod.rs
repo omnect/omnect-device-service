@@ -88,17 +88,20 @@ pub struct Twin {
     authenticated_once: bool,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
+    rx_outgoing_message: mpsc::Receiver<IotMessage>,
     features: HashMap<TypeId, Box<dyn Feature>>,
 }
 
 impl Twin {
     pub fn new(client: Box<dyn IotHub>) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
+        let (_tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
         Twin {
             iothub_client: client,
             tx_reported_properties: tx_reported_properties.clone(),
             rx_reported_properties,
+            rx_outgoing_message,
             authenticated_once: false,
             features: HashMap::from([
                 (
@@ -384,6 +387,9 @@ impl Twin {
                         },
                         Err(e) => error!("run: handle_direct_method: {e}"),
                     };
+                },
+                message = twin.rx_outgoing_message.recv() => {
+                    twin.iothub_client.send_d2c_message(message.unwrap())?
                 }
             );
         }
