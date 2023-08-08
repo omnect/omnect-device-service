@@ -15,11 +15,13 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use uuid::Uuid;
 
+static MAX_ACTIVE_TUNNELS: usize = 5;
 static SSH_KEY_TYPE: &str = "ed25519";
 static SSH_PORT: u16 = 22;
 
@@ -97,6 +99,7 @@ macro_rules! unpack_args {
 
 pub struct SshTunnel {
     tx_outgoing_message: Sender<IotMessage>,
+    ssh_tunnel_semaphore: Arc<Semaphore>,
 }
 
 #[async_trait(?Send)]
@@ -125,6 +128,7 @@ impl SshTunnel {
     pub fn new(tx_outgoing_message: Sender<IotMessage>) -> Self {
         SshTunnel {
             tx_outgoing_message,
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         }
     }
 
@@ -204,6 +208,14 @@ impl SshTunnel {
 
         let args: OpenSshTunnelArgs = unpack_args!("open_ssh_tunnel", args)?;
 
+        let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(TryAcquireError::NoPermits) => {
+                anyhow::bail!("ssh_tunnel: maximum number of active ssh connections is reached")
+            }
+            Err(_other) => anyhow::bail!("ssh_tunnel: failed to lock tunnel"),
+        };
+
         // ensure our ssh keys and certificate are cleaned up properly when
         // leaving this function
         let ssh_creds = SshCredentialsGuard::new(&priv_key_path!(&args.tunnel_id))
@@ -221,6 +233,7 @@ impl SshTunnel {
             ssh_process,
             args.tunnel_id.clone(),
             self.tx_outgoing_message.clone(),
+            ssh_tunnel_permit,
         ));
 
         if let Err(err) = Self::await_tunnel_creation(stdout).await {
@@ -285,6 +298,7 @@ impl SshTunnel {
         ssh_process: Child,
         tunnel_id: String,
         tx_outgoing_message: Sender<IotMessage>,
+        _ssh_tunnel_permit: OwnedSemaphorePermit, // take ownership of the permit to drop semaphore once channel closes
     ) {
         let output = match ssh_process.wait_with_output().await {
             Ok(output) => output,
