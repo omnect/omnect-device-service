@@ -28,8 +28,10 @@ async fn main() {
     info!("azure sdk version: {}", IotHubClient::sdk_version_string());
 
     if let Err(e) = Twin::run(None).await {
-        error!("Application error: {e:#?}");
+        error!("application error: {e:#?}");
 
         process::exit(1);
     }
+    
+    info!("application shutdown")
 }

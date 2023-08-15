@@ -40,8 +40,9 @@ mod mod_test {
                 tx_incoming_message: Option<IncomingMessageObserver>,
             ) -> Result<Box<Self>>;
             fn twin_async(&mut self) -> Result<()>;
-            async fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()>;
-            async fn twin_report(&mut self, reported: serde_json::Value) -> Result<()>;
+            fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()>;
+            fn twin_report(&mut self, reported: serde_json::Value) -> Result<()>;
+            async fn shutdown(&mut self);
         }
     }
 
@@ -86,7 +87,6 @@ mod mod_test {
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
-            let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
 
             // create iothub client mock
             let ctx = MockMyIotHub::from_connection_string_context();
@@ -103,7 +103,7 @@ mod mod_test {
 
             // create test config
             let mut config = TestConfig {
-                twin: Twin::new(mock, tx_reported_properties),
+                twin: Twin::new(mock),
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
@@ -112,9 +112,9 @@ mod mod_test {
 
             // compute reported properties
             loop {
-                match rx_reported_properties.try_recv() {
+                match config.twin.rx_reported_properties.try_recv() {
                     Ok(val) => {
-                        block_on(async { config.twin.handle_report_property(val).await }).unwrap()
+                        config.twin.iothub_client.twin_report(val).unwrap()
                     }
                     _ => break,
                 }

@@ -16,14 +16,16 @@ use crate::{
         reboot::Reboot, ssh::Ssh, wifi_commissioning::WifiCommissioning,
     },
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
-use futures_util::FutureExt;
+use futures_util::StreamExt;
 use log::{error, info};
 use serde_json::json;
+use signal_hook::consts::TERM_SIGNALS;
+use signal_hook_tokio::Signals;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
@@ -35,7 +37,7 @@ use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{
     select,
     sync::mpsc,
-    time::{interval, timeout, Duration},
+    time::{interval, Duration},
 };
 
 #[enum_dispatch]
@@ -83,17 +85,18 @@ pub struct Twin {
     iothub_client: Box<dyn IotHub>,
     authenticated_once: bool,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
+    rx_reported_properties: mpsc::Receiver<serde_json::Value>,
     features: HashMap<TypeId, Box<dyn Feature>>,
 }
 
 impl Twin {
-    pub fn new(
-        client: Box<dyn IotHub>,
-        tx_reported_properties: mpsc::Sender<serde_json::Value>,
-    ) -> Self {
+    pub fn new(client: Box<dyn IotHub>) -> Self {
+        let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
+        
         Twin {
             iothub_client: client,
             tx_reported_properties: tx_reported_properties.clone(),
+            rx_reported_properties,
             authenticated_once: false,
             features: HashMap::from([
                 (
@@ -279,7 +282,7 @@ impl Twin {
     }
 
     async fn handle_direct_method(
-        &mut self,
+        &self,
         method_name: String,
         payload: serde_json::Value,
     ) -> Result<Option<serde_json::Value>> {
@@ -305,25 +308,12 @@ impl Twin {
         }
     }
 
-    async fn handle_report_property(&mut self, properties: serde_json::Value) -> Result<()> {
-        info!("report: {properties}");
-
-        match timeout(
-            Duration::from_secs(5),
-            self.iothub_client.twin_report(properties),
-        )
-        .await
-        {
-            Ok(result) => result.context("handle_report_property: couldn't report property"),
-            Err(_) => Err(anyhow!("handle_report_property: timeout occurred")),
-        }
-    }
-
     pub async fn run(connection_string: Option<&str>) -> Result<()> {
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
-        let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
+
+        let mut signals = Signals::new(TERM_SIGNALS)?;
         let mut sd_notify_interval = interval(Duration::from_secs(10));
         let mut wdt = WatchdogHandler::new();
 
@@ -352,13 +342,19 @@ impl Twin {
             )?,
         };
 
-        let mut twin = Self::new(client, tx_reported_properties);
+        let mut twin = Self::new(client);
+        let handle = signals.handle();
 
         loop {
             select! (
                 _ = sd_notify_interval.tick() => {
                     wdt.notify()?;
-                }
+                },
+                _ = signals.next() => {
+                    handle.close();
+                    twin.iothub_client.shutdown().await;
+                    return Ok(())
+                },
                 status = rx_connection_status.recv() => {
                     twin.handle_connection_status(status.unwrap()).await?;
                 },
@@ -366,33 +362,18 @@ impl Twin {
                     let (state, desired) = desired.unwrap();
                     twin.handle_desired(state, desired).await.unwrap_or_else(|e| error!("twin update desired properties: {e:#?}"));
                 },
-                reported = rx_reported_properties.recv()=> {
-                    twin.handle_report_property(reported.unwrap()).await?;
+                reported = twin.rx_reported_properties.recv() => {
+                    twin.iothub_client.twin_report(reported.unwrap())?
                 },
                 direct_methods = rx_direct_method.recv() => {
-                    /*
-                        azure-iot-sdk-c calls direct method handler blocking in order to wait for the method result.
-                        Since sdk uses only a single thread to handle all callbacks a deadlock might be the result,
-                        if the method itself e.g. calls twin_report() which also blocks until the confirmation via
-                        callback is received.
-                        In order to workaround this issue we call now_or_never() which either returns Some(result) in case
-                        future is ready or None otherwise. In the second case we assume the direct method succeeded and
-                        has no result so we return Ok(None).
-                    */
                     let (name, payload, tx_result) = direct_methods.unwrap();
-                    let fut = twin.handle_direct_method(name, payload);
-                    tokio::pin!(fut);
-                    if let Some(result) = fut.as_mut().now_or_never() {
-                        if tx_result.send(result).is_err() {
-                            error!("run: receiver dropped");
-                        }
-                    } else {
-                        if tx_result.send(Ok(None)).is_err() {
-                            error!("run: receiver dropped");
-                        }
-                        if let Err(e) = fut.await {
-                            error!("run: handle_direct_method: {e}");
-                        }
+                    match twin.handle_direct_method(name, payload).await {
+                        Ok(result) => {
+                            if tx_result.send(Ok(result)).is_err() {
+                                error!("run: receiver dropped");
+                            }
+                        },
+                        Err(e) => error!("run: handle_direct_method: {e}"),
                     };
                 }
             );

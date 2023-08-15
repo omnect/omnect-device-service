@@ -330,13 +330,13 @@ dependencies = [
 
 [[package]]
 name = "azure-iot-sdk"
-version = "0.10.0"
-source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.10.0#1054cf8a1cca161b936cbe7a510c1712403f42a5"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "azure-iot-sdk-sys",
  "eis-utils",
+ "futures",
  "log",
  "serde_json",
  "tokio",
@@ -1643,7 +1643,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1670,6 +1670,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "signal-hook",
+ "signal-hook-tokio",
  "stdext",
  "strum",
  "strum_macros",
@@ -2125,6 +2127,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "signal-hook-tokio"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "213241f76fb1e37e27de3b6aa1b068a2c333233b59cca6634f634b80a27ecf1e"
+dependencies = [
+ "futures-core",
+ "libc",
+ "signal-hook",
+ "tokio",
 ]
 
 [[package]]
