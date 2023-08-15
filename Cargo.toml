@@ -17,7 +17,7 @@ async-trait = "0.1"
 #azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.0", features = [
 #   "module_client",
 #] }
-azure-iot-sdk = { path = "../azure-iot-sdk", features = [
+azure-iot-sdk = { git = "https://github.com/janzachmann/azure-iot-sdk.git", branch = "async-api", features = [
    "module_client",
 ] }
 dotenvy = "0.15"
