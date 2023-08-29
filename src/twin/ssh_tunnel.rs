@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use futures::executor;
 use log::{error, info, warn};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
 use std::any::Any;
 use std::env;
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
@@ -48,47 +48,51 @@ macro_rules! control_socket_path {
     }};
 }
 
-fn create_key_pair(priv_key_path: &Path) -> Result<()> {
-    // check if there is already a key pair, if not, create it first
-    fs::create_dir_all(
-        priv_key_path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("invalid key path: {}", priv_key_path.display()))?,
-    )?;
-
-    let result = std::process::Command::new("ssh-keygen")
-        .stdout(Stdio::piped())
-        .args(["-q"])
-        .args(["-f", priv_key_path.to_string_lossy().as_ref()])
-        .args(["-t", SSH_KEY_TYPE])
-        .args(["-N", ""])
-        .output();
-
-    let output = result.map_err(|err| {
-        error!("Failed to create ssh key pair: {}", err);
-        anyhow::anyhow!("Error on ssh key creation.")
-    })?;
-
-    if !output.status.success() {
-        error!(
-            "Failed to create ssh key pair: {}",
-            str::from_utf8(&output.stderr)?
-        );
-        anyhow::bail!("Error on ssh key creation.");
-    }
-
-    Ok(())
+#[derive(Deserialize)]
+struct BastionConfig {
+    host: String,
+    port: u16,
+    user: String,
+    socket_path: PathBuf,
 }
 
-fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
-    let mut f = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .mode(0o600)
-        .open(cert_path)?;
-    f.write_all(data.as_bytes())?;
+fn validate_uuid<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let uuid: String = Deserialize::deserialize(deserializer)?;
 
-    Ok(())
+    Ok(Uuid::parse_str(&uuid)
+        .map_err(D::Error::custom)?
+        .as_hyphenated()
+        .to_string())
+}
+
+#[derive(Deserialize)]
+struct GetSshPubKeyArgs {
+    #[serde(deserialize_with = "validate_uuid")]
+    tunnel_id: String,
+}
+
+#[derive(Deserialize)]
+struct OpenSshTunnelArgs {
+    #[serde(deserialize_with = "validate_uuid")]
+    tunnel_id: String,
+    certificate: String,
+    #[serde(flatten)]
+    bastion_config: BastionConfig,
+}
+
+#[derive(Deserialize)]
+struct CloseSshTunnelArgs {
+    #[serde(deserialize_with = "validate_uuid")]
+    tunnel_id: String,
+}
+
+macro_rules! unpack_args {
+    ($func:literal, $args:expr) => {
+        serde_json::from_value($args).map_err(|e| anyhow::anyhow!("{}: {e}", $func))
+    };
 }
 
 pub struct SshTunnel {
@@ -114,38 +118,11 @@ impl Feature for SshTunnel {
     }
 }
 
-async fn notify_tunnel_termination(
-    tx_outgoing_message: Sender<IotMessage>,
-    tunnel_id: &str,
-    error: Option<&str>,
-) -> Result<()> {
-    let msg = IotMessage::builder()
-        .set_body(
-            serde_json::to_vec(&serde_json::json!({
-                "tunnel_id": tunnel_id,
-                "error": error.unwrap_or("none"),
-            }))
-            .unwrap(),
-        )
-        .set_content_type("application/json")
-        .set_content_encoding("utf-8")
-        .build()
-        .unwrap();
-
-    tx_outgoing_message
-        .send(msg)
-        .await
-        .context("notify_tunnel_termination")
-        .map_err(|e| anyhow::anyhow!("{e}"))
-}
-
 impl SshTunnel {
     const SSH_TUNNEL_VERSION: u8 = 1;
     const ID: &'static str = "ssh_tunnel";
 
-    pub fn new(
-        tx_outgoing_message: Sender<IotMessage>,
-    ) -> Self {
+    pub fn new(tx_outgoing_message: Sender<IotMessage>) -> Self {
         SshTunnel {
             tx_outgoing_message,
         }
@@ -159,26 +136,62 @@ impl SshTunnel {
 
         self.ensure()?;
 
-        #[derive(Deserialize)]
-        struct GetSshPubKeyArgs {
-            tunnel_id: String,
+        let args: GetSshPubKeyArgs = unpack_args!("get_ssh_pub_key", args)?;
+
+        let (priv_key_path, pub_key_path) = (
+            priv_key_path!(args.tunnel_id),
+            pub_key_path!(args.tunnel_id),
+        );
+        Self::create_key_pair(&priv_key_path)
+            .map_err(|e| anyhow::anyhow!("get_ssh_pub_key: {e}"))?;
+
+        Ok(Some(json!({ "key": Self::get_pub_key(&pub_key_path)? })))
+    }
+
+    fn create_key_pair(priv_key_path: &Path) -> Result<()> {
+        // check if the path already exists. if not, create it first
+        fs::create_dir_all(
+            priv_key_path
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("invalid key path: {}", priv_key_path.display()))?,
+        )?;
+
+        let mut child = std::process::Command::new("ssh-keygen")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .args(["-q"])
+            .args(["-f", priv_key_path.to_string_lossy().as_ref()])
+            .args(["-t", SSH_KEY_TYPE])
+            .args(["-N", ""])
+            .spawn()
+            .map_err(|err| {
+                error!("Failed to create ssh key pair: {}", err);
+                anyhow::anyhow!("Error on ssh key creation.")
+            })?;
+
+        // In principle we should not get key file conflicts. However, in case
+        // we do get conflicts, ssh-keygen will hang indefinitely. We therefore
+        // tell it to overwrite any existing keys. Removing the key beforehand
+        // could lead to TOCTOU bugs.
+        let mut stdin = child.stdin.take().unwrap();
+        writeln!(stdin, "y")?;
+
+        let output = child.wait_with_output()?;
+
+        if !output.status.success() {
+            error!(
+                "Failed to create ssh key pair: {}",
+                str::from_utf8(&output.stderr)?
+            );
+            anyhow::bail!("Error on ssh key creation.");
         }
 
-        let args: GetSshPubKeyArgs =
-            serde_json::from_value(args).map_err(|e| anyhow::anyhow!("get_ssh_pub_key: {e}"))?;
+        Ok(())
+    }
 
-        let tunnel_id = Uuid::parse_str(&args.tunnel_id)?
-            .as_hyphenated()
-            .to_string();
-
-        let (priv_key_path, pub_key_path) = (priv_key_path!(tunnel_id), pub_key_path!(tunnel_id));
-
-        create_key_pair(&priv_key_path).map_err(|e| anyhow::anyhow!("get_ssh_pub_key: {e}"))?;
-
-        let pub_key = fs::read_to_string(pub_key_path.to_string_lossy().as_ref())
-            .map_err(|err| anyhow::anyhow!("get_ssh_pub_key: {err}"))?;
-
-        Ok(Some(json!({ "key": pub_key })))
+    fn get_pub_key(pub_key_path: &Path) -> Result<String> {
+        fs::read_to_string(pub_key_path.to_string_lossy().as_ref())
+            .map_err(|err| anyhow::anyhow!("get_ssh_pub_key: {err}"))
     }
 
     pub async fn open_ssh_tunnel(
@@ -189,135 +202,130 @@ impl SshTunnel {
 
         self.ensure()?;
 
-        #[derive(Deserialize)]
-        struct OpenSshTunnelArgs {
-            tunnel_id: String,
-            certificate: String,
-            #[serde(rename = "host")]
-            bastion_host: String,
-            #[serde(rename = "port")]
-            bastion_port: u16,
-            #[serde(rename = "user")]
-            bastion_user: String,
-            #[serde(rename = "socket_path")]
-            bastion_socket_path: String,
-        }
-
-        let args: OpenSshTunnelArgs =
-            serde_json::from_value(args).map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))?;
-
-        let tunnel_id = Uuid::parse_str(&args.tunnel_id)
-            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))?
-            .as_hyphenated()
-            .to_string();
+        let args: OpenSshTunnelArgs = unpack_args!("open_ssh_tunnel", args)?;
 
         // ensure our ssh keys and certificate are cleaned up properly when
         // leaving this function
-        let ssh_creds = SshCredentialsGuard::new(&priv_key_path!(&tunnel_id))
+        let ssh_creds = SshCredentialsGuard::new(&priv_key_path!(&args.tunnel_id))
             .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))?;
 
         // store the certificate so that ssh can use it for login on the bastion host
         store_ssh_cert(&ssh_creds.cert(), &args.certificate)?;
 
+        let mut ssh_process =
+            Self::start_tunnel_command(&args.tunnel_id, &ssh_creds, &args.bastion_config)?;
+        let stdout = ssh_process.stdout.take().unwrap();
+
+        // report tunnel termination once it completes
+        tokio::spawn(Self::await_tunnel_termination(
+            ssh_process,
+            args.tunnel_id.clone(),
+            self.tx_outgoing_message.clone(),
+        ));
+
+        if let Err(err) = Self::await_tunnel_creation(stdout).await {
+            Err(err)?
+        }
+
+        log::debug!(
+            "Successfully established connection \"{}\" to \"{}:{}\"",
+            args.tunnel_id,
+            args.bastion_config.host,
+            args.bastion_config.port
+        );
+
+        Ok(None)
+    }
+
+    fn start_tunnel_command(
+        tunnel_id: &str,
+        ssh_creds: &SshCredentialsGuard,
+        bastion_config: &BastionConfig,
+    ) -> Result<Child> {
         log::debug!(
             "Starting ssh tunnel \"{}\" bastion host: \"{}:{}\", bastion user: \"{}\"",
             tunnel_id,
-            args.bastion_host,
-            args.bastion_port,
-            args.bastion_user
+            bastion_config.host,
+            bastion_config.port,
+            bastion_config.user
         );
 
-        // now spawn the ssh tunnel: we tell ssh to allocate a reverse tunnel on the
-        // bastion host bound to a socket file there. Furthermore, we tell ssh to 1)
-        // echo once the connection was successful, so that we can check from here
-        // when we can signal a successful connection, 2) we tell it to sleep. The
-        // latter is so that the connection is closed after it remains unused for
-        // some time.
-        let mut ssh_command = Command::new("ssh");
-        ssh_command
+        Command::new("ssh")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .args(["-M"])
             .args([
                 "-S",
                 control_socket_path!(&tunnel_id).to_string_lossy().as_ref(),
-            ])
+            ]) // path to the local control socket
             .args(["-i", ssh_creds.priv_key().to_string_lossy().as_ref()])
             .args([
                 "-o",
                 &format!("CertificateFile={}", ssh_creds.cert().to_string_lossy()),
-            ])
+            ]) // path to the bastion host certificate
             .args([
                 "-R",
                 &format!(
                     "{}/{}:localhost:{}",
-                    args.bastion_socket_path, tunnel_id, SSH_PORT
+                    bastion_config.socket_path.to_string_lossy(),
+                    tunnel_id,
+                    SSH_PORT
                 ),
-            ])
-            .args([&format!("{}@{}", args.bastion_user, args.bastion_host)])
-            .args(["-p", &format!("{}", args.bastion_port)])
+            ]) // create a reverse proxy on bastion host as a unix socket at `socket_path`
+            .args([&format!("{}@{}", bastion_config.user, bastion_config.host)])
+            .args(["-p", &format!("{}", bastion_config.port)])
             .args(["-o", "ExitOnForwardFailure=yes"]) // ensure ssh terminates if anything goes south
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
-            .args(["-o", "UserKnownHostsFile=/dev/null"]);
-
-        let mut ssh_process = ssh_command
+            .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
-            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))
+    }
 
-        let stdout = ssh_process.stdout.take().unwrap();
-        let mut reader = BufReader::new(stdout).lines();
-
-        tokio::spawn({
-            let tunnel_id = tunnel_id.clone();
-            let tx = self.tx_outgoing_message.clone();
-
-            async move {
-                info!("Waiting for connection to close: {}", tunnel_id);
-                let output = match ssh_process.wait_with_output().await {
-                    Ok(output) => output,
-                    Err(err) => {
-                        error!("Could not retrieve output from ssh process: {}", err);
-                        return;
-                    }
-                };
-
-                if !output.status.success() {
-                    error!(
-                        "Failed to establish ssh tunnel: {}",
-                        str::from_utf8(&output.stderr).unwrap()
-                    );
-                    return;
-                }
-
-                let result = notify_tunnel_termination(tx, &tunnel_id, None).await;
-                if let Err(err) = result {
-                    warn!("Failed to send tunnel update to cloud: {err}");
-                }
-
-                info!("Closed ssh tunnel: {}", tunnel_id);
+    async fn await_tunnel_termination(
+        ssh_process: Child,
+        tunnel_id: String,
+        tx_outgoing_message: Sender<IotMessage>,
+    ) {
+        let output = match ssh_process.wait_with_output().await {
+            Ok(output) => output,
+            Err(err) => {
+                error!("Could not retrieve output from ssh process: {}", err);
+                return;
             }
-        });
+        };
 
+        if !output.status.success() {
+            warn!(
+                "SSH command exited with errors: {}",
+                str::from_utf8(&output.stderr).unwrap()
+            );
+        }
+
+        let result = notify_tunnel_termination(tx_outgoing_message, &tunnel_id, None).await;
+
+        if let Err(err) = result {
+            warn!("Failed to send tunnel update to cloud: {err}");
+        }
+
+        info!("Closed ssh tunnel: {}", tunnel_id);
+    }
+
+    async fn await_tunnel_creation(stdout: tokio::process::ChildStdout) -> Result<()> {
+        let mut reader = BufReader::new(stdout).lines();
         let response = executor::block_on(reader.next_line());
         match response {
             Ok(Some(msg)) => {
+                // the ssh certificate is configured such that it executes an
+                // "echo established" upon successful connection. We use this to
+                // detect a successfully established ssh tunnel
                 if msg == "established" {
-                    // Tunnel is ready to be used, return
-                    log::debug!(
-                        "Successfully established connection \"{}\" to \"{}:{}\"",
-                        tunnel_id,
-                        args.bastion_host,
-                        args.bastion_port
-                    );
-
-                    Ok(None)
+                    Ok(())
                 } else {
                     warn!("Got unexpected response from ssh server: {}", msg);
                     anyhow::bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
                 }
             }
             Ok(None) => {
-                // async task takes care of handling stderr
                 anyhow::bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
             }
             Err(err) => {
@@ -335,26 +343,22 @@ impl SshTunnel {
 
         self.ensure()?;
 
-        #[derive(Deserialize)]
-        struct CloseSshTunnelArgs {
-            tunnel_id: String,
-        }
+        let args: CloseSshTunnelArgs = unpack_args!("close_ssh_tunnel", args)?;
 
-        let args: CloseSshTunnelArgs =
-            serde_json::from_value(args).map_err(|e| anyhow::anyhow!("close_ssh_tunnel: {e}"))?;
-
-        let tunnel_id = Uuid::parse_str(&args.tunnel_id)?
-            .as_hyphenated()
-            .to_string();
-
-        let control_socket_path = control_socket_path!(&tunnel_id);
+        let control_socket_path = control_socket_path!(&args.tunnel_id);
 
         log::debug!(
             "Closing ssh tunnel \"{}\", socket path: \"{}\"",
-            tunnel_id,
+            args.tunnel_id,
             control_socket_path.display()
         );
 
+        Self::close_tunnel_command(&control_socket_path)?;
+
+        Ok(None)
+    }
+
+    fn close_tunnel_command(control_socket_path: &Path) -> Result<()> {
         let result = std::process::Command::new("ssh")
             .stdout(Stdio::piped())
             .args(["-O", "exit"])
@@ -365,14 +369,24 @@ impl SshTunnel {
 
         if !result.status.success() {
             warn!(
-                "Unexpected error upon closing tunnel \"{}\": {}",
-                tunnel_id,
+                "Unexpected error upon closing tunnel: {}",
                 str::from_utf8(&result.stderr).unwrap()
             );
         }
 
-        Ok(None)
+        Ok(())
     }
+}
+
+fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .open(cert_path)?;
+    f.write_all(data.as_bytes())?;
+
+    Ok(())
 }
 
 // RAII handle to the temporary bastion host certificate
@@ -420,11 +434,55 @@ impl Drop for SshCredentialsGuard {
     }
 }
 
+async fn notify_tunnel_termination(
+    tx_outgoing_message: Sender<IotMessage>,
+    tunnel_id: &str,
+    error: Option<&str>,
+) -> Result<()> {
+    let msg = IotMessage::builder()
+        .set_body(
+            serde_json::to_vec(&serde_json::json!({
+                "tunnel_id": tunnel_id,
+                "error": error.unwrap_or("none"),
+            }))
+            .unwrap(),
+        )
+        .set_content_type("application/json")
+        .set_content_encoding("utf-8")
+        .build()
+        .unwrap();
+
+    tx_outgoing_message
+        .send(msg)
+        .await
+        .context("notify_tunnel_termination")
+        .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::File;
     use tempfile::tempdir;
+
+    #[test]
+    fn validate_correct_uuid() {
+        let uuid = "c0c7d30c-511a-4fed-80b2-b4cccc74228e";
+        let uuid_message = format!("{{\"tunnel_id\": \"{uuid}\"}}");
+
+        let args = serde_json::from_str::<GetSshPubKeyArgs>(&uuid_message).unwrap();
+
+        assert_eq!(args.tunnel_id, uuid);
+    }
+
+    #[test]
+    #[should_panic]
+    fn validate_incorrect_uuid() {
+        let uuid = "!@#$S";
+        let uuid_message = format!("{{\"tunnel_id\": \"{uuid}\"}}");
+
+        let _args = serde_json::from_str::<GetSshPubKeyArgs>(&uuid_message).unwrap();
+    }
 
     #[test]
     fn certificate_file_raii() {
