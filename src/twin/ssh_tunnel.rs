@@ -2,7 +2,6 @@ use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use futures::executor;
 use log::{error, info, warn};
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
@@ -326,7 +325,8 @@ impl SshTunnel {
 
     async fn await_tunnel_creation(stdout: tokio::process::ChildStdout) -> Result<()> {
         let mut reader = BufReader::new(stdout).lines();
-        let response = executor::block_on(reader.next_line());
+        let response = reader.next_line().await;
+
         match response {
             Ok(Some(msg)) => {
                 // the ssh certificate is configured such that it executes an
