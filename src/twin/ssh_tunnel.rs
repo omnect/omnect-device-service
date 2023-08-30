@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 static MAX_ACTIVE_TUNNELS: usize = 5;
 static SSH_KEY_TYPE: &str = "ed25519";
+#[cfg(not(feature = "mock"))]
 static SSH_PORT: u16 = 22;
 
 macro_rules! ssh_tunnel_data {
@@ -49,6 +50,7 @@ macro_rules! control_socket_path {
     }};
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct BastionConfig {
     host: String,
@@ -249,6 +251,7 @@ impl SshTunnel {
         Ok(None)
     }
 
+    #[cfg(not(feature = "mock"))]
     fn start_tunnel_command(
         tunnel_id: &str,
         ssh_creds: &SshCredentialsGuard,
@@ -291,6 +294,25 @@ impl SshTunnel {
             .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
             .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))
+    }
+
+    #[cfg(feature = "mock")]
+    fn start_tunnel_command(
+        _tunnel_id: &str,
+        _ssh_creds: &SshCredentialsGuard,
+        bastion_config: &BastionConfig,
+    ) -> Result<Child> {
+        Ok(Command::new("bash")
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            // hacky workaround to get the named pipe path. With the named
+            // pipe we can block the mock process externally
+            .args([
+                "-c",
+                &format!("echo established && cat < {} || true", &bastion_config.host),
+            ])
+            .spawn()
+            .unwrap())
     }
 
     async fn await_tunnel_termination(
