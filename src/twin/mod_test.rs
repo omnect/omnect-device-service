@@ -1288,4 +1288,96 @@ mod mod_test {
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
+
+    #[tokio::test]
+    async fn get_ssh_pub_key_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/b7afb216-5f7a-4755-a300-9374f8a0e9ff",
+        ];
+        let env_vars = vec![
+            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
+            ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH", "true"),
+            ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+
+            // test empty tunnel id
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(json!({ "tunnel_id": "" }))
+                    .await
+            })
+            .is_err());
+
+            // test non-uuid tunnel id
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(
+                        json!({ "tunnel_id": "So Long, and Thanks for All the Fish 🐬" }),
+                    )
+                    .await
+            })
+            .is_err());
+
+            // test creation of pub key
+            let tunnel_id: &str = "b054a76d-520c-40a9-b401-0f6bfb7cee9b";
+            let pub_key_regex = Regex::new(
+                r#"^\{"key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5[0-9A-Za-z+/]+[=]{0,3}(\s.*)\\n"\}?$"#,
+            )
+            .unwrap();
+            let response = block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(json!({ "tunnel_id": tunnel_id }))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .to_string()
+            });
+            assert!(pub_key_regex.is_match(&response));
+
+            // test for correct handling of existing private key file
+            let tunnel_id: &str = "b7afb216-5f7a-4755-a300-9374f8a0e9ff";
+            let response = block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(json!({ "tunnel_id": tunnel_id }))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .to_string()
+            });
+            assert!(!response.starts_with(
+                "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+"
+            ));
+        };
+
+        TestCase::run(test_files, vec![], env_vars, expect, test);
+    }
 }
