@@ -157,7 +157,7 @@ impl FactoryReset {
     fn factory_reset_status(&self) -> Result<String> {
         if cfg!(feature = "mock") {
             match std::env::var("TEST_FACTORY_RESET_RESULT")
-                .unwrap_or_else(|_|"succeeded".to_string())
+                .unwrap_or_else(|_| "succeeded".to_string())
                 .as_str()
             {
                 "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),

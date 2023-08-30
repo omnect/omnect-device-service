@@ -113,9 +113,7 @@ mod mod_test {
             // compute reported properties
             loop {
                 match config.twin.rx_reported_properties.try_recv() {
-                    Ok(val) => {
-                        config.twin.iothub_client.twin_report(val).unwrap()
-                    }
+                    Ok(val) => config.twin.iothub_client.twin_report(val).unwrap(),
                     _ => break,
                 }
             }
