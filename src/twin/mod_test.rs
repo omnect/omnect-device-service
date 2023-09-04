@@ -1289,7 +1289,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn get_ssh_pub_key_test() {
         let test_files = vec![
             "testfiles/positive/os-release",

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use uuid::Uuid;
@@ -24,6 +24,8 @@ static MAX_ACTIVE_TUNNELS: usize = 5;
 static SSH_KEY_TYPE: &str = "ed25519";
 #[cfg(not(feature = "mock"))]
 static SSH_PORT: u16 = 22;
+#[cfg(not(feature = "mock"))]
+static SSH_TUNNEL_USER: &str = "ssh_tunnel_user";
 
 macro_rules! ssh_tunnel_data {
     () => {{
@@ -120,6 +122,10 @@ impl Feature for SshTunnel {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn start(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl SshTunnel {
@@ -147,41 +153,24 @@ impl SshTunnel {
             priv_key_path!(args.tunnel_id),
             pub_key_path!(args.tunnel_id),
         );
-        Self::create_key_pair(&priv_key_path)
+        Self::create_key_pair(priv_key_path)
+            .await
             .map_err(|e| anyhow::anyhow!("get_ssh_pub_key: {e}"))?;
 
         Ok(Some(json!({ "key": Self::get_pub_key(&pub_key_path)? })))
     }
 
-    fn create_key_pair(priv_key_path: &Path) -> Result<()> {
-        // check if the path already exists. if not, create it first
-        fs::create_dir_all(
-            priv_key_path
-                .parent()
-                .ok_or_else(|| anyhow::anyhow!("invalid key path: {}", priv_key_path.display()))?,
-        )?;
-
-        let mut child = std::process::Command::new("ssh-keygen")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .args(["-q"])
-            .args(["-f", priv_key_path.to_string_lossy().as_ref()])
-            .args(["-t", SSH_KEY_TYPE])
-            .args(["-N", ""])
-            .spawn()
-            .map_err(|err| {
-                error!("Failed to create ssh key pair: {}", err);
-                anyhow::anyhow!("Error on ssh key creation.")
-            })?;
+    async fn create_key_pair(priv_key_path: PathBuf) -> Result<()> {
+        let mut child = Self::create_key_pair_command(priv_key_path)?;
 
         // In principle we should not get key file conflicts. However, in case
         // we do get conflicts, ssh-keygen will hang indefinitely. We therefore
         // tell it to overwrite any existing keys. Removing the key beforehand
         // could lead to TOCTOU bugs.
         let mut stdin = child.stdin.take().unwrap();
-        writeln!(stdin, "y")?;
+        stdin.write_all("y\n".as_bytes()).await?;
 
-        let output = child.wait_with_output()?;
+        let output = child.wait_with_output().await?;
 
         if !output.status.success() {
             error!(
@@ -192,6 +181,41 @@ impl SshTunnel {
         }
 
         Ok(())
+    }
+
+    #[cfg(not(feature = "mock"))]
+    fn create_key_pair_command(priv_key_path: PathBuf) -> Result<Child> {
+        Command::new("sudo")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .args(["-u", SSH_TUNNEL_USER])
+            .args(["ssh-keygen"])
+            .args(["-q"])
+            .args(["-f", priv_key_path.to_string_lossy().as_ref()])
+            .args(["-t", SSH_KEY_TYPE])
+            .args(["-N", ""])
+            .spawn()
+            .map_err(|err| {
+                error!("Failed to create ssh key pair: {}", err);
+                anyhow::anyhow!("Error on ssh key creation.")
+            })
+    }
+
+    #[cfg(feature = "mock")]
+    fn create_key_pair_command(priv_key_path: PathBuf) -> Result<Child> {
+        Command::new("ssh-keygen")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .args(["-q"])
+            .args(["-f", priv_key_path.to_string_lossy().as_ref()])
+            .args(["-t", SSH_KEY_TYPE])
+            .args(["-N", ""])
+            .spawn()
+            .map_err(|err| {
+                error!("Failed to create ssh key pair: {}", err);
+                anyhow::anyhow!("Error on ssh key creation.")
+            })
     }
 
     fn get_pub_key(pub_key_path: &Path) -> Result<String> {
@@ -265,9 +289,13 @@ impl SshTunnel {
             bastion_config.user
         );
 
-        Command::new("ssh")
+        Command::new("sudo")
+            // closing stdin is functionally not necessary but fixes issues with logging
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .args(["-u", SSH_TUNNEL_USER])
+            .args(["ssh"])
             .args(["-M"])
             .args([
                 "-S",
@@ -389,18 +417,19 @@ impl SshTunnel {
             control_socket_path.display()
         );
 
-        Self::close_tunnel_command(&control_socket_path)?;
+        Self::close_tunnel_command(&control_socket_path).await?;
 
         Ok(None)
     }
 
-    fn close_tunnel_command(control_socket_path: &Path) -> Result<()> {
-        let result = std::process::Command::new("ssh")
+    async fn close_tunnel_command(control_socket_path: &Path) -> Result<()> {
+        let result = Command::new("ssh")
             .stdout(Stdio::piped())
             .args(["-O", "exit"])
             .args(["-S", control_socket_path.to_string_lossy().as_ref()])
             .args(["bastion_host"]) // the destination host name is not used but necessary for the ssh command here
             .output()
+            .await
             .map_err(|e| anyhow::anyhow!("close_ssh_tunnel: {e}"))?;
 
         if !result.status.success() {
@@ -418,7 +447,7 @@ fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
     let mut f = fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .mode(0o600)
+        .mode(0o604)
         .open(cert_path)?;
     f.write_all(data.as_bytes())?;
 
