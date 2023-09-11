@@ -11,7 +11,7 @@ mod mod_test {
     };
     use regex::Regex;
     use serde_json::json;
-    use std::{env, fs::OpenOptions, path::PathBuf, time::Duration};
+    use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
 
     mock! {
         MyIotHub {}
@@ -83,6 +83,7 @@ mod mod_test {
             });
 
             // set env vars
+            env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
 
@@ -113,14 +114,13 @@ mod mod_test {
             // compute reported properties
             loop {
                 match config.twin.rx_reported_properties.try_recv() {
-                    Ok(val) => {
-                        config.twin.iothub_client.twin_report(val).unwrap()
-                    }
+                    Ok(val) => config.twin.iothub_client.twin_report(val).unwrap(),
                     _ => break,
                 }
             }
 
             // cleanup env vars
+            env::remove_var("SSH_TUNNEL_DIR_PATH");
             env::remove_var("OS_RELEASE_DIR_PATH");
             env::remove_var("CONSENT_DIR_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
@@ -152,6 +152,11 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"ssh":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -256,6 +261,11 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -314,6 +324,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -472,12 +483,13 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -860,6 +872,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -936,6 +949,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -963,6 +977,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -990,6 +1005,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -1038,6 +1054,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("TEST_FACTORY_RESET_RESULT", "unexpected_factory_reset_type"),
@@ -1083,6 +1100,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_HANDLING", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1093,7 +1111,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1163,12 +1181,13 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1234,6 +1253,7 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1249,7 +1269,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1264,6 +1284,254 @@ mod mod_test {
                     .await
             })
             .is_ok());
+        };
+
+        TestCase::run(test_files, vec![], env_vars, expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_ssh_pub_key_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/b7afb216-5f7a-4755-a300-9374f8a0e9ff",
+        ];
+        let env_vars = vec![
+            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
+            ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH", "true"),
+            ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+
+            // test empty tunnel id
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(json!({ "tunnel_id": "" }))
+                    .await
+            })
+            .is_err());
+
+            // test non-uuid tunnel id
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(
+                        json!({ "tunnel_id": "So Long, and Thanks for All the Fish 🐬" }),
+                    )
+                    .await
+            })
+            .is_err());
+
+            // test creation of pub key
+            let tunnel_id: &str = "b054a76d-520c-40a9-b401-0f6bfb7cee9b";
+            let pub_key_regex = Regex::new(
+                r#"^\{"key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5[0-9A-Za-z+/]+[=]{0,3}(\s.*)\\n"\}?$"#,
+            )
+            .unwrap();
+            let response = block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(json!({ "tunnel_id": tunnel_id }))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .to_string()
+            });
+            assert!(pub_key_regex.is_match(&response));
+
+            // test for correct handling of existing private key file
+            let tunnel_id: &str = "b7afb216-5f7a-4755-a300-9374f8a0e9ff";
+            let response = block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .get_ssh_pub_key(json!({ "tunnel_id": tunnel_id }))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .to_string()
+            });
+            assert!(!response.starts_with(
+                "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+"
+            ));
+        };
+
+        TestCase::run(test_files, vec![], env_vars, expect, test);
+    }
+
+    // we need here multiple threads in order for the task spawned by
+    // tokio::spawn to be processed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_ssh_tunnel_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/cert.pub",
+        ];
+        let env_vars = vec![
+            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
+            ("SUPPRESS_FACTORY_RESET", "true"),
+            ("SUPPRESS_SSH", "true"),
+            ("SUPPRESS_NETWORK_STATUS", "true"),
+            ("SUPPRESS_REBOOT", "true"),
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report()
+                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+
+            // currently no way to explicitly wait for the spawned task
+            // mock.expect_send_d2c_message().times(1).returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+
+            let cert_path = test_attr.dir.join("cert.pub");
+
+            // test empty tunnel id
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .open_ssh_tunnel(json!({
+                        "tunnel_id": "",
+                        "certificate": std::fs::read_to_string(&cert_path).unwrap(),
+                        "host": "test-host",
+                        "port": 2222,
+                        "user": "test-user",
+                        "socket_path": "/some/test/socket/path",
+                    }))
+                    .await
+            })
+            .is_err());
+
+            // test non-uuid tunnel id
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .open_ssh_tunnel(json!({
+                        "tunnel_id": "Don't panic!",
+                        "certificate": std::fs::read_to_string(&cert_path).unwrap(),
+                        "host": "test-host",
+                        "port": 2222,
+                        "user": "test-user",
+                        "socket_path": "/some/test/socket/path",
+                    }))
+                    .await
+            })
+            .is_err());
+
+            // test successful
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .open_ssh_tunnel(json!({
+                        "tunnel_id": "b7afb216-5f7a-4755-a300-9374f8a0e9ff",
+                        "certificate": std::fs::read_to_string(&cert_path).unwrap(),
+                        "host": "test-host",
+                        "port": 2222,
+                        "user": "test-user",
+                        "socket_path": "/some/test/socket/path",
+                    }))
+                    .await
+            })
+            .is_ok());
+
+            // test connection limit
+            let pipe_names = (1..=5)
+                .into_iter()
+                .map(|pipe_num| {
+                    println!("pipe_num: {pipe_num}");
+                    test_attr.dir.join(&format!("named_pipe_{}", pipe_num))
+                })
+                .collect::<Vec<_>>();
+
+            for pipe_name in &pipe_names {
+                Command::new("mkfifo").arg(&pipe_name).output().unwrap();
+            }
+
+            // the first 5 requests should succeed
+            for pipe_name in &pipe_names[0..=4] {
+                println!("pipe_name: {pipe_name:#?}");
+                assert!(block_on(async {
+                    test_attr
+                        .twin
+                        .feature::<SshTunnel>()
+                        .unwrap()
+                        .open_ssh_tunnel(json!({
+                            "tunnel_id": "b7afb216-5f7a-4755-a300-9374f8a0e9ff",
+                            "certificate": std::fs::read_to_string(&cert_path).unwrap(),
+                            "host": pipe_name,
+                            "port": 2222,
+                            "user": "test-user",
+                            "socket_path": "/some/test/socket/path",
+                        }))
+                        .await
+                })
+                .is_ok());
+            }
+
+            // the final should fail
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature::<SshTunnel>()
+                    .unwrap()
+                    .open_ssh_tunnel(json!({
+                        "tunnel_id": "b7afb216-5f7a-4755-a300-9374f8a0e9ff",
+                        "certificate": std::fs::read_to_string(&cert_path).unwrap(),
+                        "host": "test-host",
+                        "port": 2222,
+                        "user": "test-user",
+                        "socket_path": "/some/test/socket/path",
+                    }))
+                    .await
+            })
+            .is_err());
+
+            // finally, close the pipes. By opening and closing for writing is
+            // sufficient.
+            for pipe_name in pipe_names {
+                let pipe_file = std::fs::File::options()
+                    .write(true)
+                    .open(pipe_name)
+                    .unwrap();
+                drop(pipe_file);
+            }
+            info!("done with all files");
+
+            // we can't wait for the spawned completion tasks here
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);

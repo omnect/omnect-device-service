@@ -6,6 +6,7 @@ mod mod_test;
 mod network_status;
 mod reboot;
 mod ssh;
+mod ssh_tunnel;
 mod wifi_commissioning;
 use super::systemd;
 use super::update_validation;
@@ -13,7 +14,7 @@ use crate::{
     systemd::WatchdogHandler,
     twin::{
         consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-        reboot::Reboot, ssh::Ssh, wifi_commissioning::WifiCommissioning,
+        reboot::Reboot, ssh::Ssh, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
     },
 };
 use anyhow::{anyhow, bail, Result};
@@ -47,6 +48,7 @@ enum TwinFeature {
     DeviceUpdateConsent,
     NetworkStatus,
     Ssh,
+    SshTunnel,
 }
 
 #[async_trait(?Send)]
@@ -86,17 +88,20 @@ pub struct Twin {
     authenticated_once: bool,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
+    rx_outgoing_message: mpsc::Receiver<IotMessage>,
     features: HashMap<TypeId, Box<dyn Feature>>,
 }
 
 impl Twin {
     pub fn new(client: Box<dyn IotHub>) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
-        
+        let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+
         Twin {
             iothub_client: client,
             tx_reported_properties: tx_reported_properties.clone(),
             rx_reported_properties,
+            rx_outgoing_message,
             authenticated_once: false,
             features: HashMap::from([
                 (
@@ -120,6 +125,10 @@ impl Twin {
                 (
                     TypeId::of::<Ssh>(),
                     Box::new(Ssh::new(tx_reported_properties)) as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<SshTunnel>(),
+                    Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
                 ),
                 (
                     TypeId::of::<WifiCommissioning>(),
@@ -303,6 +312,9 @@ impl Twin {
             "refresh_ssh_status" => self.feature::<Ssh>()?.refresh_ssh_status().await,
             "open_ssh" => self.feature::<Ssh>()?.open_ssh(payload).await,
             "close_ssh" => self.feature::<Ssh>()?.close_ssh().await,
+            "get_ssh_pub_key" => self.feature::<SshTunnel>()?.get_ssh_pub_key(payload).await,
+            "open_ssh_tunnel" => self.feature::<SshTunnel>()?.open_ssh_tunnel(payload).await,
+            "close_ssh_tunnel" => self.feature::<SshTunnel>()?.close_ssh_tunnel(payload).await,
             "reboot" => self.feature::<Reboot>()?.reboot().await,
             _ => Err(anyhow!("direct method unknown")),
         }
@@ -375,6 +387,9 @@ impl Twin {
                         },
                         Err(e) => error!("run: handle_direct_method: {e}"),
                     };
+                },
+                message = twin.rx_outgoing_message.recv() => {
+                    twin.iothub_client.send_d2c_message(message.unwrap())?
                 }
             );
         }

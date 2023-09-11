@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.13.2"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1653,6 +1653,7 @@ dependencies = [
  "dotenvy",
  "enum_dispatch",
  "env_logger",
+ "futures",
  "futures-executor",
  "futures-util",
  "iptables",
@@ -1677,8 +1678,10 @@ dependencies = [
  "strum",
  "strum_macros",
  "systemd-zbus",
+ "tempfile",
  "time 0.3.23",
  "tokio",
+ "uuid",
  "zbus",
 ]
 
@@ -2521,6 +2524,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "uuid"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d023da39d1fde5a8a3fe1f3e01ca9632ada0a63e9797de55a879d6e2236277be"
 
 [[package]]
 name = "vcpkg"
