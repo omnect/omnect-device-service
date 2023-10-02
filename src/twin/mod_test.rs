@@ -13,7 +13,8 @@ mod mod_test {
     use serde_json::json;
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
 
-    const UTC_REGEX: &'static str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}";
+    const UTC_REGEX: &'static str =
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
 
     mock! {
         MyIotHub {}
@@ -217,7 +218,7 @@ mod mod_test {
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
                         UTC_REGEX,
-                        regex::escape(r#"Z"), "status": String("succeeded")}}}"#,),
+                        regex::escape(r#""), "status": String("succeeded")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -813,7 +814,7 @@ mod mod_test {
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
                         UTC_REGEX,
-                        regex::escape(r#"Z"), "status": String("in_progress")}}}"#,),
+                        regex::escape(r#""), "status": String("in_progress")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -895,7 +896,7 @@ mod mod_test {
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
                         UTC_REGEX,
-                        regex::escape(r#"Z"), "status": String("succeeded")}}}"#,),
+                        regex::escape(r#""), "status": String("succeeded")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -914,7 +915,7 @@ mod mod_test {
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
                         UTC_REGEX,
-                        regex::escape(r#"Z"), "status": String("in_progress")}}}"#,),
+                        regex::escape(r#""), "status": String("in_progress")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -1033,7 +1034,7 @@ mod mod_test {
                         ),
                         UTC_REGEX,
                         regex::escape(
-                            r#"Z"), "status": String("unexpected restore settings error")}}}"#,
+                            r#""), "status": String("unexpected restore settings error")}}}"#,
                         ),
                     );
 
@@ -1079,7 +1080,7 @@ mod mod_test {
                         ),
                         UTC_REGEX,
                         regex::escape(
-                            r#"Z"), "status": String("unexpected factory reset type")}}}"#,
+                            r#""), "status": String("unexpected factory reset type")}}}"#,
                         ),
                     );
 
