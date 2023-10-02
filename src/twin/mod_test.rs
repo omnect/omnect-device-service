@@ -13,6 +13,8 @@ mod mod_test {
     use serde_json::json;
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
 
+    const UTC_REGEX: &'static str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}";
+
     mock! {
         MyIotHub {}
 
@@ -214,7 +216,7 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(r#"Z"), "status": String("succeeded")}}}"#,),
                     );
 
@@ -810,7 +812,7 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(r#"Z"), "status": String("in_progress")}}}"#,),
                     );
 
@@ -892,7 +894,7 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(r#"Z"), "status": String("succeeded")}}}"#,),
                     );
 
@@ -911,7 +913,7 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(r#"Z"), "status": String("in_progress")}}}"#,),
                     );
 
@@ -1029,7 +1031,7 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(
                             r#"Z"), "status": String("unexpected restore settings error")}}}"#,
                         ),
@@ -1075,7 +1077,7 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(
                             r#"Z"), "status": String("unexpected factory reset type")}}}"#,
                         ),
