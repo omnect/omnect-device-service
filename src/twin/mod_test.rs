@@ -1535,4 +1535,49 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
+
+    #[cfg(test)]
+    mod test {
+        use regex::Regex;
+
+        #[test]
+        fn test_utc_regex() {
+            let time_string = "2023-09-12T23:59:00Z";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_sub_second_places() {
+            let time_string = "2023-09-12T23:59:00.1234Z";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_many_sub_second_places() {
+            let time_string = "2023-09-12T23:59:00.123456789123456789Z";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_positive_offset() {
+            let time_string = "2023-09-12T23:59:00.1234+13:20";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_negative_offset() {
+            let time_string = "2023-09-12T23:59:00.1234-13:20";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+    }
 }
