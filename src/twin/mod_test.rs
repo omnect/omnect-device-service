@@ -1472,7 +1472,6 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
             let pipe_names = (1..=5)
                 .into_iter()
                 .map(|pipe_num| {
-                    println!("pipe_num: {pipe_num}");
                     test_attr.dir.join(&format!("named_pipe_{}", pipe_num))
                 })
                 .collect::<Vec<_>>();
@@ -1483,7 +1482,6 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 
             // the first 5 requests should succeed
             for pipe_name in &pipe_names[0..=4] {
-                println!("pipe_name: {pipe_name:#?}");
                 assert!(block_on(async {
                     test_attr
                         .twin
