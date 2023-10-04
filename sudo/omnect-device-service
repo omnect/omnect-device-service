@@ -5,5 +5,5 @@ omnect_device_service ALL=(omnect) NOPASSWD: /usr/bin/tee /home/omnect/.ssh/auth
 omnect_device_service ALL=(root) NOPASSWD: /bin/journalctl --sync
 
 # establish ssh tunnel
-Cmnd_Alias SSH = /usr/bin/ssh, /usr/bin/ssh-keygen
+Cmnd_Alias SSH = /usr/bin/ssh, /usr/bin/ssh-keygen, /bin/cat, /bin/rm, /usr/bin/tee
 omnect_device_service ALL=(ssh_tunnel_user) NOPASSWD: SSH
