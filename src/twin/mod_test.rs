@@ -13,6 +13,9 @@ mod mod_test {
     use serde_json::json;
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
 
+    const UTC_REGEX: &'static str =
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+
     mock! {
         MyIotHub {}
 
@@ -214,8 +217,8 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
-                        regex::escape(r#"Z"), "status": String("succeeded")}}}"#,),
+                        UTC_REGEX,
+                        regex::escape(r#""), "status": String("succeeded")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -810,8 +813,8 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
-                        regex::escape(r#"Z"), "status": String("in_progress")}}}"#,),
+                        UTC_REGEX,
+                        regex::escape(r#""), "status": String("in_progress")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -892,8 +895,8 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
-                        regex::escape(r#"Z"), "status": String("succeeded")}}}"#,),
+                        UTC_REGEX,
+                        regex::escape(r#""), "status": String("succeeded")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -911,8 +914,8 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
-                        regex::escape(r#"Z"), "status": String("in_progress")}}}"#,),
+                        UTC_REGEX,
+                        regex::escape(r#""), "status": String("in_progress")}}}"#,),
                     );
 
                     let re = Regex::new(re.as_str()).unwrap();
@@ -1029,9 +1032,9 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(
-                            r#"Z"), "status": String("unexpected restore settings error")}}}"#,
+                            r#""), "status": String("unexpected restore settings error")}}}"#,
                         ),
                     );
 
@@ -1075,9 +1078,9 @@ mod mod_test {
                         regex::escape(
                             r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
                         ),
-                        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{8,9}",
+                        UTC_REGEX,
                         regex::escape(
-                            r#"Z"), "status": String("unexpected factory reset type")}}}"#,
+                            r#""), "status": String("unexpected factory reset type")}}}"#,
                         ),
                     );
 
@@ -1471,10 +1474,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
             // test connection limit
             let pipe_names = (1..=5)
                 .into_iter()
-                .map(|pipe_num| {
-                    println!("pipe_num: {pipe_num}");
-                    test_attr.dir.join(&format!("named_pipe_{}", pipe_num))
-                })
+                .map(|pipe_num| test_attr.dir.join(&format!("named_pipe_{}", pipe_num)))
                 .collect::<Vec<_>>();
 
             for pipe_name in &pipe_names {
@@ -1483,7 +1483,6 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
 
             // the first 5 requests should succeed
             for pipe_name in &pipe_names[0..=4] {
-                println!("pipe_name: {pipe_name:#?}");
                 assert!(block_on(async {
                     test_attr
                         .twin
@@ -1535,5 +1534,50 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
+    }
+
+    #[cfg(test)]
+    mod test {
+        use regex::Regex;
+
+        #[test]
+        fn test_utc_regex() {
+            let time_string = "2023-09-12T23:59:00Z";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_sub_second_places() {
+            let time_string = "2023-09-12T23:59:00.1234Z";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_many_sub_second_places() {
+            let time_string = "2023-09-12T23:59:00.123456789123456789Z";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_positive_offset() {
+            let time_string = "2023-09-12T23:59:00.1234+13:20";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
+
+        #[test]
+        fn test_utc_regex_with_negative_offset() {
+            let time_string = "2023-09-12T23:59:00.1234-13:20";
+
+            let re = Regex::new(super::UTC_REGEX).unwrap();
+            assert!(re.is_match(time_string));
+        }
     }
 }
