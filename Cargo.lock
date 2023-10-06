@@ -330,13 +330,14 @@ dependencies = [
 
 [[package]]
 name = "azure-iot-sdk"
-version = "0.11.0"
-source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.11.0#c586e4dbb434d7d76cce063d69c2f51b8a6c3f74"
+version = "0.11.1"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.11.1#9aa7a742c6d89e2f5f663c466cf6d1315235627c"
 dependencies = [
  "anyhow",
  "async-trait",
  "azure-iot-sdk-sys",
  "eis-utils",
+ "form_urlencoded",
  "futures",
  "log",
  "serde_json",
