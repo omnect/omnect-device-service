@@ -21,7 +21,6 @@ static MAX_ACTIVE_TUNNELS: usize = 5;
 static SSH_KEY_TYPE: &str = "ed25519";
 #[cfg(not(feature = "mock"))]
 static SSH_PORT: u16 = 22;
-#[cfg(not(feature = "mock"))]
 static SSH_TUNNEL_USER: &str = "ssh_tunnel_user";
 
 macro_rules! ssh_tunnel_data {
@@ -496,14 +495,25 @@ impl SshCredentialsGuard {
     }
 }
 
+fn remove_file(file: &PathBuf) -> Result<()> {
+    if cfg!(feature = "mock") {
+        std::fs::remove_file(file)?;
+    } else {
+        std::process::Command::new("sudo")
+            .args(["-u", SSH_TUNNEL_USER])
+            .args(["rm", &*file.to_string_lossy()])
+            .output()?;
+    };
+
+    Ok(())
+}
+
 impl Drop for SshCredentialsGuard {
     fn drop(&mut self) {
         [self.pub_key(), self.priv_key(), self.cert()]
             .iter()
             .for_each(|file| {
-                let result = exec_as_tunnel_user("rm").arg(file).spawn();
-
-                if let Err(err) = result {
+                if let Err(err) = remove_file(file) {
                     warn!(
                         "Failed to delete certificate \"{}\": {}",
                         file.to_string_lossy(),
