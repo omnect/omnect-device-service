@@ -7,10 +7,7 @@ use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
 use std::any::Any;
 use std::env;
-use std::fs;
-use std::io::Write;
 use std::ops::Drop;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str;
@@ -59,6 +56,20 @@ struct BastionConfig {
     port: u16,
     user: String,
     socket_path: PathBuf,
+}
+
+#[cfg(feature = "mock")]
+fn exec_as_tunnel_user<S: AsRef<str>>(command: S) -> Command {
+    Command::new(command.as_ref())
+}
+
+#[cfg(not(feature = "mock"))]
+fn exec_as_tunnel_user<S: AsRef<str>>(command: S) -> Command {
+    let mut cmd = Command::new("sudo");
+    cmd.args(["-u", SSH_TUNNEL_USER]);
+    cmd.args([command.as_ref()]);
+
+    cmd
 }
 
 fn validate_uuid<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -157,7 +168,9 @@ impl SshTunnel {
             .await
             .map_err(|e| anyhow::anyhow!("get_ssh_pub_key: {e}"))?;
 
-        Ok(Some(json!({ "key": Self::get_pub_key(&pub_key_path)? })))
+        Ok(Some(
+            json!({ "key": Self::get_pub_key(&pub_key_path).await? }),
+        ))
     }
 
     async fn create_key_pair(priv_key_path: PathBuf) -> Result<()> {
@@ -183,14 +196,11 @@ impl SshTunnel {
         Ok(())
     }
 
-    #[cfg(not(feature = "mock"))]
     fn create_key_pair_command(priv_key_path: PathBuf) -> Result<Child> {
-        Command::new("sudo")
+        exec_as_tunnel_user("ssh-keygen")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .args(["-u", SSH_TUNNEL_USER])
-            .args(["ssh-keygen"])
             .args(["-q"])
             .args(["-f", priv_key_path.to_string_lossy().as_ref()])
             .args(["-t", SSH_KEY_TYPE])
@@ -202,25 +212,20 @@ impl SshTunnel {
             })
     }
 
-    #[cfg(feature = "mock")]
-    fn create_key_pair_command(priv_key_path: PathBuf) -> Result<Child> {
-        Command::new("ssh-keygen")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .args(["-q"])
-            .args(["-f", priv_key_path.to_string_lossy().as_ref()])
-            .args(["-t", SSH_KEY_TYPE])
-            .args(["-N", ""])
+    async fn get_pub_key(pub_key_path: &Path) -> Result<String> {
+        let child = exec_as_tunnel_user("cat")
+            .stdout(Stdio::piped())
+            .arg(pub_key_path.to_string_lossy().as_ref())
             .spawn()
-            .map_err(|err| {
-                error!("Failed to create ssh key pair: {}", err);
-                anyhow::anyhow!("Error on ssh key creation.")
-            })
-    }
+            .map_err(|err| anyhow::anyhow!("get_ssh_pub_key: {err}"))?;
 
-    fn get_pub_key(pub_key_path: &Path) -> Result<String> {
-        fs::read_to_string(pub_key_path.to_string_lossy().as_ref())
-            .map_err(|err| anyhow::anyhow!("get_ssh_pub_key: {err}"))
+        let output = child.wait_with_output().await?;
+
+        if !output.status.success() {
+            anyhow::bail!("Failed to retrieve ssh public key.");
+        }
+
+        Ok(str::from_utf8(&output.stdout)?.to_string())
     }
 
     pub async fn open_ssh_tunnel(
@@ -247,7 +252,7 @@ impl SshTunnel {
             .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))?;
 
         // store the certificate so that ssh can use it for login on the bastion host
-        store_ssh_cert(&ssh_creds.cert(), &args.certificate)?;
+        store_ssh_cert(&ssh_creds.cert(), &args.certificate).await?;
 
         let mut ssh_process =
             Self::start_tunnel_command(&args.tunnel_id, &ssh_creds, &args.bastion_config)?;
@@ -289,13 +294,11 @@ impl SshTunnel {
             bastion_config.user
         );
 
-        Command::new("sudo")
+        exec_as_tunnel_user("ssh")
             // closing stdin is functionally not necessary but fixes issues with logging
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .args(["-u", SSH_TUNNEL_USER])
-            .args(["ssh"])
             .args(["-M"])
             .args([
                 "-S",
@@ -423,7 +426,7 @@ impl SshTunnel {
     }
 
     async fn close_tunnel_command(control_socket_path: &Path) -> Result<()> {
-        let result = Command::new("ssh")
+        let result = exec_as_tunnel_user("ssh")
             .stdout(Stdio::piped())
             .args(["-O", "exit"])
             .args(["-S", control_socket_path.to_string_lossy().as_ref()])
@@ -443,13 +446,23 @@ impl SshTunnel {
     }
 }
 
-fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
-    let mut f = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .mode(0o604)
-        .open(cert_path)?;
-    f.write_all(data.as_bytes())?;
+async fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
+    let mut child = exec_as_tunnel_user("tee")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .arg(&*cert_path.to_string_lossy())
+        .spawn()
+        .map_err(|_e| anyhow::anyhow!("failed to store ssh certificate"))?;
+
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(data.as_bytes()).await?;
+    drop(stdin); // necessary to close stdin
+
+    if !child.wait().await?.success() {
+        error!("failed to store ssh certificate");
+        anyhow::bail!("Error on storing ssh certificate");
+    }
 
     Ok(())
 }
@@ -488,7 +501,9 @@ impl Drop for SshCredentialsGuard {
         [self.pub_key(), self.priv_key(), self.cert()]
             .iter()
             .for_each(|file| {
-                if let Err(err) = fs::remove_file(file) {
+                let result = exec_as_tunnel_user("rm").arg(file).spawn();
+
+                if let Err(err) = result {
                     warn!(
                         "Failed to delete certificate \"{}\": {}",
                         file.to_string_lossy(),
