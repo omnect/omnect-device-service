@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod mod_test {
     use super::super::*;
     use crate::test_util::mod_test::TestEnvironment;
@@ -13,8 +14,7 @@ mod mod_test {
     use serde_json::json;
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
 
-    const UTC_REGEX: &'static str =
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+    const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
 
     mock! {
         MyIotHub {}
@@ -77,12 +77,10 @@ mod mod_test {
             // copy test files and dirs
             test_files.iter().for_each(|file| {
                 test_env.copy_file(file);
-                ()
             });
 
             test_dirs.iter().for_each(|dir| {
                 test_env.copy_directory(dir);
-                ()
             });
 
             // set env vars
@@ -115,11 +113,8 @@ mod mod_test {
             run_test(&mut config);
 
             // compute reported properties
-            loop {
-                match config.twin.rx_reported_properties.try_recv() {
-                    Ok(val) => config.twin.iothub_client.twin_report(val).unwrap(),
-                    _ => break,
-                }
+            while let Ok(val) = config.twin.rx_reported_properties.try_recv() {
+                config.twin.iothub_client.twin_report(val).unwrap()
             }
 
             // cleanup env vars
@@ -1478,7 +1473,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
                 .collect::<Vec<_>>();
 
             for pipe_name in &pipe_names {
-                Command::new("mkfifo").arg(&pipe_name).output().unwrap();
+                Command::new("mkfifo").arg(pipe_name).output().unwrap();
             }
 
             // the first 5 requests should succeed
