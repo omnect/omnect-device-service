@@ -330,8 +330,8 @@ dependencies = [
 
 [[package]]
 name = "azure-iot-sdk"
-version = "0.11.0"
-source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.11.0#c586e4dbb434d7d76cce063d69c2f51b8a6c3f74"
+version = "0.11.4"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.11.4#9e24479f83b88dd368a8de4c956f105d464c2cd1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -341,6 +341,7 @@ dependencies = [
  "log",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -1643,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.14.3"
+version = "0.14.4"
 dependencies = [
  "anyhow",
  "async-trait",
