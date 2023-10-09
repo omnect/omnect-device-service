@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.14.4] Q4 2024
 - ssh tunnel:
-  - fix error in tests.
-  - fix error when sending device 2 cloud notifications by bumping azure-iot-sdk to 0.11.1.
-- tests: fix clippy warnings
+  - fixed error in tests
+  - fixed error when sending device 2 cloud notifications by bumping azure-iot-sdk to 0.11.4
+- tests: fixed clippy warnings
 
 ## [0.14.3] Q4 2024
 - reduced permissions for ssh keys and certificates
