@@ -13,7 +13,7 @@ version = "0.14.4"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.1", features = [
+azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.4", features = [
    "module_client",
 ] }
 dotenvy = "0.15"
