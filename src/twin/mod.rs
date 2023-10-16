@@ -379,14 +379,10 @@ impl Twin {
                 },
                 direct_methods = rx_direct_method.recv() => {
                     let (name, payload, tx_result) = direct_methods.unwrap();
-                    match twin.handle_direct_method(name, payload).await {
-                        Ok(result) => {
-                            if tx_result.send(Ok(result)).is_err() {
-                                error!("run: receiver dropped");
-                            }
-                        },
-                        Err(e) => error!("run: handle_direct_method: {e}"),
-                    };
+
+                    if tx_result.send(twin.handle_direct_method(name, payload).await).is_err() {
+                        error!("run: receiver dropped");
+                    }
                 },
                 message = twin.rx_outgoing_message.recv() => {
                     twin.iothub_client.send_d2c_message(message.unwrap())?
