@@ -149,11 +149,6 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh":{"version":1}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -192,13 +187,6 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(
-                    json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}}),
-                ))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -254,11 +242,6 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh":{"version":1}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -297,13 +280,6 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(
-                    json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}}),
-                ))
                 .times(1)
                 .returning(|_| Ok(()));
         };
@@ -484,7 +460,7 @@ mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(10).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -509,7 +485,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -576,7 +552,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -632,7 +608,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
         };
 
@@ -668,7 +644,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
         };
 
@@ -792,7 +768,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -1100,7 +1076,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(10).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1183,7 +1159,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(6).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1276,7 +1252,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(6).returning(|_| Ok(()));
 
             // currently no way to explicitly wait for the spawned task
             // mock.expect_send_d2c_message().times(1).returning(|_| Ok(()));
