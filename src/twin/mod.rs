@@ -5,7 +5,6 @@ mod factory_reset;
 mod mod_test;
 mod network_status;
 mod reboot;
-mod ssh;
 mod ssh_tunnel;
 mod wifi_commissioning;
 use super::systemd;
@@ -14,7 +13,7 @@ use crate::{
     systemd::WatchdogHandler,
     twin::{
         consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-        reboot::Reboot, ssh::Ssh, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
+        reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
     },
 };
 use anyhow::{anyhow, bail, Result};
@@ -47,7 +46,6 @@ enum TwinFeature {
     FactoryReset,
     DeviceUpdateConsent,
     NetworkStatus,
-    Ssh,
     SshTunnel,
 }
 
@@ -121,10 +119,6 @@ impl Twin {
                 (
                     TypeId::of::<Reboot>(),
                     Box::<Reboot>::default() as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<Ssh>(),
-                    Box::new(Ssh::new(tx_reported_properties)) as Box<dyn Feature>,
                 ),
                 (
                     TypeId::of::<SshTunnel>(),
@@ -309,9 +303,6 @@ impl Twin {
                     .refresh_network_status()
                     .await
             }
-            "refresh_ssh_status" => self.feature::<Ssh>()?.refresh_ssh_status().await,
-            "open_ssh" => self.feature::<Ssh>()?.open_ssh(payload).await,
-            "close_ssh" => self.feature::<Ssh>()?.close_ssh().await,
             "get_ssh_pub_key" => self.feature::<SshTunnel>()?.get_ssh_pub_key(payload).await,
             "open_ssh_tunnel" => self.feature::<SshTunnel>()?.open_ssh_tunnel(payload).await,
             "close_ssh_tunnel" => self.feature::<SshTunnel>()?.close_ssh_tunnel(payload).await,
