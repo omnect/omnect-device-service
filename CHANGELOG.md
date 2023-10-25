@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.14.6] Q4 2024
 - removed feature ssh_handling, ssh connection via ssh_tunnel still working
+- fixed an issue with ssh tunnels were certificates were deleted early
+- fixed ssh tunnel to enforce certificate based authentication
 
 ## [0.14.5] Q4 2024
 - fixed passing of errors to direct methods results
