@@ -113,8 +113,7 @@ impl Twin {
                 ),
                 (
                     TypeId::of::<NetworkStatus>(),
-                    Box::new(NetworkStatus::new(tx_reported_properties.clone()))
-                        as Box<dyn Feature>,
+                    Box::new(NetworkStatus::new(tx_reported_properties)) as Box<dyn Feature>,
                 ),
                 (
                     TypeId::of::<Reboot>(),
