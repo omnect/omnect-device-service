@@ -149,11 +149,6 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh":{"version":1}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -192,13 +187,6 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(
-                    json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}}),
-                ))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -254,11 +242,6 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh":{"version":1}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -299,13 +282,6 @@ mod mod_test {
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
                 .times(1)
                 .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(
-                    json!({"ssh":{"status":{"v4_enabled":false,"v6_enabled":false}}}),
-                ))
-                .times(1)
-                .returning(|_| Ok(()));
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
@@ -324,7 +300,6 @@ mod mod_test {
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
 
@@ -338,7 +313,6 @@ mod mod_test {
             assert!(test_attr.twin.feature::<FactoryReset>().is_err());
             assert!(test_attr.twin.feature::<DeviceUpdateConsent>().is_err());
             assert!(test_attr.twin.feature::<NetworkStatus>().is_err());
-            assert!(test_attr.twin.feature::<Ssh>().is_err());
             assert!(test_attr.twin.feature::<Reboot>().is_err());
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
@@ -480,14 +454,13 @@ mod mod_test {
         ];
         let env_vars = vec![
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(10).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -512,7 +485,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -579,7 +552,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -635,7 +608,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
         };
 
@@ -671,7 +644,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
         };
 
@@ -795,7 +768,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 7)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -869,7 +842,6 @@ mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -946,7 +918,6 @@ mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -974,7 +945,6 @@ mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -1002,7 +972,6 @@ mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -1051,7 +1020,6 @@ mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -1097,7 +1065,6 @@ mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_HANDLING", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_REBOOT", "true"),
@@ -1109,7 +1076,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(10).returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1173,120 +1140,6 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
-    async fn open_ssh_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .feature::<Ssh>()
-                    .unwrap()
-                    .open_ssh(json!({ "pubkey": "" }))
-                    .await
-            })
-            .unwrap_err()
-            .to_string()
-            .starts_with("Empty ssh pubkey"));
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .feature::<Ssh>()
-                    .unwrap()
-                    .open_ssh(json!({}))
-                    .await
-            })
-            .unwrap_err()
-            .to_string()
-            .starts_with("No ssh pubkey given"));
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .feature::<Ssh>()
-                    .unwrap()
-                    .open_ssh(json!({ "": "" }))
-                    .await
-            })
-            .unwrap_err()
-            .to_string()
-            .starts_with("No ssh pubkey given"));
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .feature::<Ssh>()
-                    .unwrap()
-                    .open_ssh(json!({ "pubkey": "mykey" }))
-                    .await
-            })
-            .is_err());
-
-            // its hard to test the ssh functionality as module test,
-            // we would have to mock the iptables crate and make
-            // AUTHORIZED_KEY_PATH configurable
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
-    #[tokio::test]
-    async fn refresh_ssh_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .with(eq(json!({"ssh": {
-                            "status": {
-                                "v4_enabled":false,
-                                "v6_enabled":false
-                            }
-                }})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .feature::<Ssh>()
-                    .unwrap()
-                    .refresh_ssh_status()
-                    .await
-            })
-            .is_ok());
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn get_ssh_pub_key_test() {
         let test_files = vec![
@@ -1296,7 +1149,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_SSH", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1307,7 +1159,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(6).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1390,7 +1242,6 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_SSH", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1401,7 +1252,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(8).returning(|_| Ok(()));
+            mock.expect_twin_report().times(6).returning(|_| Ok(()));
 
             // currently no way to explicitly wait for the spawned task
             // mock.expect_send_d2c_message().times(1).returning(|_| Ok(()));

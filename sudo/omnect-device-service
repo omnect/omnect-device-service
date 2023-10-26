@@ -1,6 +1,3 @@
-# write ssh authorized_key
-omnect_device_service ALL=(omnect) NOPASSWD: /usr/bin/tee /home/omnect/.ssh/authorized_keys
-
 # on reboot
 omnect_device_service ALL=(root) NOPASSWD: /bin/journalctl --sync
 

@@ -263,6 +263,7 @@ impl SshTunnel {
             args.tunnel_id.clone(),
             self.tx_outgoing_message.clone(),
             ssh_tunnel_permit,
+            ssh_creds,
         ));
 
         if let Err(err) = Self::await_tunnel_creation(stdout).await {
@@ -319,6 +320,7 @@ impl SshTunnel {
             ]) // create a reverse proxy on bastion host as a unix socket at `socket_path`
             .args([&format!("{}@{}", bastion_config.user, bastion_config.host)])
             .args(["-p", &format!("{}", bastion_config.port)])
+            .args(["-o", "PreferredAuthentications=publickey"]) // enforce cert-based authentication
             .args(["-o", "ExitOnForwardFailure=yes"]) // ensure ssh terminates if anything goes south
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
             .args(["-o", "UserKnownHostsFile=/dev/null"])
@@ -350,6 +352,7 @@ impl SshTunnel {
         tunnel_id: String,
         tx_outgoing_message: Sender<IotMessage>,
         _ssh_tunnel_permit: OwnedSemaphorePermit, // take ownership of the permit to drop semaphore once channel closes
+        _ssh_creds: SshCredentialsGuard,
     ) {
         let output = match ssh_process.wait_with_output().await {
             Ok(output) => output,
