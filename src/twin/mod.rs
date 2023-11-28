@@ -3,6 +3,7 @@ mod factory_reset;
 #[cfg(feature = "mock")]
 #[path = "mod_test.rs"]
 mod mod_test;
+mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
@@ -11,8 +12,9 @@ use super::systemd;
 use super::update_validation;
 use crate::systemd::WatchdogManager;
 use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-    reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
+    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
+    wifi_commissioning::WifiCommissioning,
 };
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -20,7 +22,7 @@ use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -44,6 +46,7 @@ use tokio::{
 enum TwinFeature {
     FactoryReset,
     DeviceUpdateConsent,
+    ModemInfo,
     NetworkStatus,
     SshTunnel,
 }
@@ -90,9 +93,50 @@ pub struct Twin {
 }
 
 impl Twin {
-    pub fn new(client: Box<dyn IotHub>) -> Self {
+    pub async fn new(client: Box<dyn IotHub>) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+
+        let mut features = HashMap::from([
+            (
+                TypeId::of::<DeviceUpdateConsent>(),
+                Box::new(DeviceUpdateConsent::new(tx_reported_properties.clone()))
+                    as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<FactoryReset>(),
+                Box::new(FactoryReset::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<NetworkStatus>(),
+                Box::new(NetworkStatus::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<Reboot>(),
+                Box::<Reboot>::default() as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<SshTunnel>(),
+                Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<WifiCommissioning>(),
+                Box::<WifiCommissioning>::default() as Box<dyn Feature>,
+            ),
+        ]);
+
+        let modem_info_feature = ModemInfo::new(tx_reported_properties.clone()).await;
+        match modem_info_feature {
+            Ok(modem_info_feature) => {
+                features.insert(
+                    TypeId::of::<ModemInfo>(),
+                    Box::new(modem_info_feature) as Box<dyn Feature>,
+                );
+            }
+            Err(err) => {
+                warn!("could not setup modem info feature: {err}");
+            }
+        };
 
         Twin {
             iothub_client: client,
@@ -100,33 +144,7 @@ impl Twin {
             rx_reported_properties,
             rx_outgoing_message,
             authenticated_once: false,
-            features: HashMap::from([
-                (
-                    TypeId::of::<DeviceUpdateConsent>(),
-                    Box::new(DeviceUpdateConsent::new(tx_reported_properties.clone()))
-                        as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<FactoryReset>(),
-                    Box::new(FactoryReset::new(tx_reported_properties.clone())) as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<NetworkStatus>(),
-                    Box::new(NetworkStatus::new(tx_reported_properties)) as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<Reboot>(),
-                    Box::<Reboot>::default() as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<SshTunnel>(),
-                    Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<WifiCommissioning>(),
-                    Box::<WifiCommissioning>::default() as Box<dyn Feature>,
-                ),
-            ]),
+            features,
         }
     }
 
@@ -296,6 +314,7 @@ impl Twin {
                     .await
             }
             "user_consent" => self.feature::<DeviceUpdateConsent>()?.user_consent(payload),
+            "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
             "refresh_network_status" => {
                 self.feature::<NetworkStatus>()?
                     .refresh_network_status()
@@ -349,7 +368,7 @@ impl Twin {
             )?,
         };
 
-        let mut twin = Self::new(client);
+        let mut twin = Self::new(client).await;
         let handle = signals.handle();
 
         loop {
