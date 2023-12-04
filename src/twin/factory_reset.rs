@@ -5,7 +5,7 @@ use super::super::systemd;
 use super::Feature;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use lazy_static::{__Deref, lazy_static};
+use lazy_static::lazy_static;
 use log::{error, info, warn};
 use serde_json::json;
 use std::{any::Any, collections::HashMap, env};
@@ -77,7 +77,7 @@ impl FactoryReset {
 
                 while let Some(s) = settings.pop() {
                     if SETTINGS_MAP.contains_key(s) {
-                        paths.push(SETTINGS_MAP.get(s).unwrap().deref());
+                        paths.push(*SETTINGS_MAP.get(s).unwrap());
                     } else {
                         anyhow::bail!("unknown restore setting received");
                     }
