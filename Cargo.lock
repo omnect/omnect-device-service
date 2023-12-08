@@ -726,7 +726,7 @@ dependencies = [
  "aziot-key-common-http",
  "aziot-keyd-config",
  "base64 0.13.1",
- "env_logger",
+ "env_logger 0.8.4",
  "http-common",
  "hyper",
  "hyper-timeout",
@@ -783,6 +783,19 @@ checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
 dependencies = [
  "atty",
  "humantime",
+ "log",
+ "regex",
+ "termcolor",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95b3f3e67048839cb0d0781f445682a35113da7121f7c949db0e2be96a4fbece"
+dependencies = [
+ "humantime",
+ "is-terminal",
  "log",
  "regex",
  "termcolor",
@@ -1402,6 +1415,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "is-terminal"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb0889898416213fab133e1d33a0e5858a48177452750691bde3666d0fdbaf8b"
+dependencies = [
+ "hermit-abi 0.3.3",
+ "rustix 0.38.26",
+ "windows-sys 0.48.0",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1721,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.14.9"
+version = "0.14.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1729,7 +1753,7 @@ dependencies = [
  "cp_r",
  "dotenvy",
  "enum_dispatch",
- "env_logger",
+ "env_logger 0.10.1",
  "futures",
  "futures-executor",
  "futures-util",
