@@ -5,20 +5,34 @@ pub mod twin;
 pub mod update_validation;
 
 use azure_iot_sdk::client::*;
-use env_logger::{Builder, Env};
+use env_logger::{Builder, Env, Target};
 use log::{error, info};
+use std::io::Write;
 use std::process;
 use twin::Twin;
 
 #[tokio::main]
 async fn main() {
+    let mut builder;
     log_panics::init();
 
     if cfg!(debug_assertions) {
-        Builder::from_env(Env::default().default_filter_or("debug")).init();
+        builder = Builder::from_env(Env::default().default_filter_or("debug"));
     } else {
-        Builder::from_env(Env::default().default_filter_or("info")).init();
+        builder = Builder::from_env(Env::default().default_filter_or("info"));
     }
+
+    builder.format(|buf, record| match record.level() {
+        log::Level::Info => writeln!(buf, "<6>{}: {}", record.target(), record.args()),
+        log::Level::Warn => writeln!(buf, "<4>{}: {}", record.target(), record.args()),
+        log::Level::Error => {
+            eprintln!("<3>{}: {}", record.target(), record.args());
+            Ok(())
+        }
+        _ => writeln!(buf, "<7>{}: {}", record.target(), record.args()),
+    });
+
+    builder.target(Target::Stdout).init();
 
     info!(
         "module version: {} ({})",
