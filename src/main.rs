@@ -22,15 +22,16 @@ async fn main() {
         builder = Builder::from_env(Env::default().default_filter_or("info"));
     }
 
-    builder.format(|buf, record| {
-        let level = match record.level() {
-            log::Level::Info => 6,
-            log::Level::Warn => 4,
-            log::Level::Error => 3,
-            _ => 7,
-        };
-        writeln!(buf, "<{level}>{}: {}", record.target(), record.args())
+    builder.format(|buf, record| match record.level() {
+        log::Level::Info => writeln!(buf, "<6>{}: {}", record.target(), record.args()),
+        log::Level::Warn => writeln!(buf, "<4>{}: {}", record.target(), record.args()),
+        log::Level::Error => {
+            eprintln!("<3>{}: {}", record.target(), record.args());
+            Ok(())
+        }
+        _ => writeln!(buf, "<7>{}: {}", record.target(), record.args()),
     });
+
     builder.target(Target::Stdout).init();
 
     info!(
