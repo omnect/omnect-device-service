@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "git@github.com:omnect/omnect-device-service.git"
-version = "0.14.10"
+version = "0.14.11"
 
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.5", features = [
+azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.6", features = [
    "module_client",
 ] }
 dotenvy = "0.15"
