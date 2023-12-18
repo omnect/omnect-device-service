@@ -51,15 +51,14 @@ async fn finalize() -> Result<()> {
 
 pub async fn check() -> Result<()> {
     if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
-        let val = validate().await;
-        if val.is_err() {
+        if let Err(e) = validate().await {
             systemd::reboot().await?;
-            bail!("validate error: {:#?}", val.err());
+            bail!("validate error: {e:#}");
         }
-        let fin = finalize().await;
-        if fin.is_err() {
+
+        if let Err(e) = finalize().await {
             systemd::reboot().await?;
-            bail!("finalize error: {:#?}", fin.err());
+            bail!("finalize error: {e:#}");
         }
     } else {
         info!("no update to be validated")
