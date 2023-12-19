@@ -82,7 +82,7 @@ impl NetworkStatus {
             .iter()
             .filter(|e| {
                 if !e.is_string() {
-                    error!("unexpected format in desired include_network_filter. ignore: {e:#?}");
+                    error!("unexpected format in desired include_network_filter. ignore: {e:#}");
                 }
                 e.is_string()
             })

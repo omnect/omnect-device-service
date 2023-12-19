@@ -145,13 +145,11 @@ impl DeviceUpdateConsent {
                     if ev.kind == DebouncedEventKind::Any {
                         block_on(async { Self::report_user_consent(&tx, &ev.path).await })
                             .unwrap_or_else(|e| {
-                                error!("observe_consent: twin report user consent: {e:#?}")
+                                error!("observe_consent: twin report user consent: {e:#}")
                             });
                     }
                 }),
-                Err(errors) => errors
-                    .iter()
-                    .for_each(|e| error!("observe_consent: {:?}", e)),
+                Err(errors) => errors.iter().for_each(|e| error!("observe_consent: {e:#}")),
             },
         )?;
 

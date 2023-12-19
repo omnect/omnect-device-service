@@ -362,7 +362,7 @@ impl Twin {
                 },
                 desired = rx_twin_desired.recv() => {
                     let (state, desired) = desired.unwrap();
-                    twin.handle_desired(state, desired).await.unwrap_or_else(|e| error!("twin update desired properties: {e:#?}"));
+                    twin.handle_desired(state, desired).await.unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
                 },
                 reported = twin.rx_reported_properties.recv() => {
                     twin.iothub_client.twin_report(reported.unwrap())?
