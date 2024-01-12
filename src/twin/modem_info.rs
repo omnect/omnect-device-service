@@ -149,7 +149,7 @@ impl ModemInfo {
         })
     }
 
-    pub async fn refresh_modem_info_status(&self) -> Result<Option<serde_json::Value>> {
+    pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
         info!("modem info status requested");
 
         self.ensure()?;
