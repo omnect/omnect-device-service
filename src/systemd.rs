@@ -17,41 +17,65 @@ pub fn notify_ready() {
     });
 }
 
+pub struct WatchdogSettings {
+    micros: u64,
+    now: Instant,
+}
+
 #[derive(Default)]
 pub struct WatchdogHandler {
-    usec: u64,
-    now: Option<Instant>,
+    settings: Option<WatchdogSettings>,
 }
 
 impl WatchdogHandler {
     pub fn new() -> Self {
-        let mut usec = u64::MAX;
-        let mut now = None;
+        let mut micros = u64::MAX;
+        let mut settings = None;
 
-        if sd_notify::watchdog_enabled(false, &mut usec) {
-            usec /= 2;
-            now = Some(Instant::now());
+        if sd_notify::watchdog_enabled(false, &mut micros) {
+            micros /= 2;
+            settings = Some(WatchdogSettings {
+                micros,
+                now: Instant::now(),
+            });
+
+            info!("watchdog is enabled with interval: {micros}µs");
         }
 
-        info!(
-            "watchdog settings: enabled: {} interval: {}µs",
-            now.is_some(),
-            usec
-        );
+        info!("watchdog is disabled");
 
-        WatchdogHandler { usec, now }
+        WatchdogHandler { settings }
     }
 
     pub fn notify(&mut self) -> Result<()> {
-        if let Some(ref mut now) = self.now {
-            if u128::from(self.usec) < now.elapsed().as_micros() {
+        if let Some(ref mut settings) = self.settings {
+            if u128::from(settings.micros) < settings.now.elapsed().as_micros() {
                 trace!("notify watchdog=1");
                 sd_notify::notify(false, &[NotifyState::Watchdog])?;
-                *now = Instant::now();
+                settings.now = Instant::now();
             }
         }
 
         Ok(())
+    }
+
+    pub fn interval(&mut self, micros: u128) -> Result<Option<u64>> {
+        let mut old_micros = None;
+        if let Some(ref mut settings) = self.settings {
+            old_micros = Some(settings.micros);
+            sd_notify::notify(
+                false,
+                &[NotifyState::WatchdogUsec(
+                    u32::try_from(micros).context("casting interval to u32 failed")?,
+                )],
+            )
+            .context("failed to set interval")?;
+
+            settings.micros = u64::try_from(micros).context("casting interval to u64 failed")?;
+            self.notify()?;
+        }
+
+        Ok(old_micros)
     }
 }
 

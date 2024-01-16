@@ -25,7 +25,8 @@
       "env": {
         "RUST_BACKTRACE": "1",
         "CONSENT_DIR_PATH": "${workspaceFolder}/testfiles/positive",
-        "RUST_LOG": "debug"
+        "RUST_LOG": "debug",
+        "AZURE_SDK_DO_WORK_FREQUENCY_IN_MS": "10"
       }
     },
     {

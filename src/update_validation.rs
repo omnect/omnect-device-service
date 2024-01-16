@@ -2,9 +2,10 @@ use super::bootloader_env::bootloader_env::{
     bootloader_env, set_bootloader_env, unset_bootloader_env,
 };
 use super::systemd;
+use crate::systemd::WatchdogHandler;
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, info};
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Duration};
 
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
@@ -49,8 +50,12 @@ async fn finalize() -> Result<()> {
     Ok(())
 }
 
-pub async fn check() -> Result<()> {
+pub async fn check(wdt: &mut WatchdogHandler) -> Result<()> {
     if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
+        // prolong watchdog interval for update validation phase
+        let secs = Duration::from_secs(90);
+        let micros = wdt.interval(secs.as_micros())?;
+
         if let Err(e) = validate().await {
             systemd::reboot().await?;
             bail!("validate error: {e:#}");
@@ -59,6 +64,10 @@ pub async fn check() -> Result<()> {
         if let Err(e) = finalize().await {
             systemd::reboot().await?;
             bail!("finalize error: {e:#}");
+        }
+
+        if let Some(micros) = micros {
+            let _ = wdt.interval(micros.into())?;
         }
     } else {
         info!("no update to be validated")

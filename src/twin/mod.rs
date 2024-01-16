@@ -209,7 +209,11 @@ impl Twin {
         Ok(feature)
     }
 
-    async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
+    async fn handle_connection_status(
+        &mut self,
+        auth_status: AuthenticationStatus,
+        wdt: &mut WatchdogHandler,
+    ) -> Result<()> {
         info!("auth_status: {auth_status:#?}");
 
         match auth_status {
@@ -223,7 +227,7 @@ impl Twin {
                      */
 
                     systemd::notify_ready();
-                    update_validated = update_validation::check().await;
+                    update_validated = update_validation::check(wdt).await;
 
                     self.init().await?;
 
@@ -358,7 +362,7 @@ impl Twin {
                     return Ok(())
                 },
                 status = rx_connection_status.recv() => {
-                    twin.handle_connection_status(status.unwrap()).await?;
+                    twin.handle_connection_status(status.unwrap(), &mut wdt).await?;
                 },
                 desired = rx_twin_desired.recv() => {
                     let (state, desired) = desired.unwrap();
