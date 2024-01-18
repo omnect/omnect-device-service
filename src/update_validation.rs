@@ -53,13 +53,13 @@ async fn finalize() -> Result<()> {
 pub async fn check() -> Result<()> {
     print_wdt_usec_from_env();
     let secs = Duration::from_secs(90);
-    let micros = watchdog_interval(secs.as_micros())?;
+    let _micros = watchdog_interval(secs.as_micros())?;
     std::thread::sleep(Duration::from_secs(5));
     print_wdt_usec_from_env();
-    if let Some(micros) = micros {
+/*     if let Some(micros) = micros {
         let _ = watchdog_interval(micros.into())?;
     }
-    print_wdt_usec_from_env();
+    print_wdt_usec_from_env(); */
 
     if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
         // prolong watchdog interval for update validation phase
