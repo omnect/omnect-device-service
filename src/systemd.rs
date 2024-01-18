@@ -67,15 +67,17 @@ impl WatchdogManager {
     }
 
     pub fn interval(micros: u128) -> Result<Option<u64>> {
-        debug!("set interval {micros}µs");
+        info!("set interval {micros}µs");
 
         let mut old_micros = None;
         let micros = u32::try_from(micros).context("casting interval to u32 failed")?;
         let mut settings = WATCHDOG_MANAGER.get().unwrap().lock().unwrap();
 
+        // notify new interval
         sd_notify::notify(false, &[NotifyState::WatchdogUsec(micros)])
             .context("failed to set interval")?;
 
+        // better trigger an extra notify after interval was changed 
         sd_notify::notify(false, &[NotifyState::Watchdog])
             .context("failed to notify after setting interval")?;
 

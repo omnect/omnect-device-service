@@ -346,10 +346,17 @@ impl Twin {
         let mut twin = Self::new(client);
         let handle = signals.handle();
 
+        let mut test_secs = 40;
+
         loop {
             select! (
                 _ = sd_notify_interval.tick() => {
                     WatchdogManager::notify()?;
+                    //
+                    WatchdogManager::interval(Duration::from_secs(test_secs).as_micros())?;
+                    if test_secs == 40{test_secs = 30;
+                    }else{test_secs=40;}
+                    //
                 },
                 _ = signals.next() => {
                     handle.close();
