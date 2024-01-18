@@ -9,12 +9,10 @@ mod ssh_tunnel;
 mod wifi_commissioning;
 use super::systemd;
 use super::update_validation;
-use crate::{
-    systemd::WatchdogHandler,
-    twin::{
-        consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-        reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
-    },
+use crate::systemd::{watchdog_init, watchdog_notify};
+use crate::twin::{
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
+    reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
 };
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
@@ -209,11 +207,7 @@ impl Twin {
         Ok(feature)
     }
 
-    async fn handle_connection_status(
-        &mut self,
-        auth_status: AuthenticationStatus,
-        wdt: &mut WatchdogHandler,
-    ) -> Result<()> {
+    async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
         info!("auth_status: {auth_status:#?}");
 
         match auth_status {
@@ -226,8 +220,8 @@ impl Twin {
                      * omnect-device-service already notified its own success
                      */
 
-                    systemd::notify_ready();
-                    update_validated = update_validation::check(wdt).await;
+                    systemd::sd_notify_ready();
+                    update_validated = update_validation::check().await;
 
                     self.init().await?;
 
@@ -321,7 +315,8 @@ impl Twin {
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
         let mut sd_notify_interval = interval(Duration::from_secs(10));
-        let mut wdt = WatchdogHandler::new();
+
+        watchdog_init();
 
         let client = match IotHubClient::client_type() {
             _ if connection_string.is_some() => IotHubClient::from_connection_string(
@@ -354,7 +349,7 @@ impl Twin {
         loop {
             select! (
                 _ = sd_notify_interval.tick() => {
-                    wdt.notify()?;
+                    watchdog_notify()?;
                 },
                 _ = signals.next() => {
                     handle.close();
@@ -362,7 +357,7 @@ impl Twin {
                     return Ok(())
                 },
                 status = rx_connection_status.recv() => {
-                    twin.handle_connection_status(status.unwrap(), &mut wdt).await?;
+                    twin.handle_connection_status(status.unwrap()).await?;
                 },
                 desired = rx_twin_desired.recv() => {
                     let (state, desired) = desired.unwrap();
