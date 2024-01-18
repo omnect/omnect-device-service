@@ -32,7 +32,12 @@ pub fn watchdog_notify() -> Result<()> {
 }
 
 pub fn watchdog_interval(micros: u128) -> Result<Option<u64>> {
-    WATCHDOG_MANAGER.get().unwrap().lock().unwrap().interval(micros)
+    WATCHDOG_MANAGER
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .interval(micros)
 }
 
 struct WatchdogSettings {
@@ -53,7 +58,6 @@ impl WatchdogManager {
         if sd_notify::watchdog_enabled(false, &mut micros) {
             info!("watchdog is enabled with interval: {micros}µs");
 
-            micros /= 2;
             settings = Some(WatchdogSettings {
                 micros,
                 now: Instant::now(),
@@ -67,7 +71,8 @@ impl WatchdogManager {
 
     fn notify(&mut self) -> Result<()> {
         if let Some(ref mut settings) = self.settings {
-            if u128::from(settings.micros) < settings.now.elapsed().as_micros() {
+            // check if at least half of interval elapsed
+            if u128::from(settings.micros / 2) < settings.now.elapsed().as_micros() {
                 trace!("notify watchdog=1");
                 sd_notify::notify(false, &[NotifyState::Watchdog]).context("failed to notify")?;
                 settings.now = Instant::now();
@@ -83,7 +88,7 @@ impl WatchdogManager {
         let mut old_micros = None;
         let micros = u32::try_from(micros).context("casting interval to u32 failed")?;
 
-        sd_notify::notify(false, &[NotifyState::WatchdogUsec(micros)])
+        sd_notify::notify(true, &[NotifyState::WatchdogUsec(micros)])
             .context("failed to set interval")?;
 
         sd_notify::notify(false, &[NotifyState::Watchdog])
