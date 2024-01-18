@@ -2,7 +2,7 @@ use super::bootloader_env::bootloader_env::{
     bootloader_env, set_bootloader_env, unset_bootloader_env,
 };
 use super::systemd;
-use crate::systemd::watchdog_interval;
+use crate::systemd::WatchdogManager;
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, info};
 use std::{fs, path::Path, time::Duration};
@@ -51,20 +51,10 @@ async fn finalize() -> Result<()> {
 }
 
 pub async fn check() -> Result<()> {
-    print_wdt_usec_from_env();
-    let secs = Duration::from_secs(90);
-    let _micros = watchdog_interval(secs.as_micros())?;
-    std::thread::sleep(Duration::from_secs(5));
-    print_wdt_usec_from_env();
-/*     if let Some(micros) = micros {
-        let _ = watchdog_interval(micros.into())?;
-    }
-    print_wdt_usec_from_env(); */
-
     if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
         // prolong watchdog interval for update validation phase
         let secs = Duration::from_secs(90);
-        let micros = watchdog_interval(secs.as_micros())?;
+        let micros = WatchdogManager::interval(secs.as_micros())?;
 
         if let Err(e) = validate().await {
             systemd::reboot().await?;
@@ -77,17 +67,11 @@ pub async fn check() -> Result<()> {
         }
 
         if let Some(micros) = micros {
-            let _ = watchdog_interval(micros.into())?;
+            let _ = WatchdogManager::interval(micros.into())?;
         }
     } else {
         info!("no update to be validated")
     }
 
     Ok(())
-}
-
-fn print_wdt_usec_from_env() {
-    if let Ok(usec) = std::env::var("WATCHDOG_USEC") {
-        debug!("wdt_usec_from_env: {usec}");
-    }
 }

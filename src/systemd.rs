@@ -12,32 +12,14 @@ use std::{
 use systemd_zbus::{ManagerProxy, Mode};
 use tokio::time::{timeout_at, Instant};
 
-static SD_NOTIFY_ONCE: Once = Once::new();
+static WATCHDOG_MANAGER: OnceLock<Mutex<Option<WatchdogSettings>>> = OnceLock::new();
 
 pub fn sd_notify_ready() {
+    static SD_NOTIFY_ONCE: Once = Once::new();
     SD_NOTIFY_ONCE.call_once(|| {
         info!("notify ready=1");
         let _ = sd_notify::notify(false, &[NotifyState::Ready]);
     });
-}
-
-static WATCHDOG_MANAGER: OnceLock<Mutex<WatchdogManager>> = OnceLock::new();
-
-pub fn watchdog_init() {
-    WATCHDOG_MANAGER.get_or_init(|| Mutex::new(WatchdogManager::new()));
-}
-
-pub fn watchdog_notify() -> Result<()> {
-    WATCHDOG_MANAGER.get().unwrap().lock().unwrap().notify()
-}
-
-pub fn watchdog_interval(micros: u128) -> Result<Option<u64>> {
-    WATCHDOG_MANAGER
-        .get()
-        .unwrap()
-        .lock()
-        .unwrap()
-        .interval(micros)
 }
 
 struct WatchdogSettings {
@@ -45,32 +27,34 @@ struct WatchdogSettings {
     now: Instant,
 }
 
-#[derive(Default)]
-struct WatchdogManager {
-    settings: Option<WatchdogSettings>,
-}
+pub struct WatchdogManager {}
 
 impl WatchdogManager {
-    fn new() -> Self {
+    pub fn init() {
         let mut micros = u64::MAX;
-        let mut settings = None;
+        let mut settings = WATCHDOG_MANAGER
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap();
 
-        if sd_notify::watchdog_enabled(false, &mut micros) {
-            info!("watchdog is enabled with interval: {micros}µs");
+        if settings.is_none() {
+            if sd_notify::watchdog_enabled(false, &mut micros) {
+                info!("watchdog is enabled with interval: {micros}µs");
 
-            settings = Some(WatchdogSettings {
-                micros,
-                now: Instant::now(),
-            });
-        } else {
-            info!("watchdog is disabled");
+                *settings = Some(WatchdogSettings {
+                    micros,
+                    now: Instant::now(),
+                });
+            } else {
+                info!("watchdog is disabled");
+            }
         }
-
-        WatchdogManager { settings }
     }
 
-    fn notify(&mut self) -> Result<()> {
-        if let Some(ref mut settings) = self.settings {
+    pub fn notify() -> Result<()> {
+        let mut settings = WATCHDOG_MANAGER.get().unwrap().lock().unwrap();
+
+        if let Some(settings) = settings.as_mut() {
             // check if at least half of interval elapsed
             if u128::from(settings.micros / 2) < settings.now.elapsed().as_micros() {
                 trace!("notify watchdog=1");
@@ -82,24 +66,25 @@ impl WatchdogManager {
         Ok(())
     }
 
-    fn interval(&mut self, micros: u128) -> Result<Option<u64>> {
+    pub fn interval(micros: u128) -> Result<Option<u64>> {
         debug!("set interval {micros}µs");
 
         let mut old_micros = None;
         let micros = u32::try_from(micros).context("casting interval to u32 failed")?;
+        let mut settings = WATCHDOG_MANAGER.get().unwrap().lock().unwrap();
 
-        sd_notify::notify(true, &[NotifyState::WatchdogUsec(micros)])
+        sd_notify::notify(false, &[NotifyState::WatchdogUsec(micros)])
             .context("failed to set interval")?;
 
         sd_notify::notify(false, &[NotifyState::Watchdog])
             .context("failed to notify after setting interval")?;
 
-        if let Some(ref mut settings) = self.settings {
+        if let Some(settings) = settings.as_mut() {
             old_micros = Some(settings.micros);
             settings.micros = micros.into();
             settings.now = Instant::now();
         } else {
-            self.settings = Some(WatchdogSettings {
+            *settings = Some(WatchdogSettings {
                 micros: micros.into(),
                 now: Instant::now(),
             })

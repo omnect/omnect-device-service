@@ -9,7 +9,7 @@ mod ssh_tunnel;
 mod wifi_commissioning;
 use super::systemd;
 use super::update_validation;
-use crate::systemd::{watchdog_init, watchdog_notify};
+use crate::systemd::WatchdogManager;
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
     reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
@@ -316,7 +316,7 @@ impl Twin {
         let mut signals = Signals::new(TERM_SIGNALS)?;
         let mut sd_notify_interval = interval(Duration::from_secs(10));
 
-        watchdog_init();
+        WatchdogManager::init();
 
         let client = match IotHubClient::client_type() {
             _ if connection_string.is_some() => IotHubClient::from_connection_string(
@@ -349,7 +349,7 @@ impl Twin {
         loop {
             select! (
                 _ = sd_notify_interval.tick() => {
-                    watchdog_notify()?;
+                    WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
                     handle.close();
