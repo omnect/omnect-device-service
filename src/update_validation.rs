@@ -51,8 +51,18 @@ async fn finalize() -> Result<()> {
 }
 
 pub async fn check(wdt: &mut WatchdogHandler) -> Result<()> {
+    print_wdt_usec_from_env();
+    let secs = Duration::from_secs(90);
+    let micros = wdt.interval(secs.as_micros())?;
+    std::thread::sleep(Duration::from_secs(5));
+    print_wdt_usec_from_env();
+    if let Some(micros) = micros {
+        let _ = wdt.interval(micros.into())?;
+    }
+    print_wdt_usec_from_env();
+
+
     if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
-        print_wdt_usec_from_env();
         // prolong watchdog interval for update validation phase
         let secs = Duration::from_secs(90);
         let micros = wdt.interval(secs.as_micros())?;
@@ -66,12 +76,10 @@ pub async fn check(wdt: &mut WatchdogHandler) -> Result<()> {
             systemd::reboot().await?;
             bail!("finalize error: {e:#}");
         }
-        print_wdt_usec_from_env();
 
         if let Some(micros) = micros {
             let _ = wdt.interval(micros.into())?;
         }
-        print_wdt_usec_from_env();
     } else {
         info!("no update to be validated")
     }
