@@ -20,6 +20,7 @@ use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
+use log::debug;
 use log::{error, info};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
@@ -319,6 +320,7 @@ impl Twin {
 
         let mut sd_notify_interval = if let Some(micros) = WatchdogManager::init() {
             let micros = micros / 2;
+            debug!("trigger watchdog interval: {micros}µs");
             Some(interval(Duration::from_micros(micros)))
         } else {
             None
@@ -352,10 +354,14 @@ impl Twin {
         let mut twin = Self::new(client);
         let handle = signals.handle();
 
+        let mut next_interval = 60;
+
         loop {
             select! (
                 _ =  notify_some_interval(&mut sd_notify_interval) => {
                     WatchdogManager::notify()?;
+                    debug!("notifyyyyyyyyyyyyyy");
+                    next_interval = WatchdogManager::interval(Duration::from_secs(next_interval).as_micros()).unwrap().unwrap();
                 },
                 _ = signals.next() => {
                     handle.close();

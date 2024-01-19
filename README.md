@@ -4,7 +4,9 @@
 This module serves as interface between omnect cloud and device to support certain end to end workflows:
 
 - [omnect-device-service](#omnect-device-service)
-  - [Instruction](#instruction)
+  - [Configuration](#configuration)
+    - [Update validation time](#update-validation-time)
+    - [azure-iot-sdk](#azure-iot-sdk)
   - [Factory reset](#factory-reset)
     - [Feature availability](#feature-availability)
     - [Trigger factory reset](#trigger-factory-reset)
@@ -22,12 +24,11 @@ This module serves as interface between omnect cloud and device to support certa
     - [Current reported network status](#current-reported-network-status)
     - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
     - [Refresh Network status](#refresh-network-status)
-  - [SSH Tunnel](#ssh-tunnel)
+  - [SSH Tunnel handling](#ssh-tunnel-handling)
     - [Feature availability](#feature-availability-4)
-    - [SSH tunnel status](#ssh-tunnel-status)
     - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
-    - [Opening the SSH Tunnel](#open-ssh-tunnel)
-    - [Closing the SSH Tunnel](#close-ssh-tunnel)
+    - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
+    - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
   - [Wifi commissioning service](#wifi-commissioning-service)
     - [Feature availability](#feature-availability-5)
   - [Update validation](#update-validation)
@@ -37,8 +38,15 @@ This module serves as interface between omnect cloud and device to support certa
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
-## Instruction
-This module is based on omnect [iot-client-template-rs](https://github.com/omnect/iot-client-template-rs). All information you need to build the project can be found there.
+## Configuration
+
+### Update validation time
+
+Configure the environment variable `UPDATE_VALIDATION_TIME_IN_S` in order to set number of seconds the update validation might take. This value is taken to prolong the watchdog interval for the update validation phase. The value defaults to 90s in case not set.
+
+### azure-iot-sdk
+
+Runtime configuration options of the underlying azure-iot-sdk crate can be found [there]([README.md](https://github.com/omnect/azure-iot-sdk/blob/main/README.md)).
 
 ## Factory reset
 The module itself does not perform a factory reset.

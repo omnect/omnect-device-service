@@ -4,14 +4,16 @@ use super::bootloader_env::bootloader_env::{
 use super::systemd;
 use crate::systemd::WatchdogManager;
 use anyhow::{bail, ensure, Context, Result};
-use log::{debug, info};
-use std::{fs, path::Path, time::Duration};
+use log::{debug, error, info};
+use std::{env, fs, path::Path, time::Duration};
 
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 // ToDo refine configuration for that, e.g as env/config value in /etc/omnect/omnect-device-service.env
 static IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC: u64 = 60;
 static SYSTEM_IS_RUNNING_TIMEOUT_SEC: u64 = 300;
+static DEFAULT_UPDATE_VALIDATION_TIME_IN_S: u64 = 90;
+static ENV_UPDATE_VALIDATION_TIME: &str = "UPDATE_VALIDATION_TIME_IN_S";
 
 async fn validate() -> Result<()> {
     debug!("update validation started");
@@ -53,8 +55,24 @@ async fn finalize() -> Result<()> {
 pub async fn check() -> Result<()> {
     if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
         // prolong watchdog interval for update validation phase
-        let secs = Duration::from_secs(90);
-        let micros = WatchdogManager::interval(secs.as_micros())?;
+        let mut validation_secs = None;
+
+        if let Ok(secs) = env::var(ENV_UPDATE_VALIDATION_TIME) {
+            if let Ok(secs) = secs.parse::<u64>() {
+                validation_secs = Some(secs);
+                debug!("set update validation time to {secs}s")
+            }
+            else {
+                error!("cannot parse {ENV_UPDATE_VALIDATION_TIME}={secs}")
+            }
+        }
+
+        let validation_secs = validation_secs.unwrap_or_else(|| {
+            debug!("set default update validation timeout to {DEFAULT_UPDATE_VALIDATION_TIME_IN_S}s");
+            DEFAULT_UPDATE_VALIDATION_TIME_IN_S
+        });
+
+        let saved_interval_micros = WatchdogManager::interval(Duration::from_secs(validation_secs).as_micros())?;
 
         if let Err(e) = validate().await {
             systemd::reboot().await?;
@@ -66,7 +84,7 @@ pub async fn check() -> Result<()> {
             bail!("finalize error: {e:#}");
         }
 
-        if let Some(micros) = micros {
+        if let Some(micros) = saved_interval_micros {
             let _ = WatchdogManager::interval(micros.into())?;
         }
     } else {
