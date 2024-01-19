@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.14.13] Q1 2024
-- updated azure-iot-sdk to 0.11.7 to introduce configurable do_work frequency in azure-iot-sdk-c
+- updated azure-iot-sdk to 0.11.8 to introduce configurable do_work frequency and logging in azure-iot-sdk-c
 - prolonged watchdog interval to 90s while running update validation
 
 ## [0.14.12] Q4 2023
@@ -74,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.12.0] Q2 2023
 - added abstraction layer `bootloader_env` for uboot and grub
-  -> support for grub and uboot environment variables
+  support for grub and uboot environment variables
 - update validation: fixed bug where root partition was switched
   on update validation fail
 

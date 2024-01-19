@@ -30,14 +30,16 @@ struct WatchdogSettings {
 pub struct WatchdogManager {}
 
 impl WatchdogManager {
-    pub fn init() {
-        let mut micros = u64::MAX;
+    pub fn init() -> Option<u64> {
         let mut settings = WATCHDOG_MANAGER
             .get_or_init(|| Mutex::new(None))
             .lock()
             .unwrap();
 
-        if settings.is_none() {
+        if let Some(settings) = settings.as_ref() {
+            Some(settings.micros)
+        } else {
+            let mut micros = u64::MAX;
             if sd_notify::watchdog_enabled(false, &mut micros) {
                 info!("watchdog is enabled with interval: {micros}µs");
 
@@ -45,8 +47,10 @@ impl WatchdogManager {
                     micros,
                     now: Instant::now(),
                 });
+                Some(micros)
             } else {
                 info!("watchdog is disabled");
+                None
             }
         }
     }
@@ -77,7 +81,7 @@ impl WatchdogManager {
         sd_notify::notify(false, &[NotifyState::WatchdogUsec(micros)])
             .context("failed to set interval")?;
 
-        // better trigger an extra notify after interval was changed 
+        // better trigger an extra notify after interval was changed
         sd_notify::notify(false, &[NotifyState::Watchdog])
             .context("failed to notify after setting interval")?;
 

@@ -19,11 +19,12 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use log::{error, info};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
+use std::future::{pending, Future};
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
@@ -32,6 +33,7 @@ use std::{
 #[cfg(test)]
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
+use tokio::time::Interval;
 use tokio::{
     select,
     sync::mpsc,
@@ -314,9 +316,13 @@ impl Twin {
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
-        let mut sd_notify_interval = interval(Duration::from_secs(10));
 
-        WatchdogManager::init();
+        let mut sd_notify_interval = if let Some(micros) = WatchdogManager::init() {
+            let micros = micros / 2;
+            Some(interval(Duration::from_micros(micros)))
+        } else {
+            None
+        };
 
         let client = match IotHubClient::client_type() {
             _ if connection_string.is_some() => IotHubClient::from_connection_string(
@@ -348,7 +354,7 @@ impl Twin {
 
         loop {
             select! (
-                _ = sd_notify_interval.tick() => {
+                _ =  notify_some_interval(&mut sd_notify_interval) => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
@@ -378,5 +384,14 @@ impl Twin {
                 }
             );
         }
+    }
+}
+
+pub fn notify_some_interval(
+    interval: &mut Option<Interval>,
+) -> impl Future<Output = tokio::time::Instant> + '_ {
+    match interval.as_mut() {
+        Some(i) => i.tick().left_future(),
+        None => pending().right_future(),
     }
 }
