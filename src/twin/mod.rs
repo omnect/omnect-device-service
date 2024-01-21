@@ -20,25 +20,23 @@ use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
-use log::debug;
-use log::{error, info};
+use log::{debug, error, info};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
-use std::future::{pending, Future};
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
+    future::{pending, Future},
     path::Path,
 };
 #[cfg(test)]
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
-use tokio::time::Interval;
 use tokio::{
     select,
     sync::mpsc,
-    time::{interval, Duration},
+    time::{interval, Duration, Interval},
 };
 
 #[enum_dispatch]
@@ -354,14 +352,10 @@ impl Twin {
         let mut twin = Self::new(client);
         let handle = signals.handle();
 
-        let mut next_interval = Duration::from_secs(60).as_micros();
-
         loop {
             select! (
                 _ =  notify_some_interval(&mut sd_notify_interval) => {
                     WatchdogManager::notify()?;
-                    debug!("notifyyyyyyyyyyyyyy");
-                    next_interval = WatchdogManager::interval(next_interval).unwrap().unwrap() as u128;
                 },
                 _ = signals.next() => {
                     handle.close();
