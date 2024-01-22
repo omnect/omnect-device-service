@@ -5,7 +5,7 @@ This module serves as interface between omnect cloud and device to support certa
 
 - [omnect-device-service](#omnect-device-service)
   - [Configuration](#configuration)
-    - [Update validation time](#update-validation-time)
+    - [Log level](#log-level)
     - [azure-iot-sdk](#azure-iot-sdk)
   - [Factory reset](#factory-reset)
     - [Feature availability](#feature-availability)
@@ -40,9 +40,9 @@ This module serves as interface between omnect cloud and device to support certa
 
 ## Configuration
 
-### Update validation time
+### Log level
 
-Configure the environment variable `UPDATE_VALIDATION_TIME_IN_S` in order to set number of seconds the update validation might take. This value is taken to prolong the watchdog interval for the update validation phase. The value defaults to 90s in case not set.
+Use `RUST_LOG` environment variable in order to log level as described [here](https://docs.rs/env_logger/latest/env_logger/#enabling-logging).
 
 ### azure-iot-sdk
 
