@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.14.13] Q1 2024
 - updated azure-iot-sdk to 0.11.8 to introduce configurable do_work frequency and logging in azure-iot-sdk-c
-- prolonged watchdog interval to 90s while running update validation
+- prolonged watchdog interval while running update validation
 
 ## [0.14.12] Q4 2023
 - removed multiline error log messages to get a more compact view in the journal
@@ -73,8 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - updated to rust toolchain to v1.65
 
 ## [0.12.0] Q2 2023
-- added abstraction layer `bootloader_env` for uboot and grub
-  support for grub and uboot environment variables
+- added abstraction layer `bootloader_env` for uboot and grub to 
+  support environment variable handling
 - update validation: fixed bug where root partition was switched
   on update validation fail
 
