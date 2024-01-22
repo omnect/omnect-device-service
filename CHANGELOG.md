@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.14] Q1 2024
+- updated dependencies in order to fix audit warnings
+
 ## [0.14.13] Q1 2024
 - updated azure-iot-sdk to 0.11.8 to introduce configurable do_work frequency and logging in azure-iot-sdk-c
 - prolonged watchdog interval while running update validation
