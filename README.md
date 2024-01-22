@@ -42,11 +42,11 @@ This module serves as interface between omnect cloud and device to support certa
 
 ### Log level
 
-Use `RUST_LOG` environment variable in order to log level as described [here](https://docs.rs/env_logger/latest/env_logger/#enabling-logging).
+Use `RUST_LOG` environment variable in order to configure log level as described [here](https://docs.rs/env_logger/latest/env_logger/#enabling-logging).
 
 ### azure-iot-sdk
 
-Runtime configuration options of the underlying azure-iot-sdk crate can be found [there]([README.md](https://github.com/omnect/azure-iot-sdk/blob/main/README.md)).
+Runtime configuration options of the underlying azure-iot-sdk crate can be found [here]([README.md](https://github.com/omnect/azure-iot-sdk/blob/main/README.md)).
 
 ## Factory reset
 The module itself does not perform a factory reset.
