@@ -9,26 +9,25 @@ mod ssh_tunnel;
 mod wifi_commissioning;
 use super::systemd;
 use super::update_validation;
-use crate::{
-    systemd::WatchdogHandler,
-    twin::{
-        consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-        reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
-    },
+use crate::systemd::WatchdogManager;
+use crate::twin::{
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
+    reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
 };
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
-use futures_util::StreamExt;
-use log::{error, info};
+use futures_util::{FutureExt, StreamExt};
+use log::{debug, error, info};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
+    future::{pending, Future},
     path::Path,
 };
 #[cfg(test)]
@@ -37,7 +36,7 @@ use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{
     select,
     sync::mpsc,
-    time::{interval, Duration},
+    time::{interval, Duration, Interval},
 };
 
 #[enum_dispatch]
@@ -222,7 +221,7 @@ impl Twin {
                      * omnect-device-service already notified its own success
                      */
 
-                    systemd::notify_ready();
+                    systemd::sd_notify_ready();
                     update_validated = update_validation::check().await;
 
                     self.init().await?;
@@ -316,8 +315,14 @@ impl Twin {
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
-        let mut sd_notify_interval = interval(Duration::from_secs(10));
-        let mut wdt = WatchdogHandler::new();
+
+        let mut sd_notify_interval = if let Some(micros) = WatchdogManager::init() {
+            let micros = micros / 2;
+            debug!("trigger watchdog interval: {micros}µs");
+            Some(interval(Duration::from_micros(micros)))
+        } else {
+            None
+        };
 
         let client = match IotHubClient::client_type() {
             _ if connection_string.is_some() => IotHubClient::from_connection_string(
@@ -349,8 +354,8 @@ impl Twin {
 
         loop {
             select! (
-                _ = sd_notify_interval.tick() => {
-                    wdt.notify()?;
+                _ =  notify_some_interval(&mut sd_notify_interval) => {
+                    WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
                     handle.close();
@@ -379,5 +384,14 @@ impl Twin {
                 }
             );
         }
+    }
+}
+
+pub fn notify_some_interval(
+    interval: &mut Option<Interval>,
+) -> impl Future<Output = tokio::time::Instant> + '_ {
+    match interval.as_mut() {
+        Some(i) => i.tick().left_future(),
+        None => pending().right_future(),
     }
 }

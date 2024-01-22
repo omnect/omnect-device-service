@@ -5,40 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.14.12] Q4 2024
+## [0.14.13] Q1 2024
+- updated azure-iot-sdk to 0.11.8 to introduce configurable do_work frequency and logging in azure-iot-sdk-c
+- prolonged watchdog interval while running update validation
+
+## [0.14.12] Q4 2023
 - removed multiline error log messages to get a more compact view in the journal
 
-## [0.14.11] Q4 2024
+## [0.14.11] Q4 2023
 - updated azure-iot-sdk to 0.11.6
 
-## [0.14.10] Q4 2024
+## [0.14.10] Q4 2023
 - bumped env_logger to 0.10
 - logging: added sd-daemon logging priority prefixes to get different log levels in the journal
 
-## [0.14.9] Q4 2024
+## [0.14.9] Q4 2023
 - update rust toolchain to 1.74
 
-## [0.14.8] Q4 2024
+## [0.14.8] Q4 2023
 - fixed cargo.toml version
 
-## [0.14.7] Q4 2024
+## [0.14.7] Q4 2023
 - tests: fixed clippy warning
 
-## [0.14.6] Q4 2024
+## [0.14.6] Q4 2023
 - removed feature ssh_handling, ssh connection via ssh_tunnel still working
 - fixed an issue with ssh tunnels were certificates were deleted early
 - fixed ssh tunnel to enforce certificate based authentication
 
-## [0.14.5] Q4 2024
+## [0.14.5] Q4 2023
 - fixed passing of errors to direct methods results
 
-## [0.14.4] Q4 2024
+## [0.14.4] Q4 2023
 - ssh tunnel:
   - fixed error in tests
   - fixed error when sending device 2 cloud notifications by bumping azure-iot-sdk to 0.11.4
 - tests: fixed clippy warnings
 
-## [0.14.3] Q4 2024
+## [0.14.3] Q4 2023
 - reduced permissions for ssh keys and certificates
 
 ## [0.14.2] Q3 2023
@@ -69,8 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - updated to rust toolchain to v1.65
 
 ## [0.12.0] Q2 2023
-- added abstraction layer `bootloader_env` for uboot and grub
-  -> support for grub and uboot environment variables
+- added abstraction layer `bootloader_env` for uboot and grub to 
+  support environment variable handling
 - update validation: fixed bug where root partition was switched
   on update validation fail
 
