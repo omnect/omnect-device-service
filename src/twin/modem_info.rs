@@ -65,6 +65,7 @@ impl Feature for ModemInfo {
 
 impl ModemInfo {
     const MODEMMANAGER_BUS: &'static str = "org.freedesktop.ModemManager1";
+    const MODEMMANAGER_3GPP_BUS: &'static str = "org.freedesktop.ModemManager1.Modem3gpp";
     const MODEMMANAGER_PATH: &'static str = "/org/freedesktop/ModemManager1";
 
     const MODEM_INFO_VERSION: u8 = 1;
@@ -213,10 +214,20 @@ impl ModemInfo {
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
 
-        let modem_3gpp = self.modem_3gpp_proxy(modem_path).await;
+        let dbus = DBusProxy::new(&self.connection).await?;
+        let imei = if dbus
+            .list_names()
+            .await?
+            .into_iter()
+            .any(|elem| elem.as_str() == Self::MODEMMANAGER_3GPP_BUS)
+        {
+            let modem_3gpp = self.modem_3gpp_proxy(modem_path).await;
 
-        let imei = if let Ok(modem_3gpp) = modem_3gpp {
-            Some(modem_3gpp.imei().await?)
+            if let Ok(modem_3gpp) = modem_3gpp {
+                Some(modem_3gpp.imei().await?)
+            } else {
+                None
+            }
         } else {
             None
         };
