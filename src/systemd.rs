@@ -59,12 +59,9 @@ impl WatchdogManager {
         let mut settings = WATCHDOG_MANAGER.get().unwrap().lock().unwrap();
 
         if let Some(settings) = settings.as_mut() {
-            // check if at least half of interval elapsed
-            if u128::from(settings.micros / 2) < settings.now.elapsed().as_micros() {
-                trace!("notify watchdog=1");
-                sd_notify::notify(false, &[NotifyState::Watchdog]).context("failed to notify")?;
-                settings.now = Instant::now();
-            }
+            trace!("notify watchdog=1");
+            sd_notify::notify(false, &[NotifyState::Watchdog]).context("failed to notify")?;
+            settings.now = Instant::now();
         }
 
         Ok(())
