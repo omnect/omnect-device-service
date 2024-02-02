@@ -159,7 +159,7 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"modem_info":{"version":1}})))
+                .with(eq(json!({"modem_info":null})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -257,7 +257,7 @@ mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"modem_info":{"version":1}})))
+                .with(eq(json!({"modem_info":null})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -308,7 +308,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
@@ -466,7 +465,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -855,7 +853,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -932,7 +929,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -960,7 +956,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -988,7 +983,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             (
@@ -1037,7 +1031,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("TEST_FACTORY_RESET_RESULT", "unexpected_factory_reset_type"),
@@ -1083,7 +1076,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
         ];
@@ -1167,7 +1159,6 @@ mod mod_test {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];
@@ -1261,7 +1252,6 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_MODEM_INFO", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
         ];

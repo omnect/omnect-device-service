@@ -326,11 +326,6 @@ The availability of the feature is reported by the following module twin propert
 }
 ```
 
-The availability of the feature might be suppressed by creating the following environment variable:
-```
-SUPPRESS_MODEM_INFO=true
-```
-
 ### Current reported modem info
 
 The module reports the status of any attached modems. For this purpose the module sends this reported property to the cloud.

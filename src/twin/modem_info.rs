@@ -55,7 +55,10 @@ impl Feature for ModemInfo {
     }
 
     fn is_enabled(&self) -> bool {
-        env::var("SUPPRESS_MODEM_INFO") != Ok("true".to_string())
+        match env::var("DISTRO_FEATURES") {
+            Ok(features) => features.split_whitespace().any(|feature| feature == "3g"),
+            _ => false,
+        }
     }
 
     fn as_any(&self) -> &dyn Any {
