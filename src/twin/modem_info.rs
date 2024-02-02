@@ -6,7 +6,7 @@ use log::{debug, info};
 use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, OnceCell};
 use zbus::{
     fdo::{DBusProxy, ObjectManagerProxy},
     zvariant::OwnedObjectPath,
@@ -40,7 +40,7 @@ struct ModemReport {
 }
 
 pub struct ModemInfo {
-    connection: Connection,
+    connection: OnceCell<Connection>,
     tx_reported_properties: Sender<serde_json::Value>,
 }
 
@@ -74,8 +74,19 @@ impl ModemInfo {
     const MODEM_INFO_VERSION: u8 = 1;
     const ID: &'static str = "modem_info";
 
+    async fn connection(&self) -> Result<&Connection> {
+        self.connection
+            .get_or_try_init(|| async {
+                Connection::system()
+                    .await
+                    .with_context(|| "failed to setup connection".to_string())
+            })
+            .await
+    }
+
     async fn modem_paths(&self) -> Result<Vec<OwnedObjectPath>> {
-        let dbus = DBusProxy::new(&self.connection).await?;
+        let connection = self.connection().await?;
+        let dbus = DBusProxy::new(connection).await?;
 
         if !dbus
             .list_names()
@@ -86,7 +97,7 @@ impl ModemInfo {
             return Ok(vec![]);
         }
 
-        let managed_objects = ObjectManagerProxy::builder(&self.connection)
+        let managed_objects = ObjectManagerProxy::builder(connection)
             .destination(Self::MODEMMANAGER_BUS)?
             .path(Self::MODEMMANAGER_PATH)?
             .build()
@@ -101,7 +112,9 @@ impl ModemInfo {
         &self,
         bearer_path: &'a OwnedObjectPath,
     ) -> Result<bearer::BearerProxy<'a>> {
-        bearer::BearerProxy::builder(&self.connection)
+        let connection = self.connection().await?;
+
+        bearer::BearerProxy::builder(connection)
             .destination(Self::MODEMMANAGER_BUS)?
             .path(bearer_path)?
             .build()
@@ -110,7 +123,9 @@ impl ModemInfo {
     }
 
     async fn sim_proxy<'a>(&self, sim_path: &'a OwnedObjectPath) -> Result<sim::SimProxy<'a>> {
-        sim::SimProxy::builder(&self.connection)
+        let connection = self.connection().await?;
+
+        sim::SimProxy::builder(connection)
             .destination(Self::MODEMMANAGER_BUS)?
             .path(sim_path)?
             .build()
@@ -122,7 +137,9 @@ impl ModemInfo {
         &self,
         modem_path: &'a OwnedObjectPath,
     ) -> Result<modem::ModemProxy<'a>> {
-        modem::ModemProxy::builder(&self.connection)
+        let connection = self.connection().await?;
+
+        modem::ModemProxy::builder(connection)
             .destination(Self::MODEMMANAGER_BUS)?
             .path(modem_path)?
             .build()
@@ -134,7 +151,9 @@ impl ModemInfo {
         &self,
         modem_path: &'a OwnedObjectPath,
     ) -> Result<modem3gpp::Modem3gppProxy<'a>> {
-        modem3gpp::Modem3gppProxy::builder(&self.connection)
+        let connection = self.connection().await?;
+
+        modem3gpp::Modem3gppProxy::builder(connection)
             .destination(Self::MODEMMANAGER_BUS)?
             .path(modem_path)?
             .build()
@@ -142,15 +161,11 @@ impl ModemInfo {
             .map_err(|err| anyhow::anyhow!("failed to construct modem 3gpp proxy: {err}"))
     }
 
-    pub async fn new(tx_reported_properties: Sender<serde_json::Value>) -> Result<Self> {
-        let connection = Connection::system()
-            .await
-            .with_context(|| format!("failed to setup connection"))?;
-
-        Ok(ModemInfo {
-            connection,
+    pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
+        ModemInfo {
+            connection: OnceCell::new(),
             tx_reported_properties,
-        })
+        }
     }
 
     pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
@@ -217,7 +232,8 @@ impl ModemInfo {
         .into_iter()
         .collect::<Result<Vec<_>>>()?;
 
-        let dbus = DBusProxy::new(&self.connection).await?;
+        let connection = self.connection().await?;
+        let dbus = DBusProxy::new(connection).await?;
         let imei = if dbus
             .list_names()
             .await?

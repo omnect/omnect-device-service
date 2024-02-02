@@ -22,7 +22,7 @@ use azure_iot_sdk::client::*;
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -97,7 +97,7 @@ impl Twin {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
-        let mut features = HashMap::from([
+        let features = HashMap::from([
             (
                 TypeId::of::<DeviceUpdateConsent>(),
                 Box::new(DeviceUpdateConsent::new(tx_reported_properties.clone()))
@@ -106,6 +106,10 @@ impl Twin {
             (
                 TypeId::of::<FactoryReset>(),
                 Box::new(FactoryReset::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<ModemInfo>(),
+                Box::new(ModemInfo::new(tx_reported_properties.clone())) as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<NetworkStatus>(),
@@ -124,19 +128,6 @@ impl Twin {
                 Box::<WifiCommissioning>::default() as Box<dyn Feature>,
             ),
         ]);
-
-        let modem_info_feature = ModemInfo::new(tx_reported_properties.clone()).await;
-        match modem_info_feature {
-            Ok(modem_info_feature) => {
-                features.insert(
-                    TypeId::of::<ModemInfo>(),
-                    Box::new(modem_info_feature) as Box<dyn Feature>,
-                );
-            }
-            Err(err) => {
-                warn!("could not setup modem info feature: {err}");
-            }
-        };
 
         Twin {
             iothub_client: client,
