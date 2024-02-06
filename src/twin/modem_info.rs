@@ -34,6 +34,7 @@ struct ModemReport {
     model: String,
     revision: String,
     preferred_technologies: Vec<MMModemCapability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     imei: Option<String>,
     sims: Vec<SimProperties>,
     bearers: Vec<BearerProperties>,
@@ -278,11 +279,6 @@ impl ModemInfo {
         .into_iter()
         .collect::<Result<Vec<_>>>()
         .with_context(|| "failed querying modem status")?;
-
-        #[derive(Serialize)]
-        struct StatusReport {
-            reports: Vec<ModemReport>,
-        }
 
         self.tx_reported_properties
             .send(json!({
