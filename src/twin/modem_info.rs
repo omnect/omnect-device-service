@@ -174,7 +174,7 @@ impl ModemInfo {
 
         self.ensure()?;
 
-        self.report_modem_info_status().await?;
+        self.report_modem_info().await?;
 
         Ok(None)
     }
@@ -263,7 +263,7 @@ impl ModemInfo {
         })
     }
 
-    async fn report_modem_info_status(&self) -> Result<()> {
+    async fn report_modem_info(&self) -> Result<()> {
         self.ensure()?;
 
         debug!("report_modem_status");
@@ -287,6 +287,6 @@ impl ModemInfo {
                 }
             }))
             .await
-            .context("report_modem_info_status: report_impl")
+            .context("report_modem_info: report_impl")
     }
 }
