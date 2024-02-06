@@ -55,6 +55,14 @@ impl Feature for ModemInfo {
         Self::MODEM_INFO_VERSION
     }
 
+    async fn report_initial_state(&self) -> Result<()> {
+        self.ensure()?;
+
+        self.refresh_modem_info().await?;
+
+        Ok(())
+    }
+
     fn is_enabled(&self) -> bool {
         match env::var("DISTRO_FEATURES") {
             Ok(features) => features.split_whitespace().any(|feature| feature == "3g"),
