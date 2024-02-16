@@ -57,7 +57,7 @@ mod mod_test {
     }
 
     impl TestCase {
-        async fn run(
+        fn run(
             test_files: Vec<&str>,
             test_dirs: Vec<&str>,
             env_vars: Vec<(&str, &str)>,
@@ -105,7 +105,7 @@ mod mod_test {
 
             // create test config
             let mut config = TestConfig {
-                twin: Twin::new(mock).await,
+                twin: Twin::new(mock),
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
@@ -219,7 +219,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], vec![], expect, test).await;
+        TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -299,7 +299,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -327,7 +327,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -402,7 +402,7 @@ mod mod_test {
             );
         };
 
-        TestCase::run(vec![], vec![], env_vars, expect, test).await;
+        TestCase::run(vec![], vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -451,7 +451,7 @@ mod mod_test {
                 .starts_with("update_general_consent: open consent_conf.json")));
         };
 
-        TestCase::run(vec![], vec![], vec![], expect, test).await;
+        TestCase::run(vec![], vec![], vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -481,7 +481,7 @@ mod mod_test {
                 .starts_with("report_user_consent: serde_json::from_reader")));
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -548,7 +548,7 @@ mod mod_test {
             .is_ok());
         };
 
-        TestCase::run(test_files, vec![], vec![], expect, test).await;
+        TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -602,7 +602,7 @@ mod mod_test {
             std::thread::sleep(Duration::from_secs(2));
         };
 
-        TestCase::run(test_files, vec![], vec![], expect, test).await;
+        TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -638,7 +638,7 @@ mod mod_test {
             );
         };
 
-        TestCase::run(test_files, test_dirs, vec![], expect, test).await;
+        TestCase::run(test_files, test_dirs, vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -764,7 +764,7 @@ mod mod_test {
             );
         };
 
-        TestCase::run(test_files, test_dirs, vec![], expect, test).await;
+        TestCase::run(test_files, test_dirs, vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -844,7 +844,7 @@ mod mod_test {
             .is_ok());
         };
 
-        TestCase::run(test_files, vec![], vec![], expect, test).await;
+        TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -920,7 +920,7 @@ mod mod_test {
             );
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -947,7 +947,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -974,7 +974,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1022,7 +1022,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1067,7 +1067,7 @@ mod mod_test {
             assert!(block_on(async { test_attr.twin.init().await }).is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1147,7 +1147,7 @@ mod mod_test {
             .is_ok());
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1238,7 +1238,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
             ));
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     // we need here multiple threads in order for the task spawned by
@@ -1389,7 +1389,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
             // we can't wait for the spawned completion tasks here
         };
 
-        TestCase::run(test_files, vec![], env_vars, expect, test).await;
+        TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
     #[cfg(test)]

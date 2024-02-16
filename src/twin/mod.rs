@@ -93,7 +93,7 @@ pub struct Twin {
 }
 
 impl Twin {
-    pub async fn new(client: Box<dyn IotHub>) -> Self {
+    pub fn new(client: Box<dyn IotHub>) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
@@ -359,7 +359,7 @@ impl Twin {
             )?,
         };
 
-        let mut twin = Self::new(client).await;
+        let mut twin = Self::new(client);
         let handle = signals.handle();
 
         loop {
