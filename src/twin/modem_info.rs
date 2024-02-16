@@ -187,21 +187,31 @@ impl ModemInfo {
         Ok(None)
     }
 
-    async fn bearer_properties(&self, bearer_path: &OwnedObjectPath) -> Result<BearerProperties> {
-        let bearer = self.bearer_proxy(bearer_path).await?;
+    async fn bearer_properties<'a>(
+        &self,
+        modem: &modem::ModemProxy<'a>,
+    ) -> Result<Vec<BearerProperties>> {
+        let bearers_paths = modem.bearers().await?.to_vec();
 
-        let properties = match bearer.properties().await? {
-            bearer::Properties::Prop3Gpp(props) => BearerProperties::Bearer3gpp {
-                apn: props.apn,
-                roaming: props.allow_roaming,
-            },
-            _ => BearerProperties::UnsupportedBearer,
-        };
+        join_all(bearers_paths.iter().map(|bearer_path| async {
+            let bearer = self.bearer_proxy(bearer_path).await?;
 
-        Ok(properties)
+            let properties = match bearer.properties().await? {
+                bearer::Properties::Prop3Gpp(props) => BearerProperties::Bearer3gpp {
+                    apn: props.apn,
+                    roaming: props.allow_roaming,
+                },
+                _ => BearerProperties::UnsupportedBearer,
+            };
+
+            Ok(properties)
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()
     }
 
-    async fn sim_properties(&self, sim_path: &OwnedObjectPath) -> Result<SimProperties> {
+    async fn sim_property(&self, sim_path: &OwnedObjectPath) -> Result<SimProperties> {
         let sim = self.sim_proxy(sim_path).await?;
 
         let operator = sim.operator_name().await?;
@@ -210,36 +220,46 @@ impl ModemInfo {
         Ok(SimProperties { operator, iccid })
     }
 
-    async fn modem_status(&self, modem_path: &OwnedObjectPath) -> Result<ModemReport> {
-        let modem = self.modem_proxy(modem_path).await?;
+    async fn sim_properties<'a>(
+        &self,
+        modem: &modem::ModemProxy<'a>,
+    ) -> Result<Vec<SimProperties>> {
+        let mut sim_paths = modem.sim_slots().await?;
 
-        let manufacturer = modem.manufacturer().await?;
-        let model = modem.model().await?;
-        let revision = modem.revision().await?;
-        let preferred_technologies = modem.supported_capabilities().await?.to_vec();
+        if sim_paths.is_empty() {
+            // Workaround: there are some devices where the sim slots are
+            // reported as an empty list albeit the system having a single sim,
+            // try to report this sim.
 
-        let bearers_paths = modem.bearers().await?;
-        let bearers = join_all(
-            bearers_paths
-                .iter()
-                .map(|bearer_path| self.bearer_properties(bearer_path)),
-        )
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?;
+            let active_sim_path = modem.sim().await?;
+            if !active_sim_path.is_empty() && active_sim_path.as_str() != "/" {
+                sim_paths.push(active_sim_path);
+            }
+        }
 
-        let sims_paths = modem.sim_slots().await?;
-        let sims = join_all(sims_paths.iter().filter_map(|sim_path| {
-            // ModemManager appears to report empty SIM slots as "/"
+        join_all(sim_paths.iter().filter_map(|sim_path| {
+            // Workaround: ModemManager appears to report empty SIM slots as
+            // "/"
             if !sim_path.is_empty() && sim_path.as_str() != "/" {
-                Some(self.sim_properties(sim_path))
+                Some(self.sim_property(sim_path))
             } else {
                 None
             }
         }))
         .await
         .into_iter()
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()
+    }
+
+    async fn modem_status(&self, modem_path: &OwnedObjectPath) -> Result<ModemReport> {
+        let modem = self.modem_proxy(modem_path).await?;
+
+        let manufacturer = modem.manufacturer().await?;
+        let model = modem.model().await?;
+        let revision = modem.revision().await?;
+        let preferred_technologies = modem.supported_capabilities().await?;
+        let bearers = self.bearer_properties(&modem).await?;
+        let sims = self.sim_properties(&modem).await?;
 
         let connection = self.connection().await?;
         let dbus = DBusProxy::new(connection).await?;
