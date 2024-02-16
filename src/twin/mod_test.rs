@@ -315,7 +315,7 @@ mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
+                .times(TwinFeature::COUNT + 4)
                 .returning(|_| Ok(()));
         };
 
