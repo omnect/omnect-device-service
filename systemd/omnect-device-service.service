@@ -1,7 +1,7 @@
 [Unit]
 Description=omnect-device-service
-After=network-online.target time-sync.target aziot-identityd.service
-Wants=network-online.target time-sync.target aziot-identityd.service
+After=network-online.target time-sync.target aziot-identityd.service systemd-tmpfiles-setup.service
+Wants=network-online.target time-sync.target aziot-identityd.service systemd-tmpfiles-setup.service
 StartLimitBurst=10
 StartLimitIntervalSec=120
 
@@ -15,6 +15,7 @@ Group=omnect_device_service
 WatchdogSec=30s
 
 ExecStart=/usr/bin/omnect-device-service
+ExecStopPost=/usr/bin/omnect-device-service.exec_stop_post.sh
 
 [Install]
 WantedBy=multi-user.target

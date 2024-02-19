@@ -7,7 +7,11 @@ use anyhow::{bail, ensure, Context, Result};
 use log::{debug, info};
 use std::{fs, path::Path, time::Duration};
 
+// this file is used to detect if we have to validate an update
 static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validate_update";
+// this file is used to signal others that the update validation is successful, by deleting it
+static UPDATE_VALIDATION_COMPLETE_BARRIER_FILE: &str =
+    "/run/omnect-device-service/omnect_validate_update_complete_barrier";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 // ToDo refine configuration for that, e.g as env/config value in /etc/omnect/omnect-device-service.env
 static IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC: u64 = 60;
@@ -47,6 +51,8 @@ async fn finalize() -> Result<()> {
     unset_bootloader_env("omnect_validate_update")?;
     unset_bootloader_env("omnect_validate_update_part")?;
 
+    fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
+        .context("remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
     Ok(())
 }
 
