@@ -14,7 +14,7 @@ use zbus::{
 };
 
 use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
-use modemmanager_sys::MMModemCapability;
+use modemmanager::types::ModemCapability;
 
 #[derive(Serialize)]
 enum BearerProperties {
@@ -33,7 +33,7 @@ struct ModemReport {
     manufacturer: String,
     model: String,
     revision: String,
-    preferred_technologies: Vec<MMModemCapability>,
+    preferred_technologies: Vec<ModemCapability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imei: Option<String>,
     sims: Vec<SimProperties>,
