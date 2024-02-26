@@ -30,7 +30,6 @@ This module serves as interface between omnect cloud and device to support certa
     - [Refresh Network status](#refresh-network-status)
   - [SSH Tunnel](#ssh-tunnel)
     - [Feature availability](#feature-availability-5)
-    - [SSH tunnel status](#ssh-tunnel-status)
     - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
     - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
     - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
