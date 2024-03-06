@@ -15,6 +15,7 @@ Group=omnect_device_service
 WatchdogSec=30s
 
 ExecStart=/usr/bin/omnect-device-service
+ExecStopPost=/bin/sh -c "[ -x /usr/sbin/omnect_service_log.sh ] && /usr/sbin/omnect_service_log.sh aziot-certd \"$$SERVICE_RESULT\" \"$$EXIT_CODE\" \"$$EXIT_STATUS\""
 
 [Install]
 WantedBy=multi-user.target
