@@ -1,4 +1,5 @@
 pub mod bootloader_env;
+pub mod system;
 pub mod systemd;
 mod test_util;
 pub mod twin;
@@ -40,6 +41,11 @@ async fn main() {
         env!("GIT_SHORT_REV")
     );
     info!("azure sdk version: {}", IotHubClient::sdk_version_string());
+
+    #[cfg(not(feature = "mock"))]
+    if let Err(e) = system::infos() {
+        error!("application error: {e:#}");
+    }
 
     if let Err(e) = Twin::run(None).await {
         error!("application error: {e:#}");
