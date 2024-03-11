@@ -17,6 +17,30 @@ static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 static IOT_HUB_DEVICE_UPDATE_SERVICE_START_TIMEOUT_SEC: u64 = 60;
 static SYSTEM_IS_RUNNING_TIMEOUT_SEC: u64 = 300;
 
+pub async fn init() -> Result<()> {
+    if let Ok(true) = Path::new(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).try_exists() {
+        // we detected update validation before, but were not provisioned before
+
+        // @todo
+        // - read json to struct
+        // - increment restart count in UPDATE_VALIDATION_COMPLETE_BARRIER_FILE
+    } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
+        // first start during update validation
+        let bla = std::time::Duration::from(nix::time::clock_gettime(
+            nix::time::ClockId::CLOCK_MONOTONIC,
+        )?)
+        .as_nanos();
+        // @todo
+    } else {
+        // no update validation
+    }
+}
+
+pub async fn set_authenticated() -> Result<()> {
+    // log
+    // write authenticated to UPDATE_VALIDATION_COMPLETE_BARRIER_FILE
+}
+
 async fn validate() -> Result<()> {
     debug!("update validation started");
     systemd::wait_for_system_running(SYSTEM_IS_RUNNING_TIMEOUT_SEC).await?;

@@ -222,7 +222,9 @@ impl Twin {
                      */
 
                     systemd::sd_notify_ready();
-                    update_validated = update_validation::check().await;
+
+                    update_validation::authenticated().await;
+                    //update_validated = update_validation::check().await;
 
                     self.init().await?;
 
@@ -310,6 +312,8 @@ impl Twin {
     }
 
     pub async fn run(connection_string: Option<&str>) -> Result<()> {
+        update_validation::init();
+
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
