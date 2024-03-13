@@ -1748,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "anyhow",
  "async-trait",
