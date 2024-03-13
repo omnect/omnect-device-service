@@ -1673,8 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "modemmanager"
-version = "0.1.2"
-source = "git+https://github.com/omnect/modemmanager.git?tag=0.1.2#4e1acbd62d3b4b3a159504931e96777b3dea6e98"
+version = "0.2.0"
 dependencies = [
  "modemmanager-sys",
  "num",
@@ -1891,7 +1890,6 @@ dependencies = [
  "log-panics",
  "mockall",
  "modemmanager",
- "modemmanager-sys",
  "network-interface",
  "notify",
  "notify-debouncer-mini",
