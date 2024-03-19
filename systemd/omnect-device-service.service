@@ -1,11 +1,14 @@
 [Unit]
 Description=omnect-device-service
-After=network-online.target time-sync.target aziot-identityd.service systemd-tmpfiles-setup.service
-Wants=network-online.target time-sync.target aziot-identityd.service systemd-tmpfiles-setup.service
+# we want time-sync.target but want to start even if it blocks
+After=network-online.target aziot-identityd.service systemd-tmpfiles-setup.service
+Wants=network-online.target aziot-identityd.service systemd-tmpfiles-setup.service time-sync.target
 StartLimitBurst=10
 StartLimitIntervalSec=120
 
 [Service]
+# mandatory env var used in omnect-device-service & omnect-device-service.exec_stop_post.sh
+Environment="UPDATE_VALIDATION_TIMEOUT_IN_SECS=300"
 EnvironmentFile=-/etc/omnect/omnect-device-service.env
 Type=notify
 Restart=always

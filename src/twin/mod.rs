@@ -14,6 +14,7 @@ use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
     reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
 };
+use crate::update_validation::UpdateValidation;
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::*;
@@ -87,12 +88,15 @@ pub struct Twin {
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
     rx_outgoing_message: mpsc::Receiver<IotMessage>,
     features: HashMap<TypeId, Box<dyn Feature>>,
+    update_validation: update_validation::UpdateValidation,
 }
 
 impl Twin {
     pub fn new(client: Box<dyn IotHub>) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+        let mut update_validation = UpdateValidation::default();
+        update_validation.init().unwrap();
 
         Twin {
             iothub_client: client,
@@ -127,6 +131,7 @@ impl Twin {
                     Box::<WifiCommissioning>::default() as Box<dyn Feature>,
                 ),
             ]),
+            update_validation,
         }
     }
 
@@ -213,8 +218,6 @@ impl Twin {
 
         match auth_status {
             AuthenticationStatus::Authenticated => {
-                let mut update_validated: Result<()> = Ok(());
-
                 if !self.authenticated_once {
                     /*
                      * the update validation test "wait_for_system_running" enforces that
@@ -223,15 +226,12 @@ impl Twin {
 
                     systemd::sd_notify_ready();
 
-                    update_validation::authenticated().await;
-                    //update_validated = update_validation::check().await;
+                    self.update_validation.set_authenticated().await?;
 
                     self.init().await?;
 
                     self.authenticated_once = true;
                 };
-
-                update_validated?;
             }
             AuthenticationStatus::Unauthenticated(reason) => {
                 anyhow::ensure!(
@@ -312,8 +312,6 @@ impl Twin {
     }
 
     pub async fn run(connection_string: Option<&str>) -> Result<()> {
-        update_validation::init();
-
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);

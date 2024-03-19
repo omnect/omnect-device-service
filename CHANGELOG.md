@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] Q1 2024
+- refactoring of update validation handling:
+  - introduced post service handling to handle omnect-device-service errors
+  - global timeout for update validation
+- updated azure-iot-sdk to 0.11.0 (confirmation timeout increased + do log instead panic on timeout)
+
 ## [0.14.17] Q1 2024
 - added infos at startup: current root device and if a bootloader update occurred
 
