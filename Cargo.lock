@@ -471,7 +471,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.48",
+ "syn 2.0.52",
  "which",
 ]
 
@@ -1674,6 +1674,7 @@ dependencies = [
 [[package]]
 name = "modemmanager"
 version = "0.2.0"
+source = "git+https://github.com/omnect/modemmanager.git?tag=0.2.0#f73a309dca5161131ac3c0bb077255c21dfa439a"
 dependencies = [
  "modemmanager-sys",
  "num",
@@ -1808,7 +1809,7 @@ checksum = "cfb77679af88f8b125209d354a202862602672222e7f2313fdd6dc349bad4712"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.52",
 ]
 
 [[package]]
@@ -1883,6 +1884,7 @@ dependencies = [
  "dotenvy",
  "enum_dispatch",
  "env_logger 0.10.2",
+ "futures",
  "futures-executor",
  "futures-util",
  "lazy_static",
@@ -2110,7 +2112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae005bd773ab59b4725093fd7df83fd7892f7d8eafb48dbd7de6e024e4215f9d"
 dependencies = [
  "proc-macro2",
- "syn 2.0.48",
+ "syn 2.0.52",
 ]
 
 [[package]]
