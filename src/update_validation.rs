@@ -116,14 +116,12 @@ impl UpdateValidation {
         if self.run_update_validation {
             let (tx, rx): (mpsc::Sender<()>, mpsc::Receiver<()>) = mpsc::channel();
             self.tx = Some(tx);
-            let validation_timeout_ms = self.validation_timeout_ms;
+            let validation_timeout_ms = u64::try_from(self.validation_timeout_ms)?;
             self.join_handle = Some(thread::spawn({
                 move || {
                     info!("update validation reboot timer started.");
                     if rx
-                        .recv_timeout(Duration::from_millis(
-                            u64::try_from(validation_timeout_ms).unwrap(),
-                        ))
+                        .recv_timeout(Duration::from_millis(validation_timeout_ms))
                         .is_ok()
                     {
                         info!("update validation reboot timer canceled.");
