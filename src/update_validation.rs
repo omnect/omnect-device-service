@@ -4,12 +4,15 @@ use super::bootloader_env::bootloader_env::{
 use super::systemd;
 use crate::systemd::WatchdogManager;
 use anyhow::{bail, ensure, Context, Result};
-use futures_executor::block_on;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 
-use std::{
-    env, fs, fs::OpenOptions, path::Path, sync::mpsc, thread, thread::JoinHandle, time::Duration,
+use std::{env, fs, fs::OpenOptions, path::Path};
+
+use tokio::{
+    sync::oneshot,
+    task::JoinHandle,
+    time::{timeout, Duration},
 };
 
 // this file is used to detect if we have to validate an update
@@ -30,19 +33,19 @@ pub struct UpdateValidation {
     #[serde(skip)]
     validation_timeout_ms: u128,
     #[serde(skip)]
-    tx: Option<mpsc::Sender<()>>,
+    tx: Option<oneshot::Sender<()>>,
     #[serde(skip)]
     join_handle: Option<JoinHandle<()>>,
 }
 
-impl Drop for UpdateValidation {
-    fn drop(&mut self) {
-        if self.join_handle.is_some() {
-            self.tx.clone().unwrap().send(()).unwrap();
-            self.join_handle.take().unwrap().join().unwrap();
-        }
-    }
-}
+// impl Drop for UpdateValidation {
+//     fn drop(&mut self) {
+//         if self.join_handle.is_some() {
+//             self.tx.clone().unwrap().send(()).unwrap();
+//             self.join_handle.take().unwrap().join().unwrap();
+//         }
+//     }
+// }
 
 impl UpdateValidation {
     pub fn init(&mut self) -> Result<()> {
@@ -114,23 +117,20 @@ impl UpdateValidation {
         }
 
         if self.run_update_validation {
-            let (tx, rx): (mpsc::Sender<()>, mpsc::Receiver<()>) = mpsc::channel();
+            let (tx, rx) = oneshot::channel();
             self.tx = Some(tx);
             let validation_timeout_ms = u64::try_from(self.validation_timeout_ms)?;
-            self.join_handle = Some(thread::spawn({
-                move || {
-                    info!("update validation reboot timer started.");
-                    if rx
-                        .recv_timeout(Duration::from_millis(validation_timeout_ms))
-                        .is_ok()
-                    {
-                        info!("update validation reboot timer canceled.");
-                    } else {
+
+            self.join_handle = Some(tokio::spawn(async move {
+                info!("update validation reboot timer started.");
+                match timeout(Duration::from_millis(validation_timeout_ms), rx).await {
+                    Err(_) => {
                         info!("update validation timeout. rebooting ...");
-                        block_on(async {
-                            _ = systemd::reboot().await;
-                        })
+                        let _ = systemd::reboot()
+                            .await
+                            .context("update validation timer couldn't trigger reboot");
                     }
+                    _ => info!("update validation reboot timer canceled."),
                 }
             }));
         }
@@ -212,8 +212,11 @@ impl UpdateValidation {
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
             .context("remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
         // cancel update validation reboot timer
-        self.tx.clone().unwrap().send(())?;
-        self.join_handle.take().unwrap().join().unwrap();
+        self.tx
+            .take()
+            .unwrap()
+            .send(())
+            .expect("could not cancel update validation reboot timer");
         Ok(())
     }
 

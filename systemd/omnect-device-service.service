@@ -1,8 +1,8 @@
 [Unit]
 Description=omnect-device-service
 # we want time-sync.target but want to start even if it blocks
-After=network-online.target aziot-identityd.service systemd-tmpfiles-setup.service
-Wants=network-online.target aziot-identityd.service systemd-tmpfiles-setup.service time-sync.target
+After=network-online.target systemd-tmpfiles-setup.service
+Wants=network-online.target systemd-tmpfiles-setup.service aziot-identityd.service time-sync.target
 StartLimitBurst=10
 StartLimitIntervalSec=120
 
@@ -12,7 +12,7 @@ Environment="UPDATE_VALIDATION_TIMEOUT_IN_SECS=300"
 EnvironmentFile=-/etc/omnect/omnect-device-service.env
 Type=notify
 Restart=always
-RestartSec=5
+RestartSec=10
 User=omnect_device_service
 Group=omnect_device_service
 WatchdogSec=30s
