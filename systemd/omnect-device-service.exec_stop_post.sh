@@ -1,6 +1,6 @@
 #!/bin/bash -x
 script=${0}
-update_validation_file="/run_omnect-device-service/omnect_validate_update"
+update_validation_file="/run/omnect-device-service/omnect_validate_update"
 barrier_json="/run/omnect-device-service/omnect_validate_update_complete_barrier"
 max_restart_count=9
 
@@ -18,7 +18,7 @@ function reboot() {
 
 if [ -f ${barrier_json} ]; then
   # we are run during update validation
-  now=$(cat /proc/uptime | awk '${print $1}')
+  now=$(cat /proc/uptime | awk '{print $1}')
   now_ms="${now%%\.*}$(printf %003d $((${now##*\.}*10)))"
   update_validation_start_ms=$(jq -r .start_monotonic_time_ms ${barrier_json})
   restart_count=$(jq -r .restart_count ${barrier_json})
