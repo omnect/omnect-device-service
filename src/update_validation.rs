@@ -36,22 +36,12 @@ pub struct UpdateValidation {
     join_handle: Option<JoinHandle<()>>,
 }
 
-// impl Drop for UpdateValidation {
-//     fn drop(&mut self) {
-//         if self.join_handle.is_some() {
-//             self.tx.clone().unwrap().send(()).unwrap();
-//             self.join_handle.take().unwrap().join().unwrap();
-//         }
-//     }
-// }
-
 impl UpdateValidation {
     pub fn init(&mut self) -> Result<()> {
-        self.validation_timeout_ms = UPDATE_VALIDATION_TIMEOUT_IN_SECS * 1000u128;
+        let validation_timeout_ms = UPDATE_VALIDATION_TIMEOUT_IN_SECS * 1000u128;
         if let Ok(timeout_secs) = env::var("UPDATE_VALIDATION_TIMEOUT_IN_SECS") {
             match timeout_secs.parse::<u128>() {
                 Ok(timeout_secs) => {
-                    info!("set confirmation timeout to {timeout_secs}s");
                     self.validation_timeout_ms = timeout_secs * 1000u128;
                 }
                 _ => error!("ignore invalid confirmation timeout {timeout_secs}"),
@@ -71,6 +61,7 @@ impl UpdateValidation {
                 "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
             )?;
             self.restart_count += 1;
+            info!("update validation retry start ({})", self.restart_count);
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -87,7 +78,8 @@ impl UpdateValidation {
                 nix::time::ClockId::CLOCK_MONOTONIC,
             )?)
             .as_millis();
-            self.validation_timeout_ms -= now - self.start_monotonic_time_ms;
+            self.validation_timeout_ms =
+                validation_timeout_ms - (now - self.start_monotonic_time_ms);
             self.run_update_validation = true;
         } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
             info!("update validation first start");
@@ -108,7 +100,7 @@ impl UpdateValidation {
             .context(
                 "first serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
             )?;
-
+            self.validation_timeout_ms = validation_timeout_ms;
             self.run_update_validation = true;
         } else {
             self.run_update_validation = false;
@@ -120,7 +112,7 @@ impl UpdateValidation {
             let validation_timeout_ms = u64::try_from(self.validation_timeout_ms)?;
 
             self.join_handle = Some(tokio::spawn(async move {
-                info!("update validation reboot timer started.");
+                info!("update validation reboot timer started ({validation_timeout_ms} ms).");
                 match timeout(Duration::from_millis(validation_timeout_ms), rx).await {
                     Err(_) => {
                         info!("update validation timeout. rebooting ...");

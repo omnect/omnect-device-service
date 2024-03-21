@@ -326,7 +326,7 @@ impl Twin {
 
         let mut update_validation = UpdateValidation::default();
         // has to be called before iothub client authentication
-        update_validation.init().unwrap();
+        update_validation.init()?;
 
         info!("waiting for authentication...");
         let client = match IotHubClient::client_type() {
