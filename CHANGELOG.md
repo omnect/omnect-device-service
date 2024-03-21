@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - global timeout for update validation
 - updated azure-iot-sdk to 0.11.0 (confirmation timeout increased + do log instead panic on timeout)
 
+## [0.15.1] Q1 2024
+- fixed compilation error due to missing imports
+
+## [0.15.0] Q1 2024
+- introduced modem info feature
+  - added functionality to query modem data
+
 ## [0.14.17] Q1 2024
 - added infos at startup: current root device and if a bootloader update occurred
 
