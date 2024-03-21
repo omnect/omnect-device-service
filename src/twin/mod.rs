@@ -92,11 +92,9 @@ pub struct Twin {
 }
 
 impl Twin {
-    pub fn new(client: Box<dyn IotHub>) -> Self {
+    pub fn new(client: Box<dyn IotHub>, update_validation: UpdateValidation) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
-        let mut update_validation = UpdateValidation::default();
-        update_validation.init().unwrap();
 
         Twin {
             iothub_client: client,
@@ -326,6 +324,11 @@ impl Twin {
             None
         };
 
+        let mut update_validation = UpdateValidation::default();
+        // has to be called before iothub client authentication
+        update_validation.init().unwrap();
+
+        info!("waiting for authentication...");
         let client = match IotHubClient::client_type() {
             _ if connection_string.is_some() => IotHubClient::from_connection_string(
                 connection_string.unwrap(),
@@ -351,7 +354,7 @@ impl Twin {
             )?,
         };
 
-        let mut twin = Self::new(client);
+        let mut twin = Self::new(client, update_validation);
         let handle = signals.handle();
 
         loop {

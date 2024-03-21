@@ -1,6 +1,6 @@
 [Unit]
 Description=omnect-device-service
-# we want time-sync.target but want to start even if it blocks
+# we want time-sync.target but want to start even if it blocks, so we can not use After=aziot-identityd.service time-sync.target
 After=network-online.target systemd-tmpfiles-setup.service
 Wants=network-online.target systemd-tmpfiles-setup.service aziot-identityd.service time-sync.target
 StartLimitBurst=10

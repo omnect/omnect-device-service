@@ -6,9 +6,7 @@ use crate::systemd::WatchdogManager;
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
-
 use std::{env, fs, fs::OpenOptions, path::Path};
-
 use tokio::{
     sync::oneshot,
     task::JoinHandle,
