@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.0] Q1 2024
 - refactoring of update validation handling:
-  - introduced post service handling to handle omnect-device-service errors
+  - introduced post service script to handle omnect-device-service restarts during
+    update_validation
   - global timeout for update validation
 - updated azure-iot-sdk to 0.11.0 (confirmation timeout increased + do log instead panic on timeout)
 
