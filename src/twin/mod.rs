@@ -11,10 +11,10 @@ mod wifi_commissioning;
 use super::systemd;
 use super::update_validation;
 use crate::systemd::WatchdogManager;
+use crate::twin::modem_info::ModemInfo;
 use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
-    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
-    wifi_commissioning::WifiCommissioning,
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
+    reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
 };
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
