@@ -25,7 +25,7 @@ if [ -f ${barrier_json} ]; then
   authenticated=$(jq -r .authenticated ${barrier_json})
 
   if [ ${restart_count} -ge ${max_restart_count} ]; then
-    reboot "to much restarts during update validation"
+    reboot "too many restarts during update validation"
   fi
 
   if [ "${authenticated}" =  "true" ]; then
@@ -36,7 +36,7 @@ if [ -f ${barrier_json} ]; then
     reboot "update validation timeout"
   fi
 elif [ -f ${update_validation_file} ]; then
-  # we detect an update validation, but the barrier file was not created by omnect-device-service
+  # we detected an update validation, but the barrier file was not created by omnect-device-service
   reboot "omnect-device-service failed to init update validation"
 #else
   # if we are not in update validation do nothing for now
