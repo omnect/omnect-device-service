@@ -315,6 +315,11 @@ In all other cases there will be an error status:
 
 ## Modem Info
 
+This feature adds the ability to query status information of connected modem.
+
+**NOTE**: this is an optional feature and must be explicitly turned on when
+building, i.e., `cargo build --features modem_info,...`.
+
 ### Feature availability
 
 The availability of the feature is reported by the following module twin property:
