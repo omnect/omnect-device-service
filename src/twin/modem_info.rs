@@ -298,8 +298,7 @@ mod inner {
 mod inner {
     use super::*;
 
-    pub struct ModemInfo {
-    }
+    pub struct ModemInfo {}
 
     impl ModemInfo {
         pub fn new(_tx_reported_properties: Sender<serde_json::Value>) -> Self {
@@ -316,10 +315,10 @@ mod inner {
     }
 }
 
-pub use inner::ModemInfo as ModemInfo;
+pub use inner::ModemInfo;
 
 const MODEM_INFO_VERSION: u8 = 1;
-const ID: &'static str = "modem_info";
+const ID: &str = "modem_info";
 
 #[async_trait(?Send)]
 impl Feature for ModemInfo {
