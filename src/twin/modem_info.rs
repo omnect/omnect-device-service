@@ -1,7 +1,8 @@
 use super::Feature;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use log::info;
+use serde_json::json;
 use std::{any::Any, env};
 use tokio::sync::mpsc::Sender;
 
@@ -9,13 +10,11 @@ use tokio::sync::mpsc::Sender;
 mod inner {
     use super::*;
 
-    use anyhow::{Context, Result};
     use futures::future::join_all;
     use log::debug;
     use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
     use modemmanager::types::ModemCapability;
     use serde::Serialize;
-    use serde_json::json;
     use tokio::sync::OnceCell;
     use zbus::{
         fdo::{DBusProxy, ObjectManagerProxy},
@@ -298,17 +297,28 @@ mod inner {
 mod inner {
     use super::*;
 
-    pub struct ModemInfo {}
+    pub struct ModemInfo {
+        tx_reported_properties: Sender<serde_json::Value>,
+    }
 
     impl ModemInfo {
-        pub fn new(_tx_reported_properties: Sender<serde_json::Value>) -> Self {
-            ModemInfo {}
+        pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
+            ModemInfo {
+                tx_reported_properties,
+            }
         }
 
         pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
             info!("modem info status requested");
 
             self.ensure()?;
+
+            self.tx_reported_properties
+                .send(json!({
+                    "modem_info": {}
+                }))
+                .await
+                .context("report_modem_info: report_impl")?;
 
             Ok(None)
         }
