@@ -1,0 +1,12 @@
+[Unit]
+Description=omnect-device-service
+PartOf=omnect-device-service.service
+
+[Socket]
+ListenStream=/run/omnect-device-service/api.sock
+SocketMode=0660
+SocketUser=omnect_device_service
+SocketGroup=omnect_device_socket
+
+[Install]
+WantedBy=sockets.target

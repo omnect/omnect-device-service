@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "actix-server",
  "actix-web",
@@ -2254,7 +2254,6 @@ dependencies = [
  "nix 0.28.0",
  "notify",
  "notify-debouncer-mini",
- "omnect-device-service",
  "rand",
  "regex",
  "sd-notify",

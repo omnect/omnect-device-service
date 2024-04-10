@@ -363,9 +363,9 @@ impl Twin {
             web_service::Command::Reboot(reply) => {
                 (reply, json!({"result": systemd::reboot().await.is_ok()}))
             }
-            web_service::Command::RestartNetwork(reply) => (
+            web_service::Command::ReloadNetwork(reply) => (
                 reply,
-                json!({"result": system::restart_network().await.is_ok()}),
+                json!({"result": system::reload_network().await.is_ok()}),
             ),
         };
 
@@ -417,7 +417,7 @@ impl Twin {
             )
         };
 
-        let web_service = WebService::new(tx_web_service.clone());
+        let web_service = WebService::new(tx_web_service.clone())?;
 
         systemd::sd_notify_ready();
 

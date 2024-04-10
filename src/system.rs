@@ -41,7 +41,7 @@ pub fn infos() -> Result<()> {
     Ok(())
 }
 
-pub async fn restart_network() -> Result<()> {
+pub async fn reload_network() -> Result<()> {
     systemd::unit::unit_action(
         NETWORK_SERVICE,
         UnitAction::Reload,
