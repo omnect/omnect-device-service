@@ -2,9 +2,11 @@
 #[allow(clippy::module_inception)]
 mod mod_test {
     use super::super::*;
-    use crate::test_util::mod_test::TestEnvironment;
     use crate::{consent_path, history_consent_path};
+    use cp_r::CopyOptions;
+    use env_logger::{Builder, Env};
     use futures_executor::block_on;
+    use lazy_static::lazy_static;
     use mockall::{mock, predicate::*};
     use rand::{
         distributions::Alphanumeric,
@@ -12,8 +14,18 @@ mod mod_test {
     };
     use regex::Regex;
     use serde_json::json;
+    use std::fs::{copy, create_dir_all, remove_dir_all};
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
 
+    lazy_static! {
+        static ref LOG: () = if cfg!(debug_assertions) {
+            Builder::from_env(Env::default().default_filter_or("debug")).init()
+        } else {
+            Builder::from_env(Env::default().default_filter_or("info")).init()
+        };
+    }
+
+    const TMPDIR_FORMAT_STR: &str = "/tmp/omnect-device-service-tests/";
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
 
     mock! {
@@ -46,6 +58,49 @@ mod mod_test {
             fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()>;
             fn twin_report(&mut self, reported: serde_json::Value) -> Result<()>;
             async fn shutdown(&mut self);
+        }
+    }
+
+    pub struct TestEnvironment {
+        dirpath: std::string::String,
+    }
+
+    impl TestEnvironment {
+        pub fn new(name: &str) -> TestEnvironment {
+            lazy_static::initialize(&LOG);
+            let dirpath = format!("{}{}", TMPDIR_FORMAT_STR, name);
+            create_dir_all(&dirpath).unwrap();
+            TestEnvironment { dirpath }
+        }
+
+        pub fn copy_directory(&self, dir: &str) -> PathBuf {
+            let destdir = String::from(dir);
+            let destdir = destdir.split('/').last().unwrap();
+            let path = PathBuf::from(format!("{}/{}", self.dirpath, destdir));
+            CopyOptions::new().copy_tree(dir, &path).unwrap();
+            path
+        }
+
+        pub fn copy_file(&self, file: &str) -> PathBuf {
+            let destfile = String::from(file);
+            let destfile = destfile.split('/').last().unwrap();
+            let path = PathBuf::from(format!("{}/{}", self.dirpath, destfile));
+            copy(file, &path).unwrap();
+            path
+        }
+
+        pub fn dirpath(&self) -> String {
+            self.dirpath.clone()
+        }
+    }
+
+    impl Drop for TestEnvironment {
+        fn drop(&mut self) {
+            // place your cleanup code here
+            remove_dir_all(&self.dirpath).unwrap_or_else(|e| {
+                // ignore all errors if dir cannot be deleted
+                error!("cannot remove_dir_all: {e:#}");
+            });
         }
     }
 

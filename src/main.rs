@@ -1,7 +1,6 @@
 pub mod bootloader_env;
 pub mod system;
 pub mod systemd;
-mod test_util;
 pub mod twin;
 pub mod update_validation;
 
@@ -47,7 +46,8 @@ async fn main() {
         error!("application error: {e:#}");
     }
 
-    if let Err(e) = Twin::run(None).await {
+    if let Err(e) = Twin::run(Some("HostName=omnect-cp-dev-iot-hub.azure-devices.net;DeviceId=test-jza;ModuleId=omnect-device-service;SharedAccessKey=urxEzxke8X1mz56+olevW7+0Ldg8kkclquFFenJu5vs=")).await {
+    //if let Err(e) = Twin::run(None).await {
         error!("application error: {e:#}");
 
         process::exit(1);

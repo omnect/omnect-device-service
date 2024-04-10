@@ -7,6 +7,7 @@ mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
+mod web_service;
 mod wifi_commissioning;
 use super::systemd;
 use super::update_validation;
@@ -41,6 +42,7 @@ use tokio::{
     sync::mpsc,
     time::{interval, Duration, Interval},
 };
+use web_service::WebService;
 
 #[enum_dispatch]
 #[derive(EnumCountMacro)]
@@ -319,10 +321,21 @@ impl Twin {
         }
     }
 
+    async fn handle_web_service_request(&self, request: web_service::Command) -> Result<()> {
+        info!("handle_web_service_request: {:?}", request);
+
+        match request {
+            web_service::Command::GetOsVersion(reply) => reply.send(json!({"version": "1.2.3.4"})).unwrap(),
+            web_service::Command::Reboot(reply) => reply.send(json!({"result": true})).unwrap(),
+        }
+        Ok(())
+    }
+
     pub async fn run(connection_string: Option<&str>) -> Result<()> {
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
+        let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
@@ -365,6 +378,7 @@ impl Twin {
 
         let mut twin = Self::new(client, update_validation);
         let handle = signals.handle();
+        let web_service = WebService::new(tx_web_service.clone());
 
         loop {
             select! (
@@ -373,6 +387,7 @@ impl Twin {
                 },
                 _ = signals.next() => {
                     handle.close();
+                    web_service.shutdown().await;
                     twin.iothub_client.shutdown().await;
                     return Ok(())
                 },
@@ -395,6 +410,9 @@ impl Twin {
                 },
                 message = twin.rx_outgoing_message.recv() => {
                     twin.iothub_client.send_d2c_message(message.unwrap())?
+                },
+                request = rx_web_service.recv() => {
+                    twin.handle_web_service_request(request.unwrap()).await?
                 }
             );
         }
