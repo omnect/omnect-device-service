@@ -291,12 +291,11 @@ impl Twin {
 
     async fn handle_direct_method(
         &self,
-        method_name: String,
-        payload: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
+        (method_name, payload, tx_result): (String, serde_json::Value, DirectMethodResult),
+    ) -> Result<()> {
         info!("handle_direct_method: {method_name} with payload: {payload}");
 
-        match method_name.as_str() {
+        let result = match method_name.as_str() {
             "factory_reset" => {
                 self.feature::<FactoryReset>()?
                     .reset_to_factory_settings(payload)
@@ -314,18 +313,27 @@ impl Twin {
             "close_ssh_tunnel" => self.feature::<SshTunnel>()?.close_ssh_tunnel(payload).await,
             "reboot" => self.feature::<Reboot>()?.reboot().await,
             _ => Err(anyhow!("direct method unknown")),
+        };
+
+        if tx_result.send(result).is_err() {
+            error!("handle_direct_method: receiver dropped");
         }
+
+        Ok(())
     }
 
     async fn handle_web_service_request(&self, request: web_service::Command) -> Result<()> {
         info!("handle_web_service_request: {:?}", request);
 
-        match request {
-            web_service::Command::GetOsVersion(reply) => {
-                reply.send(json!({"version": "1.2.3.4"})).unwrap()
-            }
-            web_service::Command::Reboot(reply) => reply.send(json!({"result": true})).unwrap(),
+        let (tx_result, result) = match request {
+            web_service::Command::GetOsVersion(reply) => (reply, json!({"version": "1.2.3.4"})),
+            web_service::Command::Reboot(reply) => (reply, json!({"result": true})),
+        };
+
+        if tx_result.send(result).is_err() {
+            error!("handle_web_service_request: receiver dropped");
         }
+
         Ok(())
     }
 
@@ -375,7 +383,6 @@ impl Twin {
         };
 
         let mut twin = Self::new(client, update_validation);
-        let handle = signals.handle();
         let web_service = WebService::new(tx_web_service.clone());
 
         loop {
@@ -384,7 +391,7 @@ impl Twin {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
-                    handle.close();
+                    signals.handle().close();
                     web_service.shutdown().await;
                     twin.iothub_client.shutdown().await;
                     return Ok(())
@@ -400,11 +407,7 @@ impl Twin {
                     twin.iothub_client.twin_report(reported.unwrap())?
                 },
                 direct_methods = rx_direct_method.recv() => {
-                    let (name, payload, tx_result) = direct_methods.unwrap();
-
-                    if tx_result.send(twin.handle_direct_method(name, payload).await).is_err() {
-                        error!("run: receiver dropped");
-                    }
+                    twin.handle_direct_method(direct_methods.unwrap()).await?
                 },
                 message = twin.rx_outgoing_message.recv() => {
                     twin.iothub_client.send_d2c_message(message.unwrap())?
