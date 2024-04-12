@@ -13,6 +13,7 @@ version = "0.18.0"
 [dependencies]
 actix-server = "2.3"
 actix-web = "4.5"
+actix-cors = "0.6.1"
 anyhow = "1.0"
 async-trait = "0.1"
 azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.11", features = [
