@@ -1,23 +1,21 @@
 mod consent;
 mod factory_reset;
-#[cfg(feature = "mock")]
-#[path = "mod_test.rs"]
-mod mod_test;
 mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
 mod web_service;
 mod wifi_commissioning;
-use super::systemd;
-use super::update_validation;
-use crate::systemd::WatchdogManager;
+
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
     network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
     wifi_commissioning::WifiCommissioning,
 };
+use crate::update_validation;
 use crate::update_validation::UpdateValidation;
+use crate::{systemd, systemd::watchdog::WatchdogManager};
+
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::*;
@@ -34,8 +32,6 @@ use std::{
     future::{pending, Future},
     path::Path,
 };
-#[cfg(test)]
-use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{
     select,
@@ -325,7 +321,9 @@ impl Twin {
         info!("handle_web_service_request: {:?}", request);
 
         match request {
-            web_service::Command::GetOsVersion(reply) => reply.send(json!({"version": "1.2.3.4"})).unwrap(),
+            web_service::Command::GetOsVersion(reply) => {
+                reply.send(json!({"version": "1.2.3.4"})).unwrap()
+            }
             web_service::Command::Reboot(reply) => reply.send(json!({"result": true})).unwrap(),
         }
         Ok(())
