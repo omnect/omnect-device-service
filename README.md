@@ -50,7 +50,7 @@ Use `RUST_LOG` environment variable in order to configure log level as described
 
 ### azure-iot-sdk
 
-Runtime configuration options of the underlying azure-iot-sdk crate can be found [here]([README.md](https://github.com/omnect/azure-iot-sdk/blob/main/README.md)).
+Runtime configuration options of the underlying azure-iot-sdk crate can be found [here](https://github.com/omnect/azure-iot-sdk/blob/main/README.md).
 
 ## Factory reset
 The module itself does not perform a factory reset.
