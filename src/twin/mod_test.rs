@@ -90,6 +90,8 @@ mod mod_test {
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
 
+            let update_validation = UpdateValidation::new().unwrap();
+
             // create iothub client mock
             let ctx = MockMyIotHub::from_connection_string_context();
             ctx.expect().returning(|_, _, _, _, _| {
@@ -105,7 +107,7 @@ mod mod_test {
 
             // create test config
             let mut config = TestConfig {
-                twin: Twin::new(mock),
+                twin: Twin::new(mock, update_validation),
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
