@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - introduced post service script to handle omnect-device-service restarts during
     update_validation
   - global timeout for update validation
-- updated azure-iot-sdk to 0.11.0 (confirmation timeout increased + do log instead panic on timeout)
+- updated azure-iot-sdk to 0.11.11 (confirmation timeout increased + do log instead panic on timeout)
 
 ## [0.16.2] Q2 2024
 - fixed Cargo.lock
