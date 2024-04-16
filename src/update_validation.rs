@@ -201,11 +201,10 @@ impl UpdateValidation {
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
             .context("remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
         // cancel update validation reboot timer
-        self.tx
-            .take()
-            .unwrap()
-            .send(())
-            .expect("could not cancel update validation reboot timer");
+        if let Err(e) = self.tx.take().unwrap().send(()) {
+            error!("could not cancel update validation reboot timer: {:#?}", e);
+        }
+
         Ok(())
     }
 
