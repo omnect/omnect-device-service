@@ -1,8 +1,9 @@
-use super::bootloader_env::bootloader_env::{
-    bootloader_env, set_bootloader_env, unset_bootloader_env,
+use crate::{
+    bootloader_env::{bootloader_env, set_bootloader_env, unset_bootloader_env},
+    systemd,
+    systemd::unit::UnitAction,
+    systemd::watchdog::WatchdogManager,
 };
-use crate::systemd;
-use crate::systemd::{unit::UnitAction, watchdog::WatchdogManager};
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
@@ -181,7 +182,12 @@ impl UpdateValidation {
             (self.validation_timeout_ms - (now - self.start_monotonic_time_ms)) / 1000u128,
         )?;
 
-        systemd::unit::unit_action(IOT_HUB_DEVICE_UPDATE_SERVICE, UnitAction::Start, timeout_secs).await?;
+        systemd::unit::unit_action(
+            IOT_HUB_DEVICE_UPDATE_SERVICE,
+            UnitAction::Start,
+            timeout_secs,
+        )
+        .await?;
         debug!("successfully started iot-hub-device-update");
 
         info!("successfully validated update");

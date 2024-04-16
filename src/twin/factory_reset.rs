@@ -1,4 +1,4 @@
-use super::super::bootloader_env::bootloader_env::{
+use super::super::bootloader_env::{
     bootloader_env, {set_bootloader_env, unset_bootloader_env},
 };
 use super::super::systemd;
