@@ -16,6 +16,7 @@ mod mod_test {
     use serde_json::json;
     use std::fs::{copy, create_dir_all, remove_dir_all};
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
+    use strum::EnumCount;
 
     lazy_static! {
         static ref LOG: () = if cfg!(debug_assertions) {

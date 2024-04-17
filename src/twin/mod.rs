@@ -6,6 +6,9 @@ mod reboot;
 mod ssh_tunnel;
 mod web_service;
 mod wifi_commissioning;
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod mod_test;
 
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
