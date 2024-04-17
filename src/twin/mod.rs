@@ -228,8 +228,6 @@ impl Twin {
                      * omnect-device-service already notified its own success
                      */
 
-                    systemd::sd_notify_ready();
-
                     self.update_validation.set_authenticated().await?;
 
                     self.init().await?;
@@ -238,10 +236,24 @@ impl Twin {
                 };
             }
             AuthenticationStatus::Unauthenticated(reason) => {
+                /*
                 anyhow::ensure!(
                     matches!(reason, UnauthenticatedReason::ExpiredSasToken),
                     "No connection. Reason: {reason:?}"
                 );
+                */
+                match reason {
+                    UnauthenticatedReason::BadCredential
+                    | UnauthenticatedReason::CommunicationError
+                    | UnauthenticatedReason::DeviceDisabled => {
+                        error!("Failed to connect to iothub: {reason:?}")
+                    }
+                    UnauthenticatedReason::RetryExpired
+                    | UnauthenticatedReason::ExpiredSasToken
+                    | UnauthenticatedReason::NoNetwork => {
+                        info!("Failed to connect to iothub: {reason:?}")
+                    }
+                }
             }
         }
 
@@ -327,6 +339,7 @@ impl Twin {
         let (tx_result, result) = match request {
             web_service::Command::GetOsVersion(reply) => (reply, json!({"version": "1.2.3.4"})),
             web_service::Command::Reboot(reply) => (reply, json!({"result": true})),
+            web_service::Command::RestartNetwork(reply) => (reply, json!({"result": true})),
         };
 
         if tx_result.send(result).is_err() {
@@ -383,6 +396,8 @@ impl Twin {
 
         let mut twin = Self::new(client, update_validation);
         let web_service = WebService::new(tx_web_service.clone());
+
+        systemd::sd_notify_ready();
 
         loop {
             select! (

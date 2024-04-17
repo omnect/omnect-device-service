@@ -1,38 +1,34 @@
 #[cfg(feature = "bootloader_grub")]
-mod grub_env;
+mod grub;
 #[cfg(feature = "bootloader_uboot")]
-mod uboot_env;
+mod uboot;
 
-#[cfg(feature = "bootloader_grub")]
-use grub_env::{
-    bootloader_env as get, set_bootloader_env as set, unset_bootloader_env as unset,
-};
-#[cfg(feature = "bootloader_uboot")]
-use uboot_env::{
-    bootloader_env as get, set_bootloader_env as set, unset_bootloader_env as unset,
-};
 use anyhow::Result;
+#[cfg(feature = "bootloader_grub")]
+use grub::{bootloader_env as get_inner, set_bootloader_env as set_inner, unset_bootloader_env as unset_inner};
+#[cfg(feature = "bootloader_uboot")]
+use uboot::{bootloader_env as get_inner, set_bootloader_env as set_inner, unset_bootloader_env as unset_inner};
 
 #[allow(unreachable_code, unused_variables)]
-pub fn bootloader_env(key: &str) -> Result<String> {
+pub fn get(key: &str) -> Result<String> {
     #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
-    return get(key);
+    return get_inner(key);
 
     Ok("".to_string())
 }
 
 #[allow(unreachable_code, unused_variables)]
-pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
+pub fn set(key: &str, value: &str) -> Result<()> {
     #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
-    return set(key, value);
+    return set_inner(key, value);
 
     Ok(())
 }
 
 #[allow(unreachable_code, unused_variables)]
-pub fn unset_bootloader_env(key: &str) -> Result<()> {
+pub fn unset(key: &str) -> Result<()> {
     #[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
-    return unset(key);
+    return unset_inner(key);
 
     Ok(())
 }

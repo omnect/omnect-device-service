@@ -1,8 +1,5 @@
 use crate::{
-    bootloader_env::{bootloader_env, set_bootloader_env, unset_bootloader_env},
-    systemd,
-    systemd::unit::UnitAction,
-    systemd::watchdog::WatchdogManager,
+    bootloader_env, systemd, systemd::unit::UnitAction, systemd::watchdog::WatchdogManager,
 };
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, error, info};
@@ -195,14 +192,14 @@ impl UpdateValidation {
     }
 
     async fn finalize(&mut self) -> Result<()> {
-        let omnect_validate_update_part = bootloader_env("omnect_validate_update_part")?;
+        let omnect_validate_update_part = bootloader_env::get("omnect_validate_update_part")?;
         ensure!(
             !omnect_validate_update_part.is_empty(),
             "omnect_validate_update_part not set"
         );
-        set_bootloader_env("omnect_os_bootpart", omnect_validate_update_part.as_str())?;
-        unset_bootloader_env("omnect_validate_update")?;
-        unset_bootloader_env("omnect_validate_update_part")?;
+        bootloader_env::set("omnect_os_bootpart", omnect_validate_update_part.as_str())?;
+        bootloader_env::unset("omnect_validate_update")?;
+        bootloader_env::unset("omnect_validate_update_part")?;
 
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
             .context("remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
