@@ -36,7 +36,7 @@ use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{
     select,
     sync::mpsc,
-    time::{interval, Duration, Interval},
+    time::{interval, Interval},
 };
 
 #[enum_dispatch]
@@ -357,10 +357,10 @@ impl Twin {
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
-        let mut sd_notify_interval = if let Some(micros) = WatchdogManager::init() {
-            let micros = micros / 2;
-            debug!("trigger watchdog interval: {micros}µs");
-            Some(interval(Duration::from_micros(micros)))
+        let mut sd_notify_interval = if let Some(timeout) = WatchdogManager::init() {
+            let timeout = timeout / 2;
+            debug!("trigger watchdog interval: {}µs", timeout.as_micros());
+            Some(interval(timeout))
         } else {
             None
         };

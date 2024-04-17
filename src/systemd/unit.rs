@@ -12,8 +12,8 @@ pub enum UnitAction {
     Restart,
 }
 
-pub async fn unit_action(unit: &str, unit_action: UnitAction, timeout_secs: u64) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+pub async fn unit_action(unit: &str, unit_action: UnitAction, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
     let system = timeout_at(deadline, zbus::Connection::system()).await??;
     let manager = timeout_at(deadline, ManagerProxy::new(&system)).await??;
 

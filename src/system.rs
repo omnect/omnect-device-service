@@ -4,11 +4,12 @@ use anyhow::{Context, Result};
 use log::info;
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 static DEV_OMNECT: &str = "/dev/omnect/";
 static NETWORK_SERVICE: &str = "systemd-networkd.service";
-static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u128 = 30;
+static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 30;
 
 fn info_current_root() -> Result<()> {
     let current_root = fs::read_link(DEV_OMNECT.to_owned() + "rootCurrent")
@@ -43,7 +44,7 @@ pub async fn restart_network() -> Result<()> {
     systemd::unit::unit_action(
         NETWORK_SERVICE,
         UnitAction::Reload,
-        NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS.try_into().unwrap(),
+        Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
     )
     .await
 }
