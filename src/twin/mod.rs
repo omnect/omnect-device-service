@@ -221,16 +221,15 @@ impl Twin {
     }
 
     async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
-        info!("auth_status: {auth_status:#?}");
-
         match auth_status {
             AuthenticationStatus::Authenticated => {
                 if !self.authenticated_once {
+                    info!("Succeeded to connect to iothub");
+
                     /*
                      * the update validation test "wait_for_system_running" enforces that
                      * omnect-device-service already notified its own success
                      */
-
                     self.update_validation.set_authenticated().await?;
 
                     self.init().await?;
@@ -239,12 +238,6 @@ impl Twin {
                 };
             }
             AuthenticationStatus::Unauthenticated(reason) => {
-                /*
-                anyhow::ensure!(
-                    matches!(reason, UnauthenticatedReason::ExpiredSasToken),
-                    "No connection. Reason: {reason:?}"
-                );
-                */
                 match reason {
                     UnauthenticatedReason::BadCredential
                     | UnauthenticatedReason::CommunicationError

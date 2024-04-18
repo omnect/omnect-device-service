@@ -60,7 +60,7 @@ impl UpdateValidation {
                 "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
             )?;
             new_self.restart_count += 1;
-            info!("update validation retry start ({})", new_self.restart_count);
+            info!("update validation: retry start ({})", new_self.restart_count);
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -80,7 +80,7 @@ impl UpdateValidation {
                 validation_timeout - (now - new_self.start_monotonic_time);
             new_self.run_update_validation = true;
         } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
-            info!("update validation first start");
+            info!("update validation: first start");
             new_self.start_monotonic_time = std::time::Duration::from(nix::time::clock_gettime(
                 nix::time::ClockId::CLOCK_MONOTONIC,
             )?);
@@ -100,6 +100,7 @@ impl UpdateValidation {
             new_self.validation_timeout = validation_timeout;
             new_self.run_update_validation = true;
         } else {
+            info!("update validation: no update to be validated");
             new_self.run_update_validation = false;
         }
 
@@ -110,17 +111,17 @@ impl UpdateValidation {
 
             new_self.join_handle = Some(tokio::spawn(async move {
                 info!(
-                    "update validation reboot timer started ({} ms).",
+                    "update validation: reboot timer started ({} ms).",
                     validation_timeout.as_millis()
                 );
                 match timeout(validation_timeout, rx).await {
                     Err(_) => {
-                        error!("update validation timeout. rebooting ...");
+                        error!("update validation: timeout. rebooting ...");
                         let _ = systemd::reboot()
                             .await
-                            .context("update validation timer couldn't trigger reboot");
+                            .context("update validation: timer couldn't trigger reboot");
                     }
-                    _ => info!("update validation reboot timer canceled."),
+                    _ => info!("update validation: reboot timer canceled."),
                 }
             }));
         }
@@ -133,7 +134,7 @@ impl UpdateValidation {
         }
 
         self.authenticated = true;
-        info!("update validation status set to \"authenticated\"");
+        debug!("update validation: status set to \"authenticated\"");
 
         serde_json::to_writer_pretty(
             OpenOptions::new()
@@ -153,7 +154,7 @@ impl UpdateValidation {
     }
 
     async fn validate(&mut self) -> Result<()> {
-        debug!("update validation started");
+        debug!("update validation: started");
         let now = std::time::Duration::from(nix::time::clock_gettime(
             nix::time::ClockId::CLOCK_MONOTONIC,
         )?);
@@ -163,7 +164,7 @@ impl UpdateValidation {
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degrated" and possibly ignore certain failed services via configuration
          */
-        info!("system is running");
+        info!("update validation: system is running");
 
         // remove iot-hub-device-service barrier file and start service as part of validation
         debug!("starting deviceupdate-agent.service");
@@ -176,9 +177,9 @@ impl UpdateValidation {
 
         systemd::unit::unit_action(IOT_HUB_DEVICE_UPDATE_SERVICE, UnitAction::Start, timeout)
             .await?;
-        debug!("successfully started iot-hub-device-update");
+        debug!("update validation: successfully started iot-hub-device-update");
 
-        info!("successfully validated update");
+        info!("update validation: successfully validated update");
         Ok(())
     }
 
@@ -186,17 +187,17 @@ impl UpdateValidation {
         let omnect_validate_update_part = bootloader_env::get("omnect_validate_update_part")?;
         ensure!(
             !omnect_validate_update_part.is_empty(),
-            "omnect_validate_update_part not set"
+            "update validation: omnect_validate_update_part not set"
         );
         bootloader_env::set("omnect_os_bootpart", omnect_validate_update_part.as_str())?;
         bootloader_env::unset("omnect_validate_update")?;
         bootloader_env::unset("omnect_validate_update_part")?;
 
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-            .context("remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
+            .context("update validation: remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
         // cancel update validation reboot timer
         if let Err(e) = self.tx.take().unwrap().send(()) {
-            error!("could not cancel update validation reboot timer: {:#?}", e);
+            error!("update validation: could not cancel update validation reboot timer: {:#?}", e);
         }
 
         Ok(())
@@ -208,11 +209,11 @@ impl UpdateValidation {
 
         if let Err(e) = self.validate().await {
             systemd::reboot().await?;
-            bail!("validate error: {e:#}");
+            bail!("update validation: validate error: {e:#}");
         }
         if let Err(e) = self.finalize().await {
             systemd::reboot().await?;
-            bail!("finalize error: {e:#}");
+            bail!("update validation: finalize error: {e:#}");
         }
 
         if let Some(interval) = saved_interval {
