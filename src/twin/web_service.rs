@@ -21,7 +21,7 @@ impl WebService {
         let srv = HttpServer::new(move || {
             let cors = Cors::default()
                 .allowed_origin(format!("http://{}:{}", "127.0.0.1", "8085").as_str())
-                .allowed_methods(vec!["GET", "POST"])
+                .allowed_methods(vec!["GET", "PUT"])
                 .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
                 .allowed_header(http::header::CONTENT_TYPE)
                 .max_age(3600);
@@ -31,7 +31,7 @@ impl WebService {
                 .app_data(web::Data::new(tx_request.clone()))
                 .route("/reboot", web::put().to(Self::reboot))
                 .route("/os-version", web::get().to(Self::os_version))
-                .route("/restart-network", web::get().to(Self::restart_network))
+                .route("/restart-network", web::put().to(Self::restart_network))
         })
         .bind("localhost:8086")
         .unwrap()

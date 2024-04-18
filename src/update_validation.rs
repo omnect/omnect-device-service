@@ -60,7 +60,7 @@ impl UpdateValidation {
                 "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
             )?;
             new_self.restart_count += 1;
-            info!("update validation: retry start ({})", new_self.restart_count);
+            info!("retry start ({})", new_self.restart_count);
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -80,7 +80,7 @@ impl UpdateValidation {
                 validation_timeout - (now - new_self.start_monotonic_time);
             new_self.run_update_validation = true;
         } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
-            info!("update validation: first start");
+            info!("first start");
             new_self.start_monotonic_time = std::time::Duration::from(nix::time::clock_gettime(
                 nix::time::ClockId::CLOCK_MONOTONIC,
             )?);
@@ -100,7 +100,7 @@ impl UpdateValidation {
             new_self.validation_timeout = validation_timeout;
             new_self.run_update_validation = true;
         } else {
-            info!("update validation: no update to be validated");
+            info!("no update to be validated");
             new_self.run_update_validation = false;
         }
 
@@ -111,7 +111,7 @@ impl UpdateValidation {
 
             new_self.join_handle = Some(tokio::spawn(async move {
                 info!(
-                    "update validation: reboot timer started ({} ms).",
+                    "reboot timer started ({} ms).",
                     validation_timeout.as_millis()
                 );
                 match timeout(validation_timeout, rx).await {
@@ -121,7 +121,7 @@ impl UpdateValidation {
                             .await
                             .context("update validation: timer couldn't trigger reboot");
                     }
-                    _ => info!("update validation: reboot timer canceled."),
+                    _ => info!("reboot timer canceled."),
                 }
             }));
         }
@@ -134,7 +134,7 @@ impl UpdateValidation {
         }
 
         self.authenticated = true;
-        debug!("update validation: status set to \"authenticated\"");
+        debug!("status set to \"authenticated\"");
 
         serde_json::to_writer_pretty(
             OpenOptions::new()
@@ -154,7 +154,7 @@ impl UpdateValidation {
     }
 
     async fn validate(&mut self) -> Result<()> {
-        debug!("update validation: started");
+        debug!("started");
         let now = std::time::Duration::from(nix::time::clock_gettime(
             nix::time::ClockId::CLOCK_MONOTONIC,
         )?);
@@ -164,7 +164,7 @@ impl UpdateValidation {
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degrated" and possibly ignore certain failed services via configuration
          */
-        info!("update validation: system is running");
+        info!("system is running");
 
         // remove iot-hub-device-service barrier file and start service as part of validation
         debug!("starting deviceupdate-agent.service");
@@ -177,9 +177,9 @@ impl UpdateValidation {
 
         systemd::unit::unit_action(IOT_HUB_DEVICE_UPDATE_SERVICE, UnitAction::Start, timeout)
             .await?;
-        debug!("update validation: successfully started iot-hub-device-update");
+        debug!("successfully started iot-hub-device-update");
 
-        info!("update validation: successfully validated update");
+        info!("successfully validated update");
         Ok(())
     }
 
