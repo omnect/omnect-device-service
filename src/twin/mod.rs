@@ -1,22 +1,22 @@
 mod consent;
 mod factory_reset;
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod mod_test;
 mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
 mod web_service;
 mod wifi_commissioning;
-#[cfg(test)]
-#[path = "mod_test.rs"]
-mod mod_test;
 
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
     network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel, web_service::WebService,
     wifi_commissioning::WifiCommissioning,
 };
-use crate::update_validation;
 use crate::update_validation::UpdateValidation;
+use crate::{system, update_validation};
 use crate::{systemd, systemd::watchdog::WatchdogManager};
 
 use anyhow::{anyhow, bail, Result};
@@ -340,9 +340,16 @@ impl Twin {
         info!("handle_web_service_request: {:?}", request);
 
         let (tx_result, result) = match request {
-            web_service::Command::GetOsVersion(reply) => (reply, json!({"version": "1.2.3.4"})),
-            web_service::Command::Reboot(reply) => (reply, json!({"result": true})),
-            web_service::Command::RestartNetwork(reply) => (reply, json!({"result": true})),
+            web_service::Command::GetOsVersion(reply) => {
+                (reply, json!({"version": system::sw_version()?}))
+            }
+            web_service::Command::Reboot(reply) => {
+                (reply, json!({"result": systemd::reboot().await.is_ok()}))
+            }
+            web_service::Command::RestartNetwork(reply) => (
+                reply,
+                json!({"result": system::restart_network().await.is_ok()}),
+            ),
         };
 
         if tx_result.send(result).is_err() {

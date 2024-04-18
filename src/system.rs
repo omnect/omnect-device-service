@@ -2,6 +2,7 @@ use crate::{systemd, systemd::unit::UnitAction};
 
 use anyhow::{Context, Result};
 use log::info;
+use serde_json::json;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -47,4 +48,26 @@ pub async fn restart_network() -> Result<()> {
         Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
     )
     .await
+}
+
+pub fn sw_version() -> Result<serde_json::Value> {
+    let path = if cfg!(feature = "mock") {
+        "testfiles/psitive/sw-versions"
+    } else {
+        "/etc/sw-versions"
+    };
+
+    let sw_versions = std::fs::read_to_string(path).context("cannot read sw-versions")?;
+
+    let sw_versions: Vec<&str> = sw_versions.split(' ').collect();
+
+    anyhow::ensure!(
+        sw_versions.len() == 2,
+        "sw-versions: unexpected number of entries"
+    );
+
+    Ok(json!( {
+        "osName": sw_versions[0],
+        "swVersion": sw_versions[1],
+    }))
 }
