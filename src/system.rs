@@ -52,14 +52,13 @@ pub async fn restart_network() -> Result<()> {
 
 pub fn sw_version() -> Result<serde_json::Value> {
     let path = if cfg!(feature = "mock") {
-        "testfiles/psitive/sw-versions"
+        "testfiles/positive/sw-versions"
     } else {
         "/etc/sw-versions"
     };
 
     let sw_versions = std::fs::read_to_string(path).context("cannot read sw-versions")?;
-
-    let sw_versions: Vec<&str> = sw_versions.split(' ').collect();
+    let sw_versions: Vec<&str> = sw_versions.trim_end().split(' ').collect();
 
     anyhow::ensure!(
         sw_versions.len() == 2,
