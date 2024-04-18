@@ -237,20 +237,18 @@ impl Twin {
                     self.authenticated_once = true;
                 };
             }
-            AuthenticationStatus::Unauthenticated(reason) => {
-                match reason {
-                    UnauthenticatedReason::BadCredential
-                    | UnauthenticatedReason::CommunicationError
-                    | UnauthenticatedReason::DeviceDisabled => {
-                        error!("Failed to connect to iothub: {reason:?}")
-                    }
-                    UnauthenticatedReason::RetryExpired
-                    | UnauthenticatedReason::ExpiredSasToken
-                    | UnauthenticatedReason::NoNetwork => {
-                        info!("Failed to connect to iothub: {reason:?}")
-                    }
+            AuthenticationStatus::Unauthenticated(reason) => match reason {
+                UnauthenticatedReason::BadCredential
+                | UnauthenticatedReason::CommunicationError => {
+                    anyhow::bail!("Failed to connect to iothub: {reason:?}")
                 }
-            }
+                UnauthenticatedReason::RetryExpired
+                | UnauthenticatedReason::ExpiredSasToken
+                | UnauthenticatedReason::NoNetwork
+                | UnauthenticatedReason::DeviceDisabled => {
+                    info!("Failed to connect to iothub: {reason:?}")
+                }
+            },
         }
 
         Ok(())
