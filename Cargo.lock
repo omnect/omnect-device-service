@@ -1909,6 +1909,7 @@ dependencies = [
  "dotenvy",
  "enum_dispatch",
  "env_logger 0.10.2",
+ "futures",
  "futures-executor",
  "futures-util",
  "lazy_static",
