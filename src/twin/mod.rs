@@ -10,6 +10,14 @@ mod ssh_tunnel;
 mod web_service;
 mod wifi_commissioning;
 
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        use mod_test::mod_test::MockMyIotHub as IotHubClient;
+    } else {
+        use azure_iot_sdk::client::IotHubClient;
+    }
+}
+
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
     network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel, web_service::WebService,
@@ -21,7 +29,10 @@ use crate::{systemd, systemd::watchdog::WatchdogManager};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
-use azure_iot_sdk::client::*;
+use azure_iot_sdk::client::{
+    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState,
+    UnauthenticatedReason,
+};
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
@@ -85,7 +96,7 @@ trait Feature {
 }
 
 pub struct Twin {
-    iothub_client: Box<dyn IotHub>,
+    iothub_client: IotHubClient,
     authenticated_once: bool,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
@@ -95,7 +106,7 @@ pub struct Twin {
 }
 
 impl Twin {
-    pub fn new(client: Box<dyn IotHub>, update_validation: UpdateValidation) -> Self {
+    fn new(client: IotHubClient, update_validation: UpdateValidation) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
@@ -294,33 +305,47 @@ impl Twin {
         Ok(())
     }
 
-    async fn handle_direct_method(
-        &self,
-        (method_name, payload, tx_result): (String, serde_json::Value, DirectMethodResult),
-    ) -> Result<()> {
-        info!("handle_direct_method: {method_name} with payload: {payload}");
+    async fn handle_direct_method(&self, method: DirectMethod) -> Result<()> {
+        info!(
+            "handle_direct_method: {} with payload: {}",
+            method.name, method.payload
+        );
 
-        let result = match method_name.as_str() {
+        let result = match method.name.as_str() {
             "factory_reset" => {
                 self.feature::<FactoryReset>()?
-                    .reset_to_factory_settings(payload)
+                    .reset_to_factory_settings(method.payload)
                     .await
             }
-            "user_consent" => self.feature::<DeviceUpdateConsent>()?.user_consent(payload),
+            "user_consent" => self
+                .feature::<DeviceUpdateConsent>()?
+                .user_consent(method.payload),
             "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
             "refresh_network_status" => {
                 self.feature::<NetworkStatus>()?
                     .refresh_network_status()
                     .await
             }
-            "get_ssh_pub_key" => self.feature::<SshTunnel>()?.get_ssh_pub_key(payload).await,
-            "open_ssh_tunnel" => self.feature::<SshTunnel>()?.open_ssh_tunnel(payload).await,
-            "close_ssh_tunnel" => self.feature::<SshTunnel>()?.close_ssh_tunnel(payload).await,
+            "get_ssh_pub_key" => {
+                self.feature::<SshTunnel>()?
+                    .get_ssh_pub_key(method.payload)
+                    .await
+            }
+            "open_ssh_tunnel" => {
+                self.feature::<SshTunnel>()?
+                    .open_ssh_tunnel(method.payload)
+                    .await
+            }
+            "close_ssh_tunnel" => {
+                self.feature::<SshTunnel>()?
+                    .close_ssh_tunnel(method.payload)
+                    .await
+            }
             "reboot" => self.feature::<Reboot>()?.reboot().await,
             _ => Err(anyhow!("direct method unknown")),
         };
 
-        if tx_result.send(result).is_err() {
+        if method.responder.send(result).is_err() {
             error!("handle_direct_method: receiver dropped");
         }
 
@@ -350,7 +375,7 @@ impl Twin {
         Ok(())
     }
 
-    pub async fn run(connection_string: Option<&str>) -> Result<()> {
+    pub async fn run() -> Result<()> {
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
@@ -370,32 +395,27 @@ impl Twin {
         let update_validation = UpdateValidation::new()?;
 
         info!("waiting for authentication...");
-        let client = match IotHubClient::client_type() {
-            _ if connection_string.is_some() => IotHubClient::from_connection_string(
-                connection_string.unwrap(),
-                Some(tx_connection_status.clone()),
-                Some(tx_twin_desired.clone()),
-                Some(tx_direct_method.clone()),
-                None,
-            )?,
-            ClientType::Device | ClientType::Module => {
-                IotHubClient::from_identity_service(
-                    Some(tx_connection_status.clone()),
-                    Some(tx_twin_desired.clone()),
-                    Some(tx_direct_method.clone()),
-                    None,
-                )
-                .await?
-            }
-            ClientType::Edge => IotHubClient::from_edge_environment(
-                Some(tx_connection_status.clone()),
-                Some(tx_twin_desired.clone()),
-                Some(tx_direct_method.clone()),
-                None,
-            )?,
+
+        let builder = IotHubClient::builder()
+            .observe_connection_state(tx_connection_status)
+            .observe_desired_properties(tx_twin_desired)
+            .observe_direct_methods(tx_direct_method)
+            .pnp_model_id("dtmi:azure:iot:deviceUpdateModel;3");
+
+        let mut twin = if cfg!(feature = "mock") {
+            Self::new(
+                builder
+                    .build_module_client(&std::env::var("CONNECTION_STRING").unwrap())
+                    .unwrap(),
+                update_validation,
+            )
+        } else {
+            Self::new(
+                builder.build_module_client_from_identity().await.unwrap(),
+                update_validation,
+            )
         };
 
-        let mut twin = Self::new(client, update_validation);
         let web_service = WebService::new(tx_web_service.clone());
 
         systemd::sd_notify_ready();

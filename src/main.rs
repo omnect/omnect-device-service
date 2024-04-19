@@ -46,7 +46,7 @@ async fn main() {
         error!("application error: {e:#}");
     }
 
-    if let Err(e) = Twin::run(None).await {
+    if let Err(e) = Twin::run().await {
         error!("application error: {e:#}");
 
         process::exit(1);
