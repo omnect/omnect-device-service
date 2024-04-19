@@ -17,6 +17,7 @@ pub struct WebService {
 
 impl WebService {
     pub fn new(tx_request: mpsc::Sender<Command>) -> Self {
+        // @ToDo bind to unix domain socket
         let srv = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(tx_request.clone()))
