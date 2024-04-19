@@ -3,6 +3,7 @@ mod factory_reset;
 #[cfg(feature = "mock")]
 #[path = "mod_test.rs"]
 mod mod_test;
+mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
@@ -11,9 +12,11 @@ use super::systemd;
 use super::update_validation;
 use crate::systemd::WatchdogManager;
 use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, network_status::NetworkStatus,
-    reboot::Reboot, ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
+    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
+    wifi_commissioning::WifiCommissioning,
 };
+use crate::update_validation::UpdateValidation;
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::*;
@@ -44,6 +47,7 @@ use tokio::{
 enum TwinFeature {
     FactoryReset,
     DeviceUpdateConsent,
+    ModemInfo,
     NetworkStatus,
     SshTunnel,
 }
@@ -87,12 +91,45 @@ pub struct Twin {
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
     rx_outgoing_message: mpsc::Receiver<IotMessage>,
     features: HashMap<TypeId, Box<dyn Feature>>,
+    update_validation: update_validation::UpdateValidation,
 }
 
 impl Twin {
-    pub fn new(client: Box<dyn IotHub>) -> Self {
+    pub fn new(client: Box<dyn IotHub>, update_validation: UpdateValidation) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+
+        let features = HashMap::from([
+            (
+                TypeId::of::<DeviceUpdateConsent>(),
+                Box::new(DeviceUpdateConsent::new(tx_reported_properties.clone()))
+                    as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<FactoryReset>(),
+                Box::new(FactoryReset::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<ModemInfo>(),
+                Box::new(ModemInfo::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<NetworkStatus>(),
+                Box::new(NetworkStatus::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<Reboot>(),
+                Box::<Reboot>::default() as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<SshTunnel>(),
+                Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
+            ),
+            (
+                TypeId::of::<WifiCommissioning>(),
+                Box::<WifiCommissioning>::default() as Box<dyn Feature>,
+            ),
+        ]);
 
         Twin {
             iothub_client: client,
@@ -100,33 +137,8 @@ impl Twin {
             rx_reported_properties,
             rx_outgoing_message,
             authenticated_once: false,
-            features: HashMap::from([
-                (
-                    TypeId::of::<DeviceUpdateConsent>(),
-                    Box::new(DeviceUpdateConsent::new(tx_reported_properties.clone()))
-                        as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<FactoryReset>(),
-                    Box::new(FactoryReset::new(tx_reported_properties.clone())) as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<NetworkStatus>(),
-                    Box::new(NetworkStatus::new(tx_reported_properties)) as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<Reboot>(),
-                    Box::<Reboot>::default() as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<SshTunnel>(),
-                    Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
-                ),
-                (
-                    TypeId::of::<WifiCommissioning>(),
-                    Box::<WifiCommissioning>::default() as Box<dyn Feature>,
-                ),
-            ]),
+            features,
+            update_validation,
         }
     }
 
@@ -213,8 +225,6 @@ impl Twin {
 
         match auth_status {
             AuthenticationStatus::Authenticated => {
-                let mut update_validated: Result<()> = Ok(());
-
                 if !self.authenticated_once {
                     /*
                      * the update validation test "wait_for_system_running" enforces that
@@ -222,14 +232,13 @@ impl Twin {
                      */
 
                     systemd::sd_notify_ready();
-                    update_validated = update_validation::check().await;
+
+                    self.update_validation.set_authenticated().await?;
 
                     self.init().await?;
 
                     self.authenticated_once = true;
                 };
-
-                update_validated?;
             }
             AuthenticationStatus::Unauthenticated(reason) => {
                 anyhow::ensure!(
@@ -296,6 +305,7 @@ impl Twin {
                     .await
             }
             "user_consent" => self.feature::<DeviceUpdateConsent>()?.user_consent(payload),
+            "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
             "refresh_network_status" => {
                 self.feature::<NetworkStatus>()?
                     .refresh_network_status()
@@ -324,6 +334,10 @@ impl Twin {
             None
         };
 
+        // has to be called before iothub client authentication
+        let update_validation = UpdateValidation::new()?;
+
+        info!("waiting for authentication...");
         let client = match IotHubClient::client_type() {
             _ if connection_string.is_some() => IotHubClient::from_connection_string(
                 connection_string.unwrap(),
@@ -349,7 +363,7 @@ impl Twin {
             )?,
         };
 
-        let mut twin = Self::new(client);
+        let mut twin = Self::new(client, update_validation);
         let handle = signals.handle();
 
         loop {

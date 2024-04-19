@@ -19,18 +19,22 @@ This module serves as interface between omnect cloud and device to support certa
   - [Reboot](#reboot)
     - [Feature availability](#feature-availability-2)
     - [Trigger reboot](#trigger-reboot)
-  - [Network status](#network-status)
+  - [Modem info](#modem-info)
     - [Feature availability](#feature-availability-3)
+    - [Current reported modem info](#current-reported-modem-info)
+    - [Refresh modem info](#refresh-modem-info)
+  - [Network status](#network-status)
+    - [Feature availability](#feature-availability-4)
     - [Current reported network status](#current-reported-network-status)
     - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
     - [Refresh Network status](#refresh-network-status)
-  - [SSH Tunnel handling](#ssh-tunnel-handling)
-    - [Feature availability](#feature-availability-4)
+  - [SSH Tunnel](#ssh-tunnel)
+    - [Feature availability](#feature-availability-5)
     - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
     - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
     - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
   - [Wifi commissioning service](#wifi-commissioning-service)
-    - [Feature availability](#feature-availability-5)
+    - [Feature availability](#feature-availability-6)
   - [Update validation](#update-validation)
     - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
@@ -46,7 +50,7 @@ Use `RUST_LOG` environment variable in order to configure log level as described
 
 ### azure-iot-sdk
 
-Runtime configuration options of the underlying azure-iot-sdk crate can be found [here]([README.md](https://github.com/omnect/azure-iot-sdk/blob/main/README.md)).
+Runtime configuration options of the underlying azure-iot-sdk crate can be found [here](https://github.com/omnect/azure-iot-sdk/blob/main/README.md).
 
 ## Factory reset
 The module itself does not perform a factory reset.
@@ -278,6 +282,89 @@ A direct method to trigger a device reboot.
 **Direct method: reboot**
 
 Method Name: `reboot`
+
+Payload:
+```
+{
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+## Modem Info
+
+This feature adds the ability to query status information of connected modem.
+
+**NOTE**: this is an optional feature and must be explicitly turned on when
+building, i.e., `cargo build --features modem_info,...`.
+
+### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"modem_info":
+{
+  "version": <ver>
+}
+```
+
+### Current reported modem info
+
+The module reports the status of any attached modems. For this purpose the module sends this reported property to the cloud.
+
+```
+"modem_info":
+{
+  "modems": [
+    {
+      "bearers": [],
+      "imei": "xxxxxxxx",
+      "manufacturer": "Sierra Wireless, Incorporated",
+      "model": "EM7455",
+      "preferred_technologies": [
+        12
+      ],
+      "revision": "SWI9X30C_02.33.03.00 r8209 CARMD-EV-FRMWR2 2019/08/28 20:59:30",
+      "sims": [
+        {
+          "iccid": "yyyyyyyy",
+          "operator": "Telekom.de"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Refresh modem info
+
+A direct method to refresh and report current modem info.
+
+**Direct method: refresh_modem_info**
+
+Method Name: `refresh_modem_info`
 
 Payload:
 ```

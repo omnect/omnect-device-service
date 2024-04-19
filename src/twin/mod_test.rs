@@ -90,6 +90,8 @@ mod mod_test {
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
 
+            let update_validation = UpdateValidation::new().unwrap();
+
             // create iothub client mock
             let ctx = MockMyIotHub::from_connection_string_context();
             ctx.expect().returning(|_, _, _, _, _| {
@@ -105,7 +107,7 @@ mod mod_test {
 
             // create test config
             let mut config = TestConfig {
-                twin: Twin::new(mock),
+                twin: Twin::new(mock, update_validation),
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
@@ -125,7 +127,7 @@ mod mod_test {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn init_features_ok_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -155,6 +157,11 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"modem_info":null})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -217,7 +224,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn init_features_no_factory_reset_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -248,6 +255,11 @@ mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"modem_info":null})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -292,20 +304,20 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn wifi_commissioning_feature_test() {
         let test_files = vec!["testfiles/wifi_commissioning/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
+                .times(TwinFeature::COUNT + 4)
                 .returning(|_| Ok(()));
         };
 
@@ -320,7 +332,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_twin_test() {
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
@@ -395,7 +407,7 @@ mod mod_test {
         TestCase::run(vec![], vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test1() {
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report().times(0).returning(|_| Ok(()));
@@ -444,7 +456,7 @@ mod mod_test {
         TestCase::run(vec![], vec![], vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test2() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -460,7 +472,7 @@ mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -474,7 +486,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_passed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -541,7 +553,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn consent_observe_history_file_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -595,7 +607,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn consent_direct_method_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -631,7 +643,7 @@ mod mod_test {
         TestCase::run(test_files, test_dirs, vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn consent_invalid_component_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -757,7 +769,7 @@ mod mod_test {
         TestCase::run(test_files, test_dirs, vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn reset_to_factory_settings_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -837,7 +849,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], vec![], expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_direct_method_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
@@ -913,7 +925,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_unexpected_result_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
@@ -940,7 +952,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_normal_result_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
@@ -967,7 +979,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_unexpected_setting_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
@@ -1015,7 +1027,7 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_unexpected_type_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
@@ -1060,14 +1072,14 @@ mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_report_and_refresh_network_status_test() {
         let test_files = vec!["testfiles/positive/os-release"];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_REBOOT", "true"),
+            ("SUPPRESS_SSH_TUNNEL", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
@@ -1076,7 +1088,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(9).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1159,7 +1171,7 @@ mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(6).returning(|_| Ok(()));
+            mock.expect_twin_report().times(7).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1252,7 +1264,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(6).returning(|_| Ok(()));
+            mock.expect_twin_report().times(7).returning(|_| Ok(()));
 
             // currently no way to explicitly wait for the spawned task
             // mock.expect_send_d2c_message().times(1).returning(|_| Ok(()));

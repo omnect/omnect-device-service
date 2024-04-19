@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "git@github.com:omnect/omnect-device-service.git"
-version = "0.14.16"
+version = "0.17.1"
 
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.10", features = [
+azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.11.11", features = [
   "module_client",
 ] }
 dotenvy = "0.15"
@@ -24,7 +24,9 @@ futures-util = "0.3"
 lazy_static = "1.4"
 log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
+modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.2.0", default_features = false, optional = true }
 network-interface = "0.1"
+nix = { version = "0.28", features = ["time"] }
 notify = "6.0"
 notify-debouncer-mini = "0.3"
 sd-notify = "0.4"
@@ -55,3 +57,4 @@ default = []
 bootloader_uboot = []
 bootloader_grub = []
 mock = []
+modem_info = ["modemmanager"]
