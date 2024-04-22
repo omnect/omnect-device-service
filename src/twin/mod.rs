@@ -30,13 +30,12 @@ use crate::{systemd, systemd::watchdog::WatchdogManager};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{
-    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState,
-    UnauthenticatedReason,
+    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState, UnauthenticatedReason,
 };
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -255,9 +254,11 @@ impl Twin {
                 }
                 UnauthenticatedReason::RetryExpired
                 | UnauthenticatedReason::ExpiredSasToken
-                | UnauthenticatedReason::NoNetwork
-                | UnauthenticatedReason::DeviceDisabled => {
+                | UnauthenticatedReason::NoNetwork => {
                     info!("Failed to connect to iothub: {reason:?}")
+                }
+                UnauthenticatedReason::DeviceDisabled => {
+                    warn!("Failed to connect to iothub: {reason:?}")
                 }
             },
         }

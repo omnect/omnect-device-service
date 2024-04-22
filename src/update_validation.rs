@@ -4,6 +4,7 @@ use crate::{
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationMilliSeconds};
 use std::{env, fs, fs::OpenOptions, path::Path};
 use tokio::{
     sync::oneshot,
@@ -19,8 +20,10 @@ static UPDATE_VALIDATION_COMPLETE_BARRIER_FILE: &str =
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 static UPDATE_VALIDATION_TIMEOUT_IN_SECS: u64 = 300;
 
+#[serde_as]
 #[derive(Default, Deserialize, Serialize)]
 pub struct UpdateValidation {
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
     start_monotonic_time: Duration,
     restart_count: u8,
     authenticated: bool,
@@ -54,11 +57,13 @@ impl UpdateValidation {
                     .read(true)
                     .create(false)
                     .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                    .context("retry read of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                    .context(format!(
+                        "retry read of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
+                    ))?,
             )
-            .context(
-                "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
-            )?;
+            .context(format!(
+                "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
+            ))?;
             new_self.restart_count += 1;
             info!("retry start ({})", new_self.restart_count);
             serde_json::to_writer_pretty(
@@ -67,11 +72,11 @@ impl UpdateValidation {
                     .create(false)
                     .truncate(true)
                     .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                    .context("retry write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                    .context(format!("retry write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"))?,
                     &new_self,
             )
             .context(
-                "retry serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
+                format!("retry serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"),
             )?;
             let now = std::time::Duration::from(nix::time::clock_gettime(
                 nix::time::ClockId::CLOCK_MONOTONIC,
@@ -91,11 +96,11 @@ impl UpdateValidation {
                     .create(true)
                     .truncate(true)
                     .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                    .context("first write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                    .context(format!("first write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"))?,
                 &new_self,
             )
             .context(
-                "first serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
+                format!("first serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"),
             )?;
             new_self.validation_timeout = validation_timeout;
             new_self.run_update_validation = true;
@@ -142,11 +147,11 @@ impl UpdateValidation {
                 .create(false)
                 .truncate(true)
                 .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                .context("authenticated: write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                .context(format!("authenticated: write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"))?,
             &self,
         )
         .context(
-            "authenticated: serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
+            format!("authenticated: serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"),
         )?;
 
         // for now start validation blocking twin::init - maybe we want an successful twin::init as part of validation at some point?
@@ -193,11 +198,15 @@ impl UpdateValidation {
         bootloader_env::unset("omnect_validate_update")?;
         bootloader_env::unset("omnect_validate_update_part")?;
 
-        fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-            .context("update validation: remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
+        fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).context(format!(
+            "update validation: remove {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
+        ))?;
         // cancel update validation reboot timer
         if let Err(e) = self.tx.take().unwrap().send(()) {
-            error!("update validation: could not cancel update validation reboot timer: {:#?}", e);
+            error!(
+                "update validation: could not cancel update validation reboot timer: {:#?}",
+                e
+            );
         }
 
         Ok(())
