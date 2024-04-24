@@ -7,34 +7,39 @@ This module serves as interface between omnect cloud and device to support certa
   - [Configuration](#configuration)
     - [Log level](#log-level)
     - [azure-iot-sdk](#azure-iot-sdk)
-  - [Factory reset](#factory-reset)
-    - [Feature availability](#feature-availability)
-    - [Trigger factory reset](#trigger-factory-reset)
-    - [Report factory reset status](#report-factory-reset-status)
-  - [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
-    - [Feature availability](#feature-availability-1)
-    - [Configure current desired general consent](#configure-current-desired-general-consent)
-    - [Grant user consent](#grant-user-consent)
-    - [Current reported user consent status](#current-reported-user-consent-status)
-  - [Reboot](#reboot)
-    - [Feature availability](#feature-availability-2)
-    - [Trigger reboot](#trigger-reboot)
-  - [Modem info](#modem-info)
-    - [Feature availability](#feature-availability-3)
-    - [Current reported modem info](#current-reported-modem-info)
-    - [Refresh modem info](#refresh-modem-info)
-  - [Network status](#network-status)
-    - [Feature availability](#feature-availability-4)
-    - [Current reported network status](#current-reported-network-status)
-    - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
-    - [Refresh Network status](#refresh-network-status)
-  - [SSH Tunnel](#ssh-tunnel)
-    - [Feature availability](#feature-availability-5)
-    - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
-    - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
-    - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
-  - [Wifi commissioning service](#wifi-commissioning-service)
-    - [Feature availability](#feature-availability-6)
+  - [Azure twin features](#azure-twin-features)
+    - [Factory reset](#factory-reset)
+      - [Feature availability](#feature-availability)
+      - [Trigger factory reset](#trigger-factory-reset)
+      - [Report factory reset status](#report-factory-reset-status)
+    - [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
+      - [Feature availability](#feature-availability-1)
+      - [Configure current desired general consent](#configure-current-desired-general-consent)
+      - [Grant user consent](#grant-user-consent)
+      - [Current reported user consent status](#current-reported-user-consent-status)
+    - [Reboot](#reboot)
+      - [Feature availability](#feature-availability-2)
+      - [Trigger reboot](#trigger-reboot)
+    - [Modem Info](#modem-info)
+      - [Feature availability](#feature-availability-3)
+      - [Current reported modem info](#current-reported-modem-info)
+      - [Refresh modem info](#refresh-modem-info)
+    - [Network status](#network-status)
+      - [Feature availability](#feature-availability-4)
+      - [Current reported network status](#current-reported-network-status)
+      - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
+      - [Refresh Network status](#refresh-network-status)
+    - [SSH Tunnel handling](#ssh-tunnel-handling)
+      - [Feature availability](#feature-availability-5)
+      - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
+      - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
+      - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
+    - [Wifi commissioning service](#wifi-commissioning-service)
+      - [Feature availability](#feature-availability-6)
+  - [Local http interface](#local-http-interface)
+    - [Trigger reboot](#trigger-reboot-1)
+    - [Get omnect-os version](#get-omnect-os-version)
+    - [Reload network daemon](#reload-network-daemon)
   - [Update validation](#update-validation)
     - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
@@ -52,11 +57,13 @@ Use `RUST_LOG` environment variable in order to configure log level as described
 
 Runtime configuration options of the underlying azure-iot-sdk crate can be found [here](https://github.com/omnect/azure-iot-sdk/blob/main/README.md).
 
-## Factory reset
+## Azure twin features
+
+### Factory reset
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -71,7 +78,7 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_FACTORY_RESET=true
 ```
 
-### Trigger factory reset
+#### Trigger factory reset
 
 **Direct method: factory reset**
 
@@ -116,7 +123,7 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
-### Report factory reset status
+#### Report factory reset status
 
 Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
 
@@ -138,7 +145,7 @@ The following status information is defined:
  - "unexpected factory reset type"
 
 
-## iot-hub-device-update user consent
+### iot-hub-device-update user consent
 
 omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-update) service for device firmware update. The service is extended by a "user consent" [content handler](https://github.com/Azure/iot-hub-device-update/blob/main/docs/agent-reference/how-to-implement-custom-update-handler.md), which allows the user to individually approve a new device update for his IoT device.
 
@@ -146,11 +153,11 @@ The module itself does not perform a user consent. It serves as an interface bet
 
 Adapt the following environment variable in order to configure the directory used for consent files at runtime:
 ```
-# use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
+## use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
 CONSENT_DIR_PATH: "/my/path"
 ```
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -165,7 +172,7 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_DEVICE_UPDATE_USER_CONSENT=true
 ```
 
-### Configure current desired general consent
+#### Configure current desired general consent
 
 To enable a general consent for all swupdate based firmware updates, configure the following general_consent setting in the module twin (the setting is case insensitive):
 
@@ -187,7 +194,7 @@ To disable the general consent enter the following setting in the module twin:
 
 The current general consent status is also exposed to the cloud as reported property. In case no desired general_consent is defined the current general_consent settings of the device are reported.
 
-### Grant user consent
+#### Grant user consent
 
 If there is no general approval for a firmware update, a separate approval must be given for each upcoming update.
 A direct method was specified for this purpose which is described below.
@@ -228,7 +235,7 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
-### Current reported user consent status
+#### Current reported user consent status
 
 The module reports the status for a required user consent. For this purpose the module sends a reported property to the cloud.
 
@@ -258,9 +265,9 @@ As soon as the consent for a new update has been granted via the direct method "
 }
 ```
 
-## Reboot
+### Reboot
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -275,7 +282,7 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_REBOOT=true
 ```
 
-### Trigger reboot
+#### Trigger reboot
 
 A direct method to trigger a device reboot.
 
@@ -313,14 +320,14 @@ In all other cases there will be an error status:
 }
 ```
 
-## Modem Info
+### Modem Info
 
 This feature adds the ability to query status information of connected modem.
 
 **NOTE**: this is an optional feature and must be explicitly turned on when
 building, i.e., `cargo build --features modem_info,...`.
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -330,7 +337,7 @@ The availability of the feature is reported by the following module twin propert
 }
 ```
 
-### Current reported modem info
+#### Current reported modem info
 
 The module reports the status of any attached modems. For this purpose the module sends this reported property to the cloud.
 
@@ -358,7 +365,7 @@ The module reports the status of any attached modems. For this purpose the modul
 }
 ```
 
-### Refresh modem info
+#### Refresh modem info
 
 A direct method to refresh and report current modem info.
 
@@ -396,9 +403,9 @@ In all other cases there will be an error status:
 }
 ```
 
-## Network status
+### Network status
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -413,7 +420,7 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_NETWORK_STATUS=true
 ```
 
-### Current reported network status
+#### Current reported network status
 
 The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
 
@@ -472,7 +479,7 @@ The module reports the status of network adapters. For this purpose the module s
 }
 ```
 
-### Configure current desired include network filter
+#### Configure current desired include network filter
 
 In order to report and filter network adapters by name the following desired property can be used. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
 ```
@@ -485,7 +492,7 @@ In order to report and filter network adapters by name the following desired pro
 ```
 If the filter is empty all network adapters are reported. In case the `include_network_filter` property doesn't exis at all no adapters will we reported.
 
-### Refresh Network status
+#### Refresh Network status
 
 A direct method to refresh and report current network status.
 
@@ -523,9 +530,9 @@ In all other cases there will be an error status:
 }
 ```
 
-## SSH Tunnel handling
+### SSH Tunnel handling
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -540,7 +547,7 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_SSH_TUNNEL=true
 ```
 
-### Access to Device SSH Public Key
+#### Access to Device SSH Public Key
 
 This creates a single-use ssh key pair and retrieves the public key of the key pair. A signed certificate for this public key is then expected as an argument with a subsequent `open_ssh_tunnel` call.
 
@@ -582,7 +589,7 @@ In all other cases there will be an error status:
 ```
 
 
-### Opening the SSH tunnel
+#### Opening the SSH tunnel
 
 This creates a ssh tunnel to the bastion host, which can then be used to open an SSH connection to the device. This method therefore starts a SSH reverse tunnel connection to the bastion host and binds it there to a uniquely named socket. The connection to the device can then be established across this socket.
 
@@ -629,7 +636,7 @@ In all other cases there will be an error status:
 ```
 
 
-### Closing the SSH tunnel
+#### Closing the SSH tunnel
 
 This closes an existing ssh tunnel. Typically, the ssh tunnel is terminated automatically, once it is not used any longer. This method provides a fallback to cancel an existing connection. This is facilitated by sending control commands to the SSH tunnel master socket.
 
@@ -668,9 +675,9 @@ In all other cases there will be an error status:
 }
 ```
 
-## Wifi commissioning service
+### Wifi commissioning service
 
-### Feature availability
+#### Feature availability
 
 The availability of the feature is reported by the following module twin property:
 ```
@@ -680,14 +687,42 @@ The availability of the feature is reported by the following module twin propert
 }
 ```
 
+## Local http interface
+
+omnect-device-service provides a http server that exposes a web API over an unix domain socket.<br>
+Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)
+
+### Trigger reboot
+
+```
+curl -X PUT --unix-socket /run/omnect-device-service/api.sock http://localhost/reboot
+```
+
+### Get omnect-os version
+
+```
+curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/os-version
+```
+
+### Reload network daemon
+
+```
+curl -X PUT --unix-socket /run/omnect-device-service/api.sock http://localhost/reload-network
+```
+
 ## Update validation
 
 On `iot-hub-device-update` update, after flashing the new root partition, we boot into the new root partition and test if the update was successful.<br>
 We don't set the new root partition permanently yet. On this boot the startup of `iot-hub-device-update` is prevented and has to be triggered by `omnect-device-service`.<br>
-`omnect-device-service` validates if the update was successful. If so, the new root partition is permanently set and the start of `iot-hub-device-update` gets triggered. If not, the device gets rebooted and we boot to the old root partition.
+`omnect-device-service` validates if the update was successful. If so, the new root partition is permanently set and the start of `iot-hub-device-update` gets triggered. If not, the device gets rebooted and we boot to the old root partition.<br>
+The overall update validation timeout can be overwritten by `UPDATE_VALIDATION_TIMEOUT_IN_SECS` environment variable.
 
 ### Criteria for a successful update
-This service provisions against iothub.
+
+The following checks must be passed in order to successfully validate an update:
+- system is running
+- adu-agent could be started successfully
+- omnect-device-service is connected to iot-hub (successfully provisioned)
 
 # License
 

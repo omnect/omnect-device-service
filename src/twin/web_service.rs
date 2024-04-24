@@ -19,8 +19,6 @@ pub struct WebService {
 impl WebService {
     #[cfg(not(feature = "mock"))]
     pub fn new(tx_request: mpsc::Sender<Command>) -> Result<Self> {
-        // curl --unix-socket /run/omnect-device-service/api.sock http://localhost/os-version
-
         /*
             We expect an existing unix socket created by systemd/omnect-device-service.socket
             This socket must have the socket file descriptor "3". It would be possible to generically
