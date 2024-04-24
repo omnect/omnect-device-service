@@ -25,6 +25,9 @@ impl WebService {
             determine the index by socket path, but there is no need yet.
             An example for a complete generic handling can be found in iot-identity-service code:
             https://github.com/Azure/iot-identity-service/blob/main/http-common/src/connector.rs
+
+            The socket is not removed by systemd in any case. Thus we take care of cleanup in
+            systemd/omnect-device-service.exec_stop_post.sh
         */
         const SOCKET_FDS_IDX: std::os::unix::io::RawFd = 3;
 

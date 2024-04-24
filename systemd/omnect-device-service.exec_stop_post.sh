@@ -13,7 +13,7 @@ function reboot() {
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
 
-# in some cases the socket file isn't deleted reliable, e.g. when "systemctl restart" is used
+# in some cases the socket file isn't deleted reliable by systemd, e.g. when service crashes or returns with an error.
 # thus we enforce removal
 rm -rf ${socket_file}
 
