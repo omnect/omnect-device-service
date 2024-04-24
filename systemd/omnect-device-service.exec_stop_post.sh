@@ -20,7 +20,7 @@ if [ -f ${barrier_json} ]; then
   # we are run during update validation
   now=$(cat /proc/uptime | awk '{print $1}')
   now_ms="${now%%\.*}$(printf %003d $((${now##*\.}*10)))"
-  update_validation_start_ms=$(jq -r .start_monotonic_time_ms ${barrier_json})
+  update_validation_start_ms=$(jq -r .start_monotonic_time ${barrier_json})
   restart_count=$(jq -r .restart_count ${barrier_json})
   authenticated=$(jq -r .authenticated ${barrier_json})
 

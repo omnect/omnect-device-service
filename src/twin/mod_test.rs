@@ -3,7 +3,7 @@
 pub mod mod_test {
     use super::super::*;
     use crate::{consent_path, history_consent_path};
-    use azure_iot_sdk::client::DirectMethodSender;
+    use azure_iot_sdk::client::{AuthenticationObserver, DirectMethodObserver, TwinObserver};
     use cp_r::CopyOptions;
     use env_logger::{Builder, Env};
     use futures_executor::block_on;
@@ -43,19 +43,16 @@ pub mod mod_test {
 
         pub fn observe_connection_state(
             self,
-            _tx_connection_status: mpsc::Sender<AuthenticationStatus>,
+            _tx_connection_status: AuthenticationObserver,
         ) -> Self {
             self
         }
 
-        pub fn observe_desired_properties(
-            self,
-            _tx_twin_desired: mpsc::Sender<(TwinUpdateState, serde_json::Value)>,
-        ) -> Self {
+        pub fn observe_desired_properties(self, _tx_twin_desired: TwinObserver) -> Self {
             self
         }
 
-        pub fn observe_direct_methods(self, _tx_direct_method: DirectMethodSender) -> Self {
+        pub fn observe_direct_methods(self, _tx_direct_method: DirectMethodObserver) -> Self {
             self
         }
 
