@@ -1,29 +1,41 @@
 mod consent;
 mod factory_reset;
-#[cfg(feature = "mock")]
+#[cfg(test)]
 #[path = "mod_test.rs"]
 mod mod_test;
 mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
+mod web_service;
 mod wifi_commissioning;
-use super::systemd;
-use super::update_validation;
-use crate::systemd::WatchdogManager;
+
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        use mod_test::mod_test::MockMyIotHub as IotHubClient;
+    } else {
+        use azure_iot_sdk::client::IotHubClient;
+    }
+}
+
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
-    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
+    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel, web_service::WebService,
     wifi_commissioning::WifiCommissioning,
 };
 use crate::update_validation::UpdateValidation;
+use crate::{system, update_validation};
+use crate::{systemd, systemd::watchdog::WatchdogManager};
+
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
-use azure_iot_sdk::client::*;
+use azure_iot_sdk::client::{
+    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState, UnauthenticatedReason,
+};
 use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_util::{FutureExt, StreamExt};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -33,13 +45,11 @@ use std::{
     future::{pending, Future},
     path::Path,
 };
-#[cfg(test)]
-use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{
     select,
     sync::mpsc,
-    time::{interval, Duration, Interval},
+    time::{interval, Interval},
 };
 
 #[enum_dispatch]
@@ -85,7 +95,7 @@ trait Feature {
 }
 
 pub struct Twin {
-    iothub_client: Box<dyn IotHub>,
+    iothub_client: IotHubClient,
     authenticated_once: bool,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
@@ -95,7 +105,7 @@ pub struct Twin {
 }
 
 impl Twin {
-    pub fn new(client: Box<dyn IotHub>, update_validation: UpdateValidation) -> Self {
+    fn new(client: IotHubClient, update_validation: UpdateValidation) -> Self {
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
@@ -142,7 +152,7 @@ impl Twin {
         }
     }
 
-    pub async fn init(&mut self) -> Result<()> {
+    async fn init(&mut self) -> Result<()> {
         dotenvy::from_path_override(Path::new(&format!(
             "{}/os-release",
             std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/etc".to_string())
@@ -221,18 +231,15 @@ impl Twin {
     }
 
     async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
-        info!("auth_status: {auth_status:#?}");
-
         match auth_status {
             AuthenticationStatus::Authenticated => {
                 if !self.authenticated_once {
+                    info!("Succeeded to connect to iothub");
+
                     /*
                      * the update validation test "wait_for_system_running" enforces that
                      * omnect-device-service already notified its own success
                      */
-
-                    systemd::sd_notify_ready();
-
                     self.update_validation.set_authenticated().await?;
 
                     self.init().await?;
@@ -240,12 +247,20 @@ impl Twin {
                     self.authenticated_once = true;
                 };
             }
-            AuthenticationStatus::Unauthenticated(reason) => {
-                anyhow::ensure!(
-                    matches!(reason, UnauthenticatedReason::ExpiredSasToken),
-                    "No connection. Reason: {reason:?}"
-                );
-            }
+            AuthenticationStatus::Unauthenticated(reason) => match reason {
+                UnauthenticatedReason::BadCredential
+                | UnauthenticatedReason::CommunicationError => {
+                    anyhow::bail!("Failed to connect to iothub: {reason:?}")
+                }
+                UnauthenticatedReason::RetryExpired
+                | UnauthenticatedReason::ExpiredSasToken
+                | UnauthenticatedReason::NoNetwork => {
+                    info!("Failed to connect to iothub: {reason:?}")
+                }
+                UnauthenticatedReason::DeviceDisabled => {
+                    warn!("Failed to connect to iothub: {reason:?}")
+                }
+            },
         }
 
         Ok(())
@@ -291,45 +306,88 @@ impl Twin {
         Ok(())
     }
 
-    async fn handle_direct_method(
-        &self,
-        method_name: String,
-        payload: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
-        info!("handle_direct_method: {method_name} with payload: {payload}");
+    async fn handle_direct_method(&self, method: DirectMethod) -> Result<()> {
+        info!(
+            "handle_direct_method: {} with payload: {}",
+            method.name, method.payload
+        );
 
-        match method_name.as_str() {
+        let result = match method.name.as_str() {
             "factory_reset" => {
                 self.feature::<FactoryReset>()?
-                    .reset_to_factory_settings(payload)
+                    .reset_to_factory_settings(method.payload)
                     .await
             }
-            "user_consent" => self.feature::<DeviceUpdateConsent>()?.user_consent(payload),
+            "user_consent" => self
+                .feature::<DeviceUpdateConsent>()?
+                .user_consent(method.payload),
             "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
             "refresh_network_status" => {
                 self.feature::<NetworkStatus>()?
                     .refresh_network_status()
                     .await
             }
-            "get_ssh_pub_key" => self.feature::<SshTunnel>()?.get_ssh_pub_key(payload).await,
-            "open_ssh_tunnel" => self.feature::<SshTunnel>()?.open_ssh_tunnel(payload).await,
-            "close_ssh_tunnel" => self.feature::<SshTunnel>()?.close_ssh_tunnel(payload).await,
+            "get_ssh_pub_key" => {
+                self.feature::<SshTunnel>()?
+                    .get_ssh_pub_key(method.payload)
+                    .await
+            }
+            "open_ssh_tunnel" => {
+                self.feature::<SshTunnel>()?
+                    .open_ssh_tunnel(method.payload)
+                    .await
+            }
+            "close_ssh_tunnel" => {
+                self.feature::<SshTunnel>()?
+                    .close_ssh_tunnel(method.payload)
+                    .await
+            }
             "reboot" => self.feature::<Reboot>()?.reboot().await,
             _ => Err(anyhow!("direct method unknown")),
+        };
+
+        if method.responder.send(result).is_err() {
+            error!("handle_direct_method: receiver dropped");
         }
+
+        Ok(())
     }
 
-    pub async fn run(connection_string: Option<&str>) -> Result<()> {
+    async fn handle_web_service_request(&self, request: web_service::Command) -> Result<()> {
+        info!("handle_web_service_request: {:?}", request);
+
+        let (tx_result, result) = match request {
+            web_service::Command::GetOsVersion(reply) => {
+                (reply, json!({"version": system::sw_version()?}))
+            }
+            web_service::Command::Reboot(reply) => {
+                (reply, json!({"result": systemd::reboot().await.is_ok()}))
+            }
+            web_service::Command::RestartNetwork(reply) => (
+                reply,
+                json!({"result": system::restart_network().await.is_ok()}),
+            ),
+        };
+
+        if tx_result.send(result).is_err() {
+            error!("handle_web_service_request: receiver dropped");
+        }
+
+        Ok(())
+    }
+
+    pub async fn run() -> Result<()> {
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
+        let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
-        let mut sd_notify_interval = if let Some(micros) = WatchdogManager::init() {
-            let micros = micros / 2;
-            debug!("trigger watchdog interval: {micros}µs");
-            Some(interval(Duration::from_micros(micros)))
+        let mut sd_notify_interval = if let Some(timeout) = WatchdogManager::init() {
+            let timeout = timeout / 2;
+            debug!("trigger watchdog interval: {}µs", timeout.as_micros());
+            Some(interval(timeout))
         } else {
             None
         };
@@ -338,33 +396,30 @@ impl Twin {
         let update_validation = UpdateValidation::new()?;
 
         info!("waiting for authentication...");
-        let client = match IotHubClient::client_type() {
-            _ if connection_string.is_some() => IotHubClient::from_connection_string(
-                connection_string.unwrap(),
-                Some(tx_connection_status.clone()),
-                Some(tx_twin_desired.clone()),
-                Some(tx_direct_method.clone()),
-                None,
-            )?,
-            ClientType::Device | ClientType::Module => {
-                IotHubClient::from_identity_service(
-                    Some(tx_connection_status.clone()),
-                    Some(tx_twin_desired.clone()),
-                    Some(tx_direct_method.clone()),
-                    None,
-                )
-                .await?
-            }
-            ClientType::Edge => IotHubClient::from_edge_environment(
-                Some(tx_connection_status.clone()),
-                Some(tx_twin_desired.clone()),
-                Some(tx_direct_method.clone()),
-                None,
-            )?,
+
+        let builder = IotHubClient::builder()
+            .observe_connection_state(tx_connection_status)
+            .observe_desired_properties(tx_twin_desired)
+            .observe_direct_methods(tx_direct_method)
+            .pnp_model_id("dtmi:azure:iot:deviceUpdateModel;3");
+
+        let mut twin = if cfg!(feature = "mock") {
+            Self::new(
+                builder
+                    .build_module_client(&std::env::var("CONNECTION_STRING").unwrap())
+                    .unwrap(),
+                update_validation,
+            )
+        } else {
+            Self::new(
+                builder.build_module_client_from_identity().await.unwrap(),
+                update_validation,
+            )
         };
 
-        let mut twin = Self::new(client, update_validation);
-        let handle = signals.handle();
+        let web_service = WebService::new(tx_web_service.clone());
+
+        systemd::sd_notify_ready();
 
         loop {
             select! (
@@ -372,36 +427,38 @@ impl Twin {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
-                    handle.close();
+                    signals.handle().close();
+                    web_service.shutdown().await;
                     twin.iothub_client.shutdown().await;
                     return Ok(())
                 },
                 status = rx_connection_status.recv() => {
                     twin.handle_connection_status(status.unwrap()).await?;
                 },
-                desired = rx_twin_desired.recv() => {
-                    let (state, desired) = desired.unwrap();
-                    twin.handle_desired(state, desired).await.unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
+                update_desired = rx_twin_desired.recv() => {
+                    let update_desired = update_desired.unwrap();
+                    twin.handle_desired(update_desired.state, update_desired.value)
+                        .await
+                        .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
                 },
                 reported = twin.rx_reported_properties.recv() => {
                     twin.iothub_client.twin_report(reported.unwrap())?
                 },
                 direct_methods = rx_direct_method.recv() => {
-                    let (name, payload, tx_result) = direct_methods.unwrap();
-
-                    if tx_result.send(twin.handle_direct_method(name, payload).await).is_err() {
-                        error!("run: receiver dropped");
-                    }
+                    twin.handle_direct_method(direct_methods.unwrap()).await?
                 },
                 message = twin.rx_outgoing_message.recv() => {
                     twin.iothub_client.send_d2c_message(message.unwrap())?
+                },
+                request = rx_web_service.recv() => {
+                    twin.handle_web_service_request(request.unwrap()).await?
                 }
             );
         }
     }
 }
 
-pub fn notify_some_interval(
+fn notify_some_interval(
     interval: &mut Option<Interval>,
 ) -> impl Future<Output = tokio::time::Instant> + '_ {
     match interval.as_mut() {

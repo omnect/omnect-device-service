@@ -61,7 +61,7 @@ mod inner {
                 .get_or_try_init(|| async {
                     Connection::system()
                         .await
-                        .with_context(|| "failed to setup connection".to_string())
+                        .context("failed to setup connection".to_string())
                 })
                 .await
         }
@@ -279,7 +279,7 @@ mod inner {
             .await
             .into_iter()
             .collect::<Result<Vec<_>>>()
-            .with_context(|| "failed querying modem status")?;
+            .context("failed querying modem status")?;
 
             self.tx_reported_properties
                 .send(json!({
