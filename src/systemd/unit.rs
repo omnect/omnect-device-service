@@ -1,9 +1,15 @@
-use anyhow::{ensure, Context, Result};
-use futures_util::{join, StreamExt};
-use log::debug;
+use anyhow::Result;
 use std::time::Duration;
-use systemd_zbus::{ManagerProxy, Mode};
-use tokio::time::{timeout_at, Instant};
+
+cfg_if::cfg_if! {
+    if #[cfg(not(any(feature = "mock", test)))] {
+        use anyhow::{ensure, Context};
+        use futures_util::{join, StreamExt};
+        use log::debug;
+        use systemd_zbus::{ManagerProxy, Mode};
+        use tokio::time::{timeout_at, Instant};
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum UnitAction {
@@ -12,6 +18,7 @@ pub enum UnitAction {
     Restart,
 }
 
+#[cfg(not(feature = "mock"))]
 pub async fn unit_action(unit: &str, unit_action: UnitAction, timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
     let system = timeout_at(deadline, zbus::Connection::system()).await??;
@@ -68,4 +75,9 @@ pub async fn unit_action(unit: &str, unit_action: UnitAction, timeout: Duration)
             return Ok(());
         }
     }
+}
+
+#[cfg(feature = "mock")]
+pub async fn unit_action(_unit: &str, _unit_action: UnitAction, _timeout: Duration) -> Result<()> {
+    Ok(())
 }

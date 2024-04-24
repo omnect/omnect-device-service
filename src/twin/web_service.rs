@@ -55,7 +55,7 @@ impl WebService {
 
     #[cfg(feature = "mock")]
     pub fn new(tx_request: mpsc::Sender<Command>) -> Result<Self> {
-        const URL: &str = "localhost:1977";
+        const SOCKET_PATH: &str = "/tmp/api.sock";
         let srv = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(tx_request.clone()))
@@ -63,8 +63,8 @@ impl WebService {
                 .route("/os-version", web::get().to(Self::os_version))
                 .route("/reload-network", web::put().to(Self::reload_network))
         })
-        .bind(URL)
-        .context(format!("web_service: cannot bind to {URL}"))?
+        .bind_uds(SOCKET_PATH)
+        .context(format!("web_service: cannot bind to {SOCKET_PATH}"))?
         .run();
 
         let srv_handle = srv.handle();
