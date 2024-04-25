@@ -8,5 +8,8 @@ SocketMode=0660
 SocketUser=omnect_device_service
 SocketGroup=omnect_device_socket
 
+ExecStartPre=+rm -rf /run/omnect-device-service/api.sock
+ExecStopPost=+rm -rf /run/omnect-device-service/api.sock
+
 [Install]
 WantedBy=sockets.target
