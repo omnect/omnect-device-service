@@ -19,6 +19,7 @@ Group=omnect_device_service
 WatchdogSec=30s
 
 ExecStart=/usr/bin/omnect-device-service
+ExecStartPre=/usr/bin/omnect-device-service.exec_start_pre.sh
 ExecStopPost=/usr/bin/omnect-device-service.exec_stop_post.sh
 
 [Install]

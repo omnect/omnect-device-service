@@ -15,12 +15,15 @@ function reboot() {
 
 # in some cases the socket file isn't deleted reliable by systemd, e.g. when service crashes or returns with an error.
 # thus we enforce removal
-rm -rf ${socket_file}
+if [ -f ${socket_file} ]; then
+  rm -f ${socket_file}
+elif [ -d ${socket_file} ]; then
+  rm -rf ${socket_file}
+fi
 
 # for now we ignore SERVICE_RESULT and EXIT_STATUS. however it does potentially
 # make sense to reboot on certain combinations even if restart_count < max_restart_count
 # or update validation is not yet timeouted. (we have to gain experience.)
-
 if [ -f ${barrier_json} ]; then
   # we are run during update validation
   now=$(cat /proc/uptime | awk '{print $1}')
