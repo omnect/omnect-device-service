@@ -153,7 +153,7 @@ The module itself does not perform a user consent. It serves as an interface bet
 
 Adapt the following environment variable in order to configure the directory used for consent files at runtime:
 ```
-## use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
+# use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
 CONSENT_DIR_PATH: "/my/path"
 ```
 
@@ -689,7 +689,7 @@ The availability of the feature is reported by the following module twin propert
 
 ## Local http interface
 
-omnect-device-service provides a http server that exposes a web API over an unix domain socket.<br>
+omnect-device-service provides a http server that exposes a web API over a unix domain socket.<br>
 Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)
 
 ### Trigger reboot
