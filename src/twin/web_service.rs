@@ -26,8 +26,9 @@ impl WebService {
             An example for a complete generic handling can be found in iot-identity-service code:
             https://github.com/Azure/iot-identity-service/blob/main/http-common/src/connector.rs
 
-            The socket is not removed by systemd in any case. Thus we take care of cleanup in
-            systemd/omnect-device-service.service before the service is started.
+            The socket is not reliable removed by systemd when the service stops, crashes or return with an error.
+            As a result sometimes files or directories with wrong permissions are created. Thus we to cleanup in
+            systemd "ExecStartPre" and "ExecStopPost".
         */
         const SOCKET_FDS_IDX: std::os::unix::io::RawFd = 3;
 

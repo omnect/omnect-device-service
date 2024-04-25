@@ -1,5 +1,6 @@
 #!/bin/bash -x
 script=${0}
+socket_file="/run/omnect-device-service/api.sock"
 update_validation_file="/run/omnect-device-service/omnect_validate_update"
 barrier_json="/run/omnect-device-service/omnect_validate_update_complete_barrier"
 max_restart_count=9
@@ -11,6 +12,8 @@ function reboot() {
   echo "reboot triggered by ${script}: ${1}"
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
+
+rm -rf ${socket_file}
 
 # for now we ignore SERVICE_RESULT and EXIT_STATUS. however it does potentially
 # make sense to reboot on certain combinations even if restart_count < max_restart_count
