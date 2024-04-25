@@ -27,7 +27,7 @@ impl WebService {
             https://github.com/Azure/iot-identity-service/blob/main/http-common/src/connector.rs
 
             The socket is not removed by systemd in any case. Thus we take care of cleanup in
-            systemd/omnect-device-service.exec_stop_post.sh
+            systemd/omnect-device-service.service before the service is started.
         */
         const SOCKET_FDS_IDX: std::os::unix::io::RawFd = 3;
 
