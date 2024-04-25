@@ -24,6 +24,7 @@ static UPDATE_VALIDATION_TIMEOUT_IN_SECS: u64 = 300;
 #[derive(Default, Deserialize, Serialize)]
 pub struct UpdateValidation {
     #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(rename = "start_monotonic_time_ms")]
     start_monotonic_time: Duration,
     restart_count: u8,
     authenticated: bool,
