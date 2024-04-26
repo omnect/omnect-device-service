@@ -1,11 +1,10 @@
-use super::bootloader_env::bootloader_env::{
-    bootloader_env, set_bootloader_env, unset_bootloader_env,
+use crate::{
+    bootloader_env, systemd, systemd::unit::UnitAction, systemd::watchdog::WatchdogManager,
 };
-use super::systemd;
-use crate::systemd::WatchdogManager;
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationMilliSeconds};
 use std::{env, fs, fs::OpenOptions, path::Path};
 use tokio::{
     sync::oneshot,
@@ -19,17 +18,20 @@ static UPDATE_VALIDATION_FILE: &str = "/run/omnect-device-service/omnect_validat
 static UPDATE_VALIDATION_COMPLETE_BARRIER_FILE: &str =
     "/run/omnect-device-service/omnect_validate_update_complete_barrier";
 static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
-static UPDATE_VALIDATION_TIMEOUT_IN_SECS: u128 = 300;
+static UPDATE_VALIDATION_TIMEOUT_IN_SECS: u64 = 300;
 
+#[serde_as]
 #[derive(Default, Deserialize, Serialize)]
 pub struct UpdateValidation {
-    start_monotonic_time_ms: u128,
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(rename = "start_monotonic_time_ms")]
+    start_monotonic_time: Duration,
     restart_count: u8,
     authenticated: bool,
     #[serde(skip)]
     run_update_validation: bool,
     #[serde(skip)]
-    validation_timeout_ms: u128,
+    validation_timeout: Duration,
     #[serde(skip)]
     tx: Option<oneshot::Sender<()>>,
     #[serde(skip)]
@@ -39,11 +41,11 @@ pub struct UpdateValidation {
 impl UpdateValidation {
     pub fn new() -> Result<Self> {
         let mut new_self = UpdateValidation::default();
-        let validation_timeout_ms = UPDATE_VALIDATION_TIMEOUT_IN_SECS * 1000u128;
+        let validation_timeout = Duration::from_secs(UPDATE_VALIDATION_TIMEOUT_IN_SECS);
         if let Ok(timeout_secs) = env::var("UPDATE_VALIDATION_TIMEOUT_IN_SECS") {
-            match timeout_secs.parse::<u128>() {
+            match timeout_secs.parse::<u64>() {
                 Ok(timeout_secs) => {
-                    new_self.validation_timeout_ms = timeout_secs * 1000u128;
+                    new_self.validation_timeout = Duration::from_secs(timeout_secs);
                 }
                 _ => error!("ignore invalid confirmation timeout {timeout_secs}"),
             };
@@ -56,38 +58,38 @@ impl UpdateValidation {
                     .read(true)
                     .create(false)
                     .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                    .context("retry read of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                    .context(format!(
+                        "retry read of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
+                    ))?,
             )
-            .context(
-                "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
-            )?;
+            .context(format!(
+                "deserializing of UpdateValidation from {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
+            ))?;
             new_self.restart_count += 1;
-            info!("update validation retry start ({})", new_self.restart_count);
+            info!("retry start ({})", new_self.restart_count);
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
                     .create(false)
                     .truncate(true)
                     .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                    .context("retry write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                    .context(format!("retry write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"))?,
                     &new_self,
             )
             .context(
-                "retry serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
+                format!("retry serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"),
             )?;
             let now = std::time::Duration::from(nix::time::clock_gettime(
                 nix::time::ClockId::CLOCK_MONOTONIC,
-            )?)
-            .as_millis();
-            new_self.validation_timeout_ms =
-                validation_timeout_ms - (now - new_self.start_monotonic_time_ms);
+            )?);
+            new_self.validation_timeout =
+                validation_timeout - (now - new_self.start_monotonic_time);
             new_self.run_update_validation = true;
         } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
-            info!("update validation first start");
-            new_self.start_monotonic_time_ms = std::time::Duration::from(nix::time::clock_gettime(
+            info!("first start");
+            new_self.start_monotonic_time = std::time::Duration::from(nix::time::clock_gettime(
                 nix::time::ClockId::CLOCK_MONOTONIC,
-            )?)
-            .as_millis();
+            )?);
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
@@ -95,33 +97,37 @@ impl UpdateValidation {
                     .create(true)
                     .truncate(true)
                     .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                    .context("first write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                    .context(format!("first write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"))?,
                 &new_self,
             )
             .context(
-                "first serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
+                format!("first serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"),
             )?;
-            new_self.validation_timeout_ms = validation_timeout_ms;
+            new_self.validation_timeout = validation_timeout;
             new_self.run_update_validation = true;
         } else {
+            info!("no update to be validated");
             new_self.run_update_validation = false;
         }
 
         if new_self.run_update_validation {
             let (tx, rx) = oneshot::channel();
             new_self.tx = Some(tx);
-            let validation_timeout_ms = u64::try_from(new_self.validation_timeout_ms)?;
+            let validation_timeout = new_self.validation_timeout;
 
             new_self.join_handle = Some(tokio::spawn(async move {
-                info!("update validation reboot timer started ({validation_timeout_ms} ms).");
-                match timeout(Duration::from_millis(validation_timeout_ms), rx).await {
+                info!(
+                    "reboot timer started ({} ms).",
+                    validation_timeout.as_millis()
+                );
+                match timeout(validation_timeout, rx).await {
                     Err(_) => {
-                        error!("update validation timeout. rebooting ...");
+                        error!("update validation: timeout. rebooting ...");
                         let _ = systemd::reboot()
                             .await
-                            .context("update validation timer couldn't trigger reboot");
+                            .context("update validation: timer couldn't trigger reboot");
                     }
-                    _ => info!("update validation reboot timer canceled."),
+                    _ => info!("reboot timer canceled."),
                 }
             }));
         }
@@ -134,7 +140,7 @@ impl UpdateValidation {
         }
 
         self.authenticated = true;
-        info!("update validation status set to \"authenticated\"");
+        debug!("status set to \"authenticated\"");
 
         serde_json::to_writer_pretty(
             OpenOptions::new()
@@ -142,11 +148,11 @@ impl UpdateValidation {
                 .create(false)
                 .truncate(true)
                 .open(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-                .context("authenticated: write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}")?,
+                .context(format!("authenticated: write of {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"))?,
             &self,
         )
         .context(
-            "authenticated: serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}",
+            format!("authenticated: serializing of UpdateValidation to {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"),
         )?;
 
         // for now start validation blocking twin::init - maybe we want an successful twin::init as part of validation at some point?
@@ -154,15 +160,12 @@ impl UpdateValidation {
     }
 
     async fn validate(&mut self) -> Result<()> {
-        debug!("update validation started");
+        debug!("started");
         let now = std::time::Duration::from(nix::time::clock_gettime(
             nix::time::ClockId::CLOCK_MONOTONIC,
-        )?)
-        .as_millis();
-        let timeout_secs = u64::try_from(
-            (self.validation_timeout_ms - (now - self.start_monotonic_time_ms)) / 1000u128,
-        )?;
-        systemd::wait_for_system_running(timeout_secs).await?;
+        )?);
+        let timeout = self.validation_timeout - (now - self.start_monotonic_time);
+        systemd::wait_for_system_running(timeout).await?;
 
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degrated" and possibly ignore certain failed services via configuration
@@ -175,13 +178,11 @@ impl UpdateValidation {
 
         let now = std::time::Duration::from(nix::time::clock_gettime(
             nix::time::ClockId::CLOCK_MONOTONIC,
-        )?)
-        .as_millis();
-        let timeout_secs = u64::try_from(
-            (self.validation_timeout_ms - (now - self.start_monotonic_time_ms)) / 1000u128,
-        )?;
+        )?);
+        let timeout = self.validation_timeout - (now - self.start_monotonic_time);
 
-        systemd::start_unit(timeout_secs, IOT_HUB_DEVICE_UPDATE_SERVICE).await?;
+        systemd::unit::unit_action(IOT_HUB_DEVICE_UPDATE_SERVICE, UnitAction::Start, timeout)
+            .await?;
         debug!("successfully started iot-hub-device-update");
 
         info!("successfully validated update");
@@ -189,20 +190,24 @@ impl UpdateValidation {
     }
 
     async fn finalize(&mut self) -> Result<()> {
-        let omnect_validate_update_part = bootloader_env("omnect_validate_update_part")?;
+        let omnect_validate_update_part = bootloader_env::get("omnect_validate_update_part")?;
         ensure!(
             !omnect_validate_update_part.is_empty(),
-            "omnect_validate_update_part not set"
+            "update validation: omnect_validate_update_part not set"
         );
-        set_bootloader_env("omnect_os_bootpart", omnect_validate_update_part.as_str())?;
-        unset_bootloader_env("omnect_validate_update")?;
-        unset_bootloader_env("omnect_validate_update_part")?;
+        bootloader_env::set("omnect_os_bootpart", omnect_validate_update_part.as_str())?;
+        bootloader_env::unset("omnect_validate_update")?;
+        bootloader_env::unset("omnect_validate_update_part")?;
 
-        fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)
-            .context("remove UPDATE_VALIDATION_COMPLETE_BARRIER_FILE")?;
+        fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).context(format!(
+            "update validation: remove {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
+        ))?;
         // cancel update validation reboot timer
         if let Err(e) = self.tx.take().unwrap().send(()) {
-            error!("could not cancel update validation reboot timer: {:#?}", e);
+            error!(
+                "update validation: could not cancel update validation reboot timer: {:#?}",
+                e
+            );
         }
 
         Ok(())
@@ -210,21 +215,19 @@ impl UpdateValidation {
 
     pub async fn check(&mut self) -> Result<()> {
         // prolong watchdog interval for update validation phase
-        let saved_interval_micros = WatchdogManager::interval(
-            Duration::from_millis(u64::try_from(self.validation_timeout_ms)?).as_micros(),
-        )?;
+        let saved_interval = WatchdogManager::interval(self.validation_timeout)?;
 
         if let Err(e) = self.validate().await {
             systemd::reboot().await?;
-            bail!("validate error: {e:#}");
+            bail!("update validation: validate error: {e:#}");
         }
         if let Err(e) = self.finalize().await {
             systemd::reboot().await?;
-            bail!("finalize error: {e:#}");
+            bail!("update validation: finalize error: {e:#}");
         }
 
-        if let Some(micros) = saved_interval_micros {
-            let _ = WatchdogManager::interval(micros.into())?;
+        if let Some(interval) = saved_interval {
+            let _ = WatchdogManager::interval(interval)?;
         }
 
         Ok(())

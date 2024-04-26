@@ -10,7 +10,7 @@ pub fn bootloader_env(key: &str) -> Result<String> {
     let mut value = value
         .split('=')
         .last()
-        .with_context(|| "failed to get {key}'s value")?
+        .context("failed to get {key}'s value")?
         .trim()
         .to_string();
     let len = value.trim_end_matches(&['\r', '\n'][..]).len();
@@ -24,7 +24,7 @@ pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
         Command::new("sudo")
             .args(["fw_setenv", key, value])
             .status()
-            .with_context(|| "failed to execute 'fw_setenv {key} {value}'")?
+            .context("failed to execute 'fw_setenv {key} {value}'")?
             .success(),
         "\"fw_setenv {key} {value}\" failed"
     );
@@ -37,7 +37,7 @@ pub fn unset_bootloader_env(key: &str) -> Result<()> {
         Command::new("sudo")
             .args(["fw_setenv", key])
             .status()
-            .with_context(|| "failed to execute \"fw_setenv {key}\"")?
+            .context("failed to execute \"fw_setenv {key}\"")?
             .success(),
         "\"fw_setenv {key}\" failed"
     );

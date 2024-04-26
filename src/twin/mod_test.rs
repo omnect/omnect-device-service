@@ -1,10 +1,13 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
-mod mod_test {
+pub mod mod_test {
     use super::super::*;
-    use crate::test_util::mod_test::TestEnvironment;
     use crate::{consent_path, history_consent_path};
+    use azure_iot_sdk::client::{AuthenticationObserver, DirectMethodObserver, TwinObserver};
+    use cp_r::CopyOptions;
+    use env_logger::{Builder, Env};
     use futures_executor::block_on;
+    use lazy_static::lazy_static;
     use mockall::{mock, predicate::*};
     use rand::{
         distributions::Alphanumeric,
@@ -12,40 +15,108 @@ mod mod_test {
     };
     use regex::Regex;
     use serde_json::json;
+    use std::fs::{copy, create_dir_all, remove_dir_all};
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
+    use strum::EnumCount;
 
+    lazy_static! {
+        static ref LOG: () = if cfg!(debug_assertions) {
+            Builder::from_env(Env::default().default_filter_or("debug")).init()
+        } else {
+            Builder::from_env(Env::default().default_filter_or("info")).init()
+        };
+    }
+
+    const TMPDIR_FORMAT_STR: &str = "/tmp/omnect-device-service-tests/";
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
 
-    mock! {
-        MyIotHub {}
+    pub struct MyIotHubBuilder;
 
-        #[async_trait(?Send)]
-        impl IotHub for MyIotHub {
-            fn sdk_version_string() -> String;
-            fn client_type() -> ClientType;
-            fn from_edge_environment(
-                tx_connection_status: Option<mpsc::Sender<AuthenticationStatus>>,
-                tx_twin_desired: Option<mpsc::Sender<(TwinUpdateState, serde_json::Value)>>,
-                tx_direct_method: Option<DirectMethodSender>,
-                tx_incoming_message: Option<IncomingMessageObserver>,
-            ) -> Result<Box<Self>>;
-            async fn from_identity_service(
-                _tx_connection_status: Option<mpsc::Sender<AuthenticationStatus>>,
-                _tx_twin_desired: Option<mpsc::Sender<(TwinUpdateState, serde_json::Value)>>,
-                _tx_direct_method: Option<DirectMethodSender>,
-                _tx_incoming_message: Option<IncomingMessageObserver>,
-            ) -> Result<Box<Self>>;
-            fn from_connection_string(
-                connection_string: &str,
-                tx_connection_status: Option<mpsc::Sender<AuthenticationStatus>>,
-                tx_twin_desired: Option<mpsc::Sender<(TwinUpdateState, serde_json::Value)>>,
-                tx_direct_method: Option<DirectMethodSender>,
-                tx_incoming_message: Option<IncomingMessageObserver>,
-            ) -> Result<Box<Self>>;
-            fn twin_async(&mut self) -> Result<()>;
-            fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()>;
-            fn twin_report(&mut self, reported: serde_json::Value) -> Result<()>;
-            async fn shutdown(&mut self);
+    impl MyIotHubBuilder {
+        pub async fn build_module_client_from_identity(&self) -> Result<MockMyIotHub> {
+            Ok(MockMyIotHub::default())
+        }
+
+        pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
+            Ok(MockMyIotHub::default())
+        }
+
+        pub fn observe_connection_state(
+            self,
+            _tx_connection_status: AuthenticationObserver,
+        ) -> Self {
+            self
+        }
+
+        pub fn observe_desired_properties(self, _tx_twin_desired: TwinObserver) -> Self {
+            self
+        }
+
+        pub fn observe_direct_methods(self, _tx_direct_method: DirectMethodObserver) -> Self {
+            self
+        }
+
+        pub fn pnp_model_id(self, _model_id: &'static str) -> Self {
+            self
+        }
+    }
+
+    mock! {
+        pub  MyIotHub {
+            pub fn builder() -> MyIotHubBuilder {MyIotHubBuilder{}}
+            pub fn sdk_version_string() -> String {
+                "".to_string()
+            }
+            pub fn twin_report(&mut self, reported: serde_json::Value) -> Result<()> {
+                Ok(())
+            }
+           pub  fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()> {
+            Ok(())
+        }
+
+           pub async fn shutdown(&mut self) {}
+    }}
+
+    pub struct TestEnvironment {
+        dirpath: std::string::String,
+    }
+
+    impl TestEnvironment {
+        pub fn new(name: &str) -> TestEnvironment {
+            lazy_static::initialize(&LOG);
+            let dirpath = format!("{}{}", TMPDIR_FORMAT_STR, name);
+            create_dir_all(&dirpath).unwrap();
+            TestEnvironment { dirpath }
+        }
+
+        pub fn copy_directory(&self, dir: &str) -> PathBuf {
+            let destdir = String::from(dir);
+            let destdir = destdir.split('/').last().unwrap();
+            let path = PathBuf::from(format!("{}/{}", self.dirpath, destdir));
+            CopyOptions::new().copy_tree(dir, &path).unwrap();
+            path
+        }
+
+        pub fn copy_file(&self, file: &str) -> PathBuf {
+            let destfile = String::from(file);
+            let destfile = destfile.split('/').last().unwrap();
+            let path = PathBuf::from(format!("{}/{}", self.dirpath, destfile));
+            copy(file, &path).unwrap();
+            path
+        }
+
+        pub fn dirpath(&self) -> String {
+            self.dirpath.clone()
+        }
+    }
+
+    impl Drop for TestEnvironment {
+        fn drop(&mut self) {
+            // place your cleanup code here
+            remove_dir_all(&self.dirpath).unwrap_or_else(|e| {
+                // ignore all errors if dir cannot be deleted
+                error!("cannot remove_dir_all: {e:#}");
+            });
         }
     }
 
@@ -93,14 +164,12 @@ mod mod_test {
             let update_validation = UpdateValidation::new().unwrap();
 
             // create iothub client mock
-            let ctx = MockMyIotHub::from_connection_string_context();
-            ctx.expect().returning(|_, _, _, _, _| {
-                let mock = MockMyIotHub::default();
-                Ok(Box::new(mock))
-            });
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(|| MyIotHubBuilder {});
+            let ctx = MockMyIotHub::sdk_version_string_context();
+            ctx.expect().returning(|| "".to_string());
 
-            let mut mock =
-                MockMyIotHub::from_connection_string("", None, None, None, None).unwrap();
+            let mut mock = MockMyIotHub::builder().build_module_client("").unwrap();
 
             // set testcase specific mock expectaions
             set_mock_expectations(&mut mock);

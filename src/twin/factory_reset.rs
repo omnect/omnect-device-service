@@ -1,6 +1,4 @@
-use super::super::bootloader_env::bootloader_env::{
-    bootloader_env, {set_bootloader_env, unset_bootloader_env},
-};
+use super::super::bootloader_env;
 use super::super::systemd;
 use super::Feature;
 use anyhow::{anyhow, Context, Result};
@@ -90,8 +88,8 @@ impl FactoryReset {
 
         match &in_json["type"].as_u64() {
             Some(reset_type) => {
-                set_bootloader_env("factory-reset-restore-list", restore_paths.as_str())?;
-                set_bootloader_env("factory-reset", &reset_type.to_string())?;
+                bootloader_env::set("factory-reset-restore-list", restore_paths.as_str())?;
+                bootloader_env::set("factory-reset", &reset_type.to_string())?;
 
                 self.report_factory_reset_status("in_progress").await?;
 
@@ -135,7 +133,7 @@ impl FactoryReset {
             match status {
                 Ok((update_twin, true)) => {
                     self.report_factory_reset_status(update_twin).await?;
-                    unset_bootloader_env("factory-reset-status")?;
+                    bootloader_env::unset("factory-reset-status")?;
 
                     info!("factory reset result: {update_twin}");
                 }
@@ -167,7 +165,7 @@ impl FactoryReset {
                 _ | "succeeded" => Ok("0:0".to_string()),
             }
         } else {
-            bootloader_env("factory-reset-status")
+            bootloader_env::get("factory-reset-status")
         }
     }
 }

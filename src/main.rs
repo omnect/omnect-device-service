@@ -1,7 +1,6 @@
 pub mod bootloader_env;
 pub mod system;
 pub mod systemd;
-mod test_util;
 pub mod twin;
 pub mod update_validation;
 
@@ -47,7 +46,7 @@ async fn main() {
         error!("application error: {e:#}");
     }
 
-    if let Err(e) = Twin::run(None).await {
+    if let Err(e) = Twin::run().await {
         error!("application error: {e:#}");
 
         process::exit(1);
