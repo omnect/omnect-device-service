@@ -193,7 +193,7 @@ mod inner {
             Ok(SimProperties { operator, iccid })
         }
 
-        async fn sim_properties<'a>(
+        async fn sims_properties<'a>(
             &self,
             modem: &modem::ModemProxy<'a>,
         ) -> Result<Vec<SimProperties>> {
@@ -232,7 +232,7 @@ mod inner {
             let revision = modem.revision().await?;
             let preferred_technologies = modem.supported_capabilities().await?;
             let bearers = self.bearer_properties(&modem).await?;
-            let sims = self.sim_properties(&modem).await?;
+            let sims = self.sims_properties(&modem).await?;
 
             let connection = self.connection().await?;
             let dbus = DBusProxy::new(connection).await?;
