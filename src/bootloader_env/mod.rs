@@ -5,9 +5,15 @@ mod uboot;
 
 use anyhow::Result;
 #[cfg(feature = "bootloader_grub")]
-use grub::{bootloader_env as get_inner, set_bootloader_env as set_inner, unset_bootloader_env as unset_inner};
+use grub::{
+    bootloader_env as get_inner, set_bootloader_env as set_inner,
+    unset_bootloader_env as unset_inner,
+};
 #[cfg(feature = "bootloader_uboot")]
-use uboot::{bootloader_env as get_inner, set_bootloader_env as set_inner, unset_bootloader_env as unset_inner};
+use uboot::{
+    bootloader_env as get_inner, set_bootloader_env as set_inner,
+    unset_bootloader_env as unset_inner,
+};
 
 #[allow(unreachable_code, unused_variables)]
 pub fn get(key: &str) -> Result<String> {
