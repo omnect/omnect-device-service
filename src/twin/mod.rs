@@ -373,7 +373,7 @@ impl Twin {
         };
 
         if method.responder.send(result).is_err() {
-            error!("handle_direct_method: mpsc::Receiver dropped");
+            error!("handle_direct_method: receiver dropped");
         }
 
         Ok(())
@@ -396,7 +396,7 @@ impl Twin {
         };
 
         if tx_result.send(result).is_err() {
-            error!("handle_web_service_request: mpsc::Receiver dropped");
+            error!("handle_web_service_request: receiver dropped");
         }
 
         Ok(())
