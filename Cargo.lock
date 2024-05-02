@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "actix-server",
  "actix-web",
