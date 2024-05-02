@@ -271,11 +271,11 @@ impl Twin {
                     error!("Failed to connect to iothub: {reason:?}");
 
                     /*
-                        here we start all over again. reason: there are situations where we get
-                        a wrong connection string (BadCredential) from identity service due to wrong system time.
-                        this may occur on devices without RTC or where time is not synced. since we experienced this
-                        behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
-                     */
+                       here we start all over again. reason: there are situations where we get
+                       a wrong connection string (BadCredential) from identity service due to wrong system time.
+                       this may occur on devices without RTC or where time is not synced. since we experienced this
+                       behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
+                    */
                     self.client = Self::build_twin(&self.client_builder).await?;
                 }
                 UnauthenticatedReason::RetryExpired
@@ -405,12 +405,12 @@ impl Twin {
     pub async fn run() -> Result<()> {
         let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
         let mut signals = Signals::new(TERM_SIGNALS)?;
-        let mut sd_notify_interval = None;
-
-        if let Some(timeout) = WatchdogManager::init() {
+        let mut sd_notify_interval = if let Some(timeout) = WatchdogManager::init() {
             let timeout = timeout / 2;
             debug!("trigger watchdog interval: {}µs", timeout.as_micros());
-            sd_notify_interval = Some(interval(timeout));
+            Some(interval(timeout))
+        } else {
+            None
         };
 
         let mut twin = Self::new().await?;
