@@ -50,7 +50,7 @@ use std::{
 use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{
     select,
-    sync::mpsc::{channel, Receiver},
+    sync::mpsc,
     time::{interval, Interval},
 };
 
@@ -100,22 +100,22 @@ pub struct Twin {
     client: IotHubClient,
     client_builder: IotHubClientBuilder,
     authenticated_once: bool,
-    rx_connection_status: Receiver<AuthenticationStatus>,
-    rx_twin_desired: Receiver<TwinUpdate>,
-    rx_direct_method: Receiver<DirectMethod>,
-    rx_reported_properties: Receiver<serde_json::Value>,
-    rx_outgoing_message: Receiver<IotMessage>,
+    rx_connection_status: mpsc::Receiver<AuthenticationStatus>,
+    rx_twin_desired: mpsc::Receiver<TwinUpdate>,
+    rx_direct_method: mpsc::Receiver<DirectMethod>,
+    rx_reported_properties: mpsc::Receiver<serde_json::Value>,
+    rx_outgoing_message: mpsc::Receiver<IotMessage>,
     features: HashMap<TypeId, Box<dyn Feature>>,
     update_validation: update_validation::UpdateValidation,
 }
 
 impl Twin {
     async fn new() -> Result<Self> {
-        let (tx_connection_status, rx_connection_status) = channel(100);
-        let (tx_twin_desired, rx_twin_desired) = channel(100);
-        let (tx_direct_method, rx_direct_method) = channel(100);
-        let (tx_reported_properties, rx_reported_properties) = channel(100);
-        let (tx_outgoing_message, rx_outgoing_message) = channel(100);
+        let (tx_connection_status, rx_connection_status) = mpsc::channel(100);
+        let (tx_twin_desired, rx_twin_desired) = mpsc::channel(100);
+        let (tx_direct_method, rx_direct_method) = mpsc::channel(100);
+        let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
+        let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
 
         // has to be called before iothub client authentication
         let update_validation = UpdateValidation::new()?;
@@ -269,6 +269,13 @@ impl Twin {
                 UnauthenticatedReason::BadCredential
                 | UnauthenticatedReason::CommunicationError => {
                     error!("Failed to connect to iothub: {reason:?}");
+
+                    /*
+                        here we start all over again. reason: there are situations where we get
+                        a wrong connection string (BadCredential) from identity service due to wrong system time.
+                        this may occur on devices without RTC or where time is not synced. since we experienced this
+                        behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
+                     */
                     self.client = Self::build_twin(&self.client_builder).await?;
                 }
                 UnauthenticatedReason::RetryExpired
@@ -366,7 +373,7 @@ impl Twin {
         };
 
         if method.responder.send(result).is_err() {
-            error!("handle_direct_method: receiver dropped");
+            error!("handle_direct_method: mpsc::Receiver dropped");
         }
 
         Ok(())
@@ -389,14 +396,14 @@ impl Twin {
         };
 
         if tx_result.send(result).is_err() {
-            error!("handle_web_service_request: receiver dropped");
+            error!("handle_web_service_request: mpsc::Receiver dropped");
         }
 
         Ok(())
     }
 
     pub async fn run() -> Result<()> {
-        let (tx_web_service, mut rx_web_service) = channel(100);
+        let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
         let mut signals = Signals::new(TERM_SIGNALS)?;
         let mut sd_notify_interval = None;
 
