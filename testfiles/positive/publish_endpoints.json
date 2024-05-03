@@ -1,0 +1,15 @@
+[
+  {
+    "url": "https://localhost:8000/api/publish",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/json" 
+      },
+      {
+        "name": "X-API-Key",
+        "value": "my-api-key" 
+      }
+    ]
+  }
+]

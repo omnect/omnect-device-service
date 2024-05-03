@@ -1,0 +1,14 @@
+[Unit]
+OnFailure=systemd-reboot.service
+Description=Wait for Network to be Configured
+Documentation=man:systemd-networkd-wait-online.service(8)
+DefaultDependencies=no
+Conflicts=shutdown.target
+Requires=systemd-networkd.service
+After=systemd-networkd.service
+Before=network-online.target shutdown.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-wrong/path/systemd-networkd-wait-online.env
+ExecStart=/bin/bash -c '/lib/systemd/systemd-networkd-wait-online ${OMNECT_WAIT_ONLINE_INTERFACES_RUN:---any --interface=eth0 --interface=wlan0 } --timeout=${OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS:-300}'

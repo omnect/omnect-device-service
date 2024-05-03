@@ -20,6 +20,7 @@ This module serves as interface between omnect cloud and device to support certa
     - [Reboot](#reboot)
       - [Feature availability](#feature-availability-2)
       - [Trigger reboot](#trigger-reboot)
+      - [Configure wait-online reboot timeout](#configure-wait-online-reboot-timeout)
     - [Modem Info](#modem-info)
       - [Feature availability](#feature-availability-3)
       - [Current reported modem info](#current-reported-modem-info)
@@ -36,10 +37,12 @@ This module serves as interface between omnect cloud and device to support certa
       - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
     - [Wifi commissioning service](#wifi-commissioning-service)
       - [Feature availability](#feature-availability-6)
-  - [Local http interface](#local-http-interface)
+  - [Local web service](#local-web-service)
     - [Trigger reboot](#trigger-reboot-1)
-    - [Get omnect-os version](#get-omnect-os-version)
     - [Reload network daemon](#reload-network-daemon)
+    - [Republish](#republish)
+    - [Get status](#get-status)
+    - [Receive updates](#receive-updates)
   - [Update validation](#update-validation)
     - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
@@ -293,6 +296,46 @@ Method Name: `reboot`
 Payload:
 ```
 {
+}
+```
+
+Result:
+```
+{
+  "status": <HTTP-Statusode>,
+  "payload": {}
+}
+```
+In case the method was successful received by the module the return value of the method looks like this:
+
+```
+{
+  "status": 200,
+  "payload": {}
+}
+```
+
+In all other cases there will be an error status:
+```
+{
+  "status": 401,
+  "payload": {}
+}
+```
+
+#### Configure wait-online reboot timeout
+
+There is a configurable timeout the device waits for a network connection.
+
+**Direct method: set_wait_online_timeout**
+
+Method Name: `set_wait_online_timeout`
+
+Payload:<br>
+The timeout is defined in seconds. A "timeout_secs" value of 0 means no timeout. An empty payload also means no timeout to be set at all.
+```
+{
+  "timeout_secs": <secs>
 }
 ```
 
@@ -687,27 +730,72 @@ The availability of the feature is reported by the following module twin propert
 }
 ```
 
-## Local http interface
+## Local web service
 
-omnect-device-service provides a http server that exposes a web API over a unix domain socket.<br>
-Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)
+omnect-device-service provides a http web service that exposes a web API over a unix domain socket.<br>
+Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)<br>
+
+The web service features is disabled by default and must be explicitly activated via environment variable `WEBSERVICE_ENABLED=true`.
 
 ### Trigger reboot
 
 ```
-curl -X PUT --unix-socket /run/omnect-device-service/api.sock http://localhost/reboot
-```
-
-### Get omnect-os version
-
-```
-curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/os-version
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/reboot/v1
 ```
 
 ### Reload network daemon
 
 ```
-curl -X PUT --unix-socket /run/omnect-device-service/api.sock http://localhost/reload-network
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/reload-network/v1
+```
+### Republish
+
+```
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/republish/v1
+```
+
+### Get status
+
+```
+curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/status/v1
+```
+
+### Receive updates
+
+omnect-device-service is capable to publish certain properties to a list of defined endpoints. Currently the following properties are published:
+- online status: connection status to iothub
+- versions: software versions of various components
+- timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html) 
+
+Publishing messages in omnect-device-service is inspired by [centrifugo](https://centrifugal.dev/) and e.g. makes use of it in [omnect-ui](https://github.com/omnect/omnect-ui).
+
+In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested endpoints must be added "/etc/omnect/publish_endpoints.json" in the following format (headers are optional):
+```
+[
+  {
+    "url": "http://localhost:8000/api/publish",
+    "headers": [
+      {
+        "name": "Content-Type",
+        "value": "application/json" 
+      },
+      {
+        "name": "X-API-Key",
+        "value": "my-api-key" 
+      }
+    ]
+  }
+]
+```
+
+The publish message format is also inspired by [centrifugo](https://centrifugal.dev/). A message must define a channel and a data attribute: 
+```
+{
+  "channel": "OnlineStatus",
+  "data": {
+    "iothub": true
+  }
+}
 ```
 
 ## Update validation

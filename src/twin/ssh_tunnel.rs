@@ -111,7 +111,7 @@ macro_rules! unpack_args {
 }
 
 pub struct SshTunnel {
-    tx_outgoing_message: Sender<IotMessage>,
+    tx_outgoing_message: Option<Sender<IotMessage>>,
     ssh_tunnel_semaphore: Arc<Semaphore>,
 }
 
@@ -133,7 +133,15 @@ impl Feature for SshTunnel {
         self
     }
 
-    fn start(&mut self) -> Result<()> {
+    async fn connect_twin(
+        &mut self,
+        _tx_reported_properties: Sender<serde_json::Value>,
+        tx_outgoing_message: Sender<IotMessage>,
+    ) -> Result<()> {
+        self.ensure()?;
+
+        self.tx_outgoing_message = Some(tx_outgoing_message);
+
         Ok(())
     }
 }
@@ -142,9 +150,9 @@ impl SshTunnel {
     const SSH_TUNNEL_VERSION: u8 = 1;
     const ID: &'static str = "ssh_tunnel";
 
-    pub fn new(tx_outgoing_message: Sender<IotMessage>) -> Self {
+    pub fn new() -> Self {
         SshTunnel {
-            tx_outgoing_message,
+            tx_outgoing_message: None,
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         }
     }
@@ -257,11 +265,15 @@ impl SshTunnel {
             Self::start_tunnel_command(&args.tunnel_id, &ssh_creds, &args.bastion_config)?;
         let stdout = ssh_process.stdout.take().unwrap();
 
+        let Some(tx) = &self.tx_outgoing_message else {
+            anyhow::bail!("open_ssh_tunnel: tx_outgoing_message is None")
+        };
+
         // report tunnel termination once it completes
         tokio::spawn(Self::await_tunnel_termination(
             ssh_process,
             args.tunnel_id.clone(),
-            self.tx_outgoing_message.clone(),
+            tx.clone(),
             ssh_tunnel_permit,
             ssh_creds,
         ));

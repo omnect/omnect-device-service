@@ -1,5 +1,7 @@
 use super::Feature;
 use anyhow::{Context, Result};
+use async_trait::async_trait;
+use azure_iot_sdk::client::IotMessage;
 use log::{debug, error, info};
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use serde::Serialize;
@@ -8,11 +10,13 @@ use serde_with::skip_serializing_none;
 use std::{any::Any, collections::HashMap, env};
 use tokio::sync::mpsc::Sender;
 
+#[derive(Default)]
 pub struct NetworkStatus {
     include_network_filter: Option<Vec<String>>,
-    tx_reported_properties: Sender<serde_json::Value>,
+    tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
+#[async_trait(?Send)]
 impl Feature for NetworkStatus {
     fn name(&self) -> String {
         Self::ID.to_string()
@@ -33,18 +37,23 @@ impl Feature for NetworkStatus {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+
+    async fn connect_twin(
+        &mut self,
+        tx_reported_properties: Sender<serde_json::Value>,
+        _tx_outgoing_message: Sender<IotMessage>,
+    ) -> Result<()> {
+        self.ensure()?;
+
+        self.tx_reported_properties = Some(tx_reported_properties);
+
+        Ok(())
+    }
 }
 
 impl NetworkStatus {
     const NETWORK_STATUS_VERSION: u8 = 1;
     const ID: &'static str = "network_status";
-
-    pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
-        NetworkStatus {
-            include_network_filter: None,
-            tx_reported_properties,
-        }
-    }
 
     pub async fn refresh_network_status(&self) -> Result<Option<serde_json::Value>> {
         info!("network status requested");
@@ -124,9 +133,12 @@ impl NetworkStatus {
             self.include_network_filter
         );
 
+        let Some(tx) = &self.tx_reported_properties else {
+            anyhow::bail!("update_general_consent: tx_reported_properties is None")
+        };
+
         if self.include_network_filter.is_none() {
-            return self
-                .tx_reported_properties
+            return tx
                 .send(json!({
                        "network_status": {
                            "interfaces": json!(null)
@@ -189,13 +201,12 @@ impl NetworkStatus {
                 };
             });
 
-        self.tx_reported_properties
-            .send(json!({
-                "network_status": {
-                    "interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
-                }
-            }))
-            .await
-            .context("report_network_status")
+        tx.send(json!({
+            "network_status": {
+                "interfaces": json!(interfaces.into_values().collect::<Vec<NetworkReport>>())
+            }
+        }))
+        .await
+        .context("report_network_status")
     }
 }

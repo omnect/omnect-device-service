@@ -3,6 +3,7 @@ pub mod system;
 pub mod systemd;
 pub mod twin;
 pub mod update_validation;
+pub mod web_service;
 
 use azure_iot_sdk::client::*;
 use env_logger::{Builder, Env, Target};
@@ -17,7 +18,13 @@ async fn main() {
     log_panics::init();
 
     if cfg!(debug_assertions) {
-        builder = Builder::from_env(Env::default().default_filter_or("debug"));
+        builder = Builder::from_env(Env::default().default_filter_or(concat!(
+            "debug",
+            ",azure_iot_sdk=info",
+            ",reqwest=info",
+            ",hyper_util=info",
+            ",mio=info"
+        )));
     } else {
         builder = Builder::from_env(Env::default().default_filter_or("info"));
     }

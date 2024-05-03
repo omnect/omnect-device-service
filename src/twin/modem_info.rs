@@ -1,6 +1,7 @@
 use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use azure_iot_sdk::client::IotMessage;
 use log::info;
 use serde_json::json;
 use std::{any::Any, env};
@@ -42,7 +43,7 @@ mod inner {
 
     pub struct ModemInfo {
         connection: OnceCell<Connection>,
-        tx_reported_properties: Sender<serde_json::Value>,
+        pub(super) tx_reported_properties: Option<Sender<serde_json::Value>>,
     }
 
     impl ModemInfo {
@@ -137,10 +138,10 @@ mod inner {
                 .map_err(|err| anyhow::anyhow!("failed to construct modem 3gpp proxy: {err}"))
         }
 
-        pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
+        pub fn new() -> Self {
             ModemInfo {
                 connection: OnceCell::new(),
-                tx_reported_properties,
+                None,
             }
         }
 
@@ -285,15 +286,14 @@ mod inner {
 mod inner {
     use super::*;
 
+    #[derive(Default)]
     pub struct ModemInfo {
-        tx_reported_properties: Sender<serde_json::Value>,
+        pub(super) tx_reported_properties: Option<Sender<serde_json::Value>>,
     }
 
     impl ModemInfo {
-        pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
-            ModemInfo {
-                tx_reported_properties,
-            }
+        pub fn new() -> Self {
+            ModemInfo::default()
         }
 
         pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
@@ -301,12 +301,15 @@ mod inner {
 
             self.ensure()?;
 
-            self.tx_reported_properties
-                .send(json!({
-                    "modem_info": {}
-                }))
-                .await
-                .context("report_modem_info: report_impl")?;
+            let Some(tx) = &self.tx_reported_properties else {
+                anyhow::bail!("refresh_modem_info: tx_reported_properties is None")
+            };
+
+            tx.send(json!({
+                "modem_info": {}
+            }))
+            .await
+            .context("report_modem_info: report_impl")?;
 
             Ok(None)
         }
@@ -328,14 +331,6 @@ impl Feature for ModemInfo {
         MODEM_INFO_VERSION
     }
 
-    async fn report_initial_state(&self) -> Result<()> {
-        self.ensure()?;
-
-        self.refresh_modem_info().await?;
-
-        Ok(())
-    }
-
     fn is_enabled(&self) -> bool {
         match env::var("DISTRO_FEATURES") {
             Ok(features) => features.split_whitespace().any(|feature| feature == "3g"),
@@ -345,5 +340,19 @@ impl Feature for ModemInfo {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    async fn connect_twin(
+        &mut self,
+        tx_reported_properties: Sender<serde_json::Value>,
+        _tx_outgoing_message: Sender<IotMessage>,
+    ) -> Result<()> {
+        self.ensure()?;
+
+        self.tx_reported_properties = Some(tx_reported_properties);
+
+        self.refresh_modem_info().await?;
+
+        Ok(())
     }
 }
