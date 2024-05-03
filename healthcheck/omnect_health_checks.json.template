@@ -1,0 +1,82 @@
+# This file is an example configuration for omnect health check as
+# implemented by script omnect_health_check.sh.
+#
+# Generally, health checking consists of ...
+#  - the main check script: omnect_health_check.sh
+#  - a small library file with common functions: healthchecklib.sh
+#  - actual check scripts aiming at specific system functions
+#  - a configuration file defining which check scripts to invoke and how
+#
+# Names of the actual check scripts are all prefixed with "omnect_health__"
+# by convention, the main script relies on that when evaluating the
+# configuration file.
+#
+# Each check script gets called by main script with a run mode of either
+# "check" or "get-infos" and optional extra arguments as defined in the
+# configuration file and must have a return value of ...
+#  - 0: "green", meaning everything OK
+#  - 1: "yellow", meaning non fatal issues detected
+#  - 2: "red", meaning serious issues detected
+#
+# The difference between modes "check" and "get-infos" is that the latter
+# may also output additional information on stdout which could help
+# analyzing an unhealthy status.
+#
+# The configuration file consists of an array of tuples with following
+# fields:
+#  - "name": the name of the check
+#            -> for informational output by main script
+#  - "type": this defines the check script to be called
+#            -> "omnect_health__" + "type" + ".sh"
+#  - "extra-args": optional, extra arguments to be additionally given
+#
+# The example below shows the first configuration used for health check.
+[
+    {
+	"name": "coredumps",
+	"type": "coredumps"
+    },
+    {
+	"name": "omnect-device-service",
+	"type": "services",
+	"extra-args": "omnect-device-service"
+    },
+    {
+	"name": "aziot-certd",
+	"type": "services",
+	"extra-args": "aziot-certd"
+    },
+    {
+	"name": "aziot-edged",
+	"type": "services",
+	"extra-args": "aziot-edged"
+    },
+    {
+	"name": "aziot-identityd",
+	"type": "services",
+	"extra-args": "aziot-identityd"
+    },
+    {
+	"name": "aziot-keyd",
+	"type": "services",
+	"extra-args": "aziot-keyd"
+    },
+    {
+	"name": "aziot-tpmd",
+	"type": "services",
+	"extra-args": "aziot-tpmd"
+    },
+    {
+	"name": "deviceupdate-agent",
+	"type": "services",
+	"extra-args": "deviceupdate-agent"
+    },
+    {
+	"name": "system_running",
+	"type": "system_running"
+    },
+    {
+	"name": "timesync",
+	"type": "timesync"
+    }
+]

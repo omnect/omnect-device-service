@@ -1,0 +1,80 @@
+# This file is an example configuration how services are checked by the omnect
+# health check script omnect_health__services.sh.
+#
+# The base idea is to record whenever a service stops/(re-)starts in service
+# specific log files which can then be examined by a script to yield a health
+# status of the service as well as of the complete system.
+#
+# Whenever systemd detects that a service stopped running it allows to invoke
+# applications/scripts providing them with information about the termination
+# cause.
+# For reference see ExecStopPost in systemd's documentation:
+#
+#   https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html
+#
+# The health check configuration defines which services (actually exit logs
+# thereof created by script omnect_service_log.sh) shall be processed and
+# the conditions for ...
+#  - normal operation -> green
+#  - non fatal issues -> yellow
+#  - serious issues   -> red
+#
+# These three statuses are derived via rating definitions which refer to
+# the three systemd provided environment variables SERVICE_RESULT, EXIT_CODE
+# and EXIT_STATUS which are translated in the log file to fields "result",
+# "exitcode" and "exitstatus", respectively.
+#
+# A rating consists of a "condition" specifying a boolean expression on
+# the fields, plus the resulting "rating" as one of the three colors.
+# Ratings are evaluated in given order causing the last match to win.
+#
+# The services to be checked are defined in an array named "services"
+# containing tuples of "service" and "ratings" where the former defines
+# the service to be monitored (name identical to systemd service) and the
+# latter the above mentioned rating definitions.
+#
+# To avoid repetition of a common rating defition, an optional section
+# "default-ratings" can define such a common rating set which gets used for
+# all services in the "services" section lacking an own ratings definition.
+#
+# The first used configutation can be found below.
+#
+{
+    "default-ratings": [
+	{
+	    "condition": ".exitstatus == \"SEGV\" or .exitstatus == \"ABRT\"",
+	    "rating": "red"
+	},
+	{
+	    "condition": ".exitstatus == \"HUP\"",
+	    "rating": "yellow"
+	},
+	{
+	    "condition": ".exitstatus == \"0\"",
+	    "rating": "green"
+	}
+    ],
+    "services": [
+	{
+	    "service": "omnect-device-service"
+	},
+	{
+	    "service": "aziot-certd"
+	},
+	{
+	    "service": "aziot-edged"
+	},
+	{
+	    "service": "aziot-identityd"
+	},
+	{
+	    "service": "aziot-keyd"
+	},
+	{
+	    "service": "aziot-tpmd"
+	},
+	{
+	    "service": "deviceupdate-agent"
+	}
+    ]
+}
