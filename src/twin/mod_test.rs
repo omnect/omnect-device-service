@@ -33,10 +33,6 @@ pub mod mod_test {
     pub struct MyIotHubBuilder;
 
     impl MyIotHubBuilder {
-        pub async fn build_module_client_from_identity(&self) -> Result<MockMyIotHub> {
-            Ok(MockMyIotHub::default())
-        }
-
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
             Ok(MockMyIotHub::default())
         }
@@ -158,10 +154,9 @@ pub mod mod_test {
             env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
+            env::set_var("CONNECTION_STRING", "my-constr");
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
-
-            let update_validation = UpdateValidation::new().unwrap();
 
             // create iothub client mock
             let ctx = MockMyIotHub::builder_context();
@@ -169,23 +164,21 @@ pub mod mod_test {
             let ctx = MockMyIotHub::sdk_version_string_context();
             ctx.expect().returning(|| "".to_string());
 
-            let mut mock = MockMyIotHub::builder().build_module_client("").unwrap();
-
-            // set testcase specific mock expectaions
-            set_mock_expectations(&mut mock);
-
             // create test config
             let mut config = TestConfig {
-                twin: Twin::new(mock, update_validation),
+                twin: block_on(Twin::new()).unwrap(),
                 dir: PathBuf::from(test_env.dirpath()),
             };
+
+            // set testcase specific mock expectaions
+            set_mock_expectations(&mut config.twin.client);
 
             // run test
             run_test(&mut config);
 
             // compute reported properties
             while let Ok(val) = config.twin.rx_reported_properties.try_recv() {
-                config.twin.iothub_client.twin_report(val).unwrap()
+                config.twin.client.twin_report(val).unwrap()
             }
 
             // cleanup env vars

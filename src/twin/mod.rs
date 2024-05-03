@@ -13,8 +13,9 @@ mod wifi_commissioning;
 cfg_if::cfg_if! {
     if #[cfg(test)] {
         use mod_test::mod_test::MockMyIotHub as IotHubClient;
+        use mod_test::mod_test::MyIotHubBuilder as IotHubClientBuilder;
     } else {
-        use azure_iot_sdk::client::IotHubClient;
+        use azure_iot_sdk::client::{IotHubClient, IotHubClientBuilder};
     }
 }
 
@@ -30,7 +31,8 @@ use crate::{systemd, systemd::watchdog::WatchdogManager};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{
-    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState, UnauthenticatedReason,
+    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdate, TwinUpdateState,
+    UnauthenticatedReason,
 };
 use dotenvy;
 use enum_dispatch::enum_dispatch;
@@ -95,9 +97,12 @@ trait Feature {
 }
 
 pub struct Twin {
-    iothub_client: IotHubClient,
+    client: IotHubClient,
+    client_builder: IotHubClientBuilder,
     authenticated_once: bool,
-    tx_reported_properties: mpsc::Sender<serde_json::Value>,
+    rx_connection_status: mpsc::Receiver<AuthenticationStatus>,
+    rx_twin_desired: mpsc::Receiver<TwinUpdate>,
+    rx_direct_method: mpsc::Receiver<DirectMethod>,
     rx_reported_properties: mpsc::Receiver<serde_json::Value>,
     rx_outgoing_message: mpsc::Receiver<IotMessage>,
     features: HashMap<TypeId, Box<dyn Feature>>,
@@ -105,9 +110,23 @@ pub struct Twin {
 }
 
 impl Twin {
-    fn new(client: IotHubClient, update_validation: UpdateValidation) -> Self {
+    async fn new() -> Result<Self> {
+        let (tx_connection_status, rx_connection_status) = mpsc::channel(100);
+        let (tx_twin_desired, rx_twin_desired) = mpsc::channel(100);
+        let (tx_direct_method, rx_direct_method) = mpsc::channel(100);
         let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+
+        // has to be called before iothub client authentication
+        let update_validation = UpdateValidation::new()?;
+
+        let client_builder = IotHubClient::builder()
+            .observe_connection_state(tx_connection_status)
+            .observe_desired_properties(tx_twin_desired)
+            .observe_direct_methods(tx_direct_method)
+            .pnp_model_id("dtmi:azure:iot:deviceUpdateModel;3");
+
+        let client = Self::build_twin(&client_builder).await?;
 
         let features = HashMap::from([
             (
@@ -141,15 +160,18 @@ impl Twin {
             ),
         ]);
 
-        Twin {
-            iothub_client: client,
-            tx_reported_properties: tx_reported_properties.clone(),
+        Ok(Twin {
+            client,
+            client_builder,
+            rx_connection_status,
+            rx_twin_desired,
+            rx_direct_method,
             rx_reported_properties,
             rx_outgoing_message,
             authenticated_once: false,
             features,
             update_validation,
-        }
+        })
     }
 
     async fn init(&mut self) -> Result<()> {
@@ -159,12 +181,10 @@ impl Twin {
         )))?;
 
         // report version
-        self.tx_reported_properties
-            .send(json!({
-                "module-version": env!("CARGO_PKG_VERSION"),
-                "azure-sdk-version": IotHubClient::sdk_version_string()
-            }))
-            .await?;
+        self.client.twin_report(json!({
+            "module-version": env!("CARGO_PKG_VERSION"),
+            "azure-sdk-version": IotHubClient::sdk_version_string()
+        }))?;
 
         for f in self.features.values_mut() {
             // report feature availability
@@ -174,9 +194,7 @@ impl Twin {
                 json!(null)
             };
 
-            self.tx_reported_properties
-                .send(json!({ f.name(): value }))
-                .await?;
+            self.client.twin_report(json!({ f.name(): value }))?;
         }
 
         for f in self.features.values_mut() {
@@ -250,7 +268,15 @@ impl Twin {
             AuthenticationStatus::Unauthenticated(reason) => match reason {
                 UnauthenticatedReason::BadCredential
                 | UnauthenticatedReason::CommunicationError => {
-                    anyhow::bail!("Failed to connect to iothub: {reason:?}")
+                    error!("Failed to connect to iothub: {reason:?}");
+
+                    /*
+                       here we start all over again. reason: there are situations where we get
+                       a wrong connection string (BadCredential) from identity service due to wrong system time.
+                       this may occur on devices without RTC or where time is not synced. since we experienced this
+                       behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
+                    */
+                    self.client = Self::build_twin(&self.client_builder).await?;
                 }
                 UnauthenticatedReason::RetryExpired
                 | UnauthenticatedReason::ExpiredSasToken
@@ -377,13 +403,8 @@ impl Twin {
     }
 
     pub async fn run() -> Result<()> {
-        let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
-        let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
-        let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
         let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
-
         let mut signals = Signals::new(TERM_SIGNALS)?;
-
         let mut sd_notify_interval = if let Some(timeout) = WatchdogManager::init() {
             let timeout = timeout / 2;
             debug!("trigger watchdog interval: {}µs", timeout.as_micros());
@@ -392,30 +413,7 @@ impl Twin {
             None
         };
 
-        // has to be called before iothub client authentication
-        let update_validation = UpdateValidation::new()?;
-
-        info!("waiting for authentication...");
-
-        let builder = IotHubClient::builder()
-            .observe_connection_state(tx_connection_status)
-            .observe_desired_properties(tx_twin_desired)
-            .observe_direct_methods(tx_direct_method)
-            .pnp_model_id("dtmi:azure:iot:deviceUpdateModel;3");
-
-        let mut twin = if cfg!(feature = "mock") {
-            Self::new(
-                builder
-                    .build_module_client(&std::env::var("CONNECTION_STRING").unwrap())
-                    .unwrap(),
-                update_validation,
-            )
-        } else {
-            Self::new(
-                builder.build_module_client_from_identity().await.unwrap(),
-                update_validation,
-            )
-        };
+        let mut twin = Self::new().await?;
 
         let web_service = WebService::new(tx_web_service.clone())?;
 
@@ -423,46 +421,59 @@ impl Twin {
 
         loop {
             select! (
-                _ =  notify_some_interval(&mut sd_notify_interval) => {
+                _ =  Self::notify_some_interval(&mut sd_notify_interval) => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
                     signals.handle().close();
                     web_service.shutdown().await;
-                    twin.iothub_client.shutdown().await;
+                    twin.client.shutdown().await;
                     return Ok(())
                 },
-                status = rx_connection_status.recv() => {
-                    twin.handle_connection_status(status.unwrap()).await?;
+                Some(status) = twin.rx_connection_status.recv() => {
+                    twin.handle_connection_status(status).await?;
                 },
-                update_desired = rx_twin_desired.recv() => {
-                    let update_desired = update_desired.unwrap();
+                Some(update_desired) = twin.rx_twin_desired.recv() => {
                     twin.handle_desired(update_desired.state, update_desired.value)
                         .await
                         .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
                 },
-                reported = twin.rx_reported_properties.recv() => {
-                    twin.iothub_client.twin_report(reported.unwrap())?
+                Some(reported) = twin.rx_reported_properties.recv() => {
+                    twin.client.twin_report(reported)?
                 },
-                direct_methods = rx_direct_method.recv() => {
-                    twin.handle_direct_method(direct_methods.unwrap()).await?
+                Some(direct_methods) = twin.rx_direct_method.recv() => {
+                    twin.handle_direct_method(direct_methods).await?
                 },
-                message = twin.rx_outgoing_message.recv() => {
-                    twin.iothub_client.send_d2c_message(message.unwrap())?
+                Some(message) = twin.rx_outgoing_message.recv() => {
+                    twin.client.send_d2c_message(message)?
                 },
-                request = rx_web_service.recv() => {
-                    twin.handle_web_service_request(request.unwrap()).await?
+                Some(request) = rx_web_service.recv() => {
+                    twin.handle_web_service_request(request).await?
                 }
             );
         }
     }
-}
 
-fn notify_some_interval(
-    interval: &mut Option<Interval>,
-) -> impl Future<Output = tokio::time::Instant> + '_ {
-    match interval.as_mut() {
-        Some(i) => i.tick().left_future(),
-        None => pending().right_future(),
+    #[cfg(not(feature = "mock"))]
+    async fn build_twin(builder: &IotHubClientBuilder) -> Result<IotHubClient> {
+        info!("start client and wait for authentication...");
+
+        builder.build_module_client_from_identity().await
+    }
+
+    #[cfg(feature = "mock")]
+    async fn build_twin(builder: &IotHubClientBuilder) -> Result<IotHubClient> {
+        info!("start client and wait for authentication...");
+
+        builder.build_module_client(&std::env::var("CONNECTION_STRING")?)
+    }
+
+    fn notify_some_interval(
+        interval: &mut Option<Interval>,
+    ) -> impl Future<Output = tokio::time::Instant> + '_ {
+        match interval.as_mut() {
+            Some(i) => i.tick().left_future(),
+            None => pending().right_future(),
+        }
     }
 }
