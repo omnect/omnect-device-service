@@ -2017,8 +2017,8 @@ dependencies = [
 
 [[package]]
 name = "modemmanager"
-version = "0.2.0"
-source = "git+https://github.com/omnect/modemmanager.git?tag=0.2.0#f73a309dca5161131ac3c0bb077255c21dfa439a"
+version = "0.3.0"
+source = "git+https://github.com/omnect/modemmanager.git?tag=0.3.0#bbf1acf77e2b28c312daeef4527ea9056fc15afe"
 dependencies = [
  "modemmanager-sys",
  "num",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "actix-server",
  "actix-web",

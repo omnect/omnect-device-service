@@ -1,7 +1,6 @@
 pub mod unit;
 pub mod watchdog;
 
-
 #[cfg(not(feature = "mock"))]
 use anyhow::Context;
 use anyhow::{bail, Result};
@@ -9,20 +8,16 @@ use log::{debug, info};
 use sd_notify::NotifyState;
 #[cfg(not(feature = "mock"))]
 use std::process::Command;
-use std::{
-    sync::Once,
-    thread, time,
-    time::Duration,
-};
+use std::{sync::Once, thread, time, time::Duration};
 use systemd_zbus::ManagerProxy;
 use tokio::time::{timeout_at, Instant};
 
 pub fn sd_notify_ready() {
-  static SD_NOTIFY_ONCE: Once = Once::new();
-  SD_NOTIFY_ONCE.call_once(|| {
-      info!("notify ready=1");
-      let _ = sd_notify::notify(false, &[NotifyState::Ready]);
-  });
+    static SD_NOTIFY_ONCE: Once = Once::new();
+    SD_NOTIFY_ONCE.call_once(|| {
+        info!("notify ready=1");
+        let _ = sd_notify::notify(false, &[NotifyState::Ready]);
+    });
 }
 
 #[cfg(not(feature = "mock"))]
