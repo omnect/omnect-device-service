@@ -28,7 +28,7 @@ futures-util = "0.3"
 lazy_static = "1.4"
 log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
-modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.2.0", default_features = false, optional = true }
+modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.3.0", default_features = false, optional = true }
 network-interface = "0.1"
 nix = { version = "0.28", features = ["time"] }
 notify = "6.0"

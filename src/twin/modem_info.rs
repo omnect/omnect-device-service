@@ -23,12 +23,6 @@ mod inner {
     };
 
     #[derive(Serialize)]
-    enum BearerProperties {
-        Bearer3gpp { apn: String, roaming: bool },
-        UnsupportedBearer,
-    }
-
-    #[derive(Serialize)]
     struct SimProperties {
         operator: String,
         iccid: String,
@@ -43,7 +37,7 @@ mod inner {
         #[serde(skip_serializing_if = "Option::is_none")]
         imei: Option<String>,
         sims: Vec<SimProperties>,
-        bearers: Vec<BearerProperties>,
+        bearers: Vec<serde_json::Value>,
     }
 
     pub struct ModemInfo {
@@ -163,21 +157,15 @@ mod inner {
         async fn bearer_properties<'a>(
             &self,
             modem: &modem::ModemProxy<'a>,
-        ) -> Result<Vec<BearerProperties>> {
+        ) -> Result<Vec<serde_json::Value>> {
             let bearers_paths = modem.bearers().await?.to_vec();
 
             join_all(bearers_paths.iter().map(|bearer_path| async {
                 let bearer = self.bearer_proxy(bearer_path).await?;
 
-                let properties = match bearer.properties().await? {
-                    bearer::Properties::Prop3Gpp(props) => BearerProperties::Bearer3gpp {
-                        apn: props.apn,
-                        roaming: props.allow_roaming,
-                    },
-                    _ => BearerProperties::UnsupportedBearer,
-                };
+                let bearer_properties = bearer.properties().await?;
 
-                Ok(properties)
+                serde_json::to_value(&bearer_properties).map_err(|e| anyhow::anyhow!("{e}"))
             }))
             .await
             .into_iter()
@@ -193,7 +181,7 @@ mod inner {
             Ok(SimProperties { operator, iccid })
         }
 
-        async fn sim_properties<'a>(
+        async fn sims_properties<'a>(
             &self,
             modem: &modem::ModemProxy<'a>,
         ) -> Result<Vec<SimProperties>> {
@@ -232,7 +220,7 @@ mod inner {
             let revision = modem.revision().await?;
             let preferred_technologies = modem.supported_capabilities().await?;
             let bearers = self.bearer_properties(&modem).await?;
-            let sims = self.sim_properties(&modem).await?;
+            let sims = self.sims_properties(&modem).await?;
 
             let connection = self.connection().await?;
             let dbus = DBusProxy::new(connection).await?;
