@@ -13,7 +13,7 @@ use tokio::sync::mpsc::Sender;
 lazy_static! {
     static ref SETTINGS_MAP: HashMap<&'static str, &'static str> = {
         let mut map = HashMap::new();
-        map.insert("wifi", "/etc/wpa_supplicant/wpa_supplicant-wlan0.conf");
+        map.insert("wifi", "/etc/wpa_supplicant.conf");
         map
     };
 }
