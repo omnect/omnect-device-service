@@ -40,9 +40,10 @@ This module serves as interface between omnect cloud and device to support certa
   - [Local web service](#local-web-service)
     - [Trigger reboot](#trigger-reboot-1)
     - [Reload network daemon](#reload-network-daemon)
-    - [Republish](#republish)
-    - [Get status](#get-status)
-    - [Receive updates](#receive-updates)
+    - [Status updates](#status-updates)
+      - [Publish status](#publish-status)
+      - [Republish status](#republish-status)
+      - [Get status](#get-status)
   - [Update validation](#update-validation)
     - [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
@@ -748,24 +749,15 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 ```
 curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/reload-network/v1
 ```
-### Republish
 
-```
-curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/republish/v1
-```
-
-### Get status
-
-```
-curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/status/v1
-```
-
-### Receive updates
+### Status updates
 
 omnect-device-service is capable to publish certain properties to a list of defined endpoints. Currently the following properties are published:
 - online status: connection status to iothub
 - versions: software versions of various components
 - timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html) 
+
+#### Publish status
 
 Publishing messages in omnect-device-service is inspired by [centrifugo](https://centrifugal.dev/) and e.g. makes use of it in [omnect-ui](https://github.com/omnect/omnect-ui).
 
@@ -796,6 +788,18 @@ The publish message format is also inspired by [centrifugo](https://centrifugal.
     "iothub": true
   }
 }
+```
+#### Republish status
+The client can trigger omnect-device-service to republish its state
+
+```
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/republish/v1
+```
+
+#### Get status
+
+```
+curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/status/v1
 ```
 
 ## Update validation
