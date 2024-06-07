@@ -761,7 +761,7 @@ omnect-device-service is capable to publish certain properties to a list of defi
 
 Publishing messages in omnect-device-service is inspired by [centrifugo](https://centrifugal.dev/) and e.g. makes use of it in [omnect-ui](https://github.com/omnect/omnect-ui).
 
-In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested endpoints must be added "/etc/omnect/publish_endpoints.json" in the following format (headers are optional):
+In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested endpoints must be added to "/etc/omnect/publish_endpoints.json" in the following format (headers are optional):
 ```
 [
   {
@@ -780,7 +780,7 @@ In order to receive updates, a http POST endpoint must be present, where omnect-
 ]
 ```
 
-The publish message format is also inspired by [centrifugo](https://centrifugal.dev/). A message must define a channel and a data attribute: 
+The publish message format is also inspired by [centrifugo](https://centrifugal.dev/). A message must define a channel and a data attribute, e.g.: 
 ```
 {
   "channel": "OnlineStatus",
@@ -790,13 +790,14 @@ The publish message format is also inspired by [centrifugo](https://centrifugal.
 }
 ```
 #### Republish status
-The client can trigger omnect-device-service to republish its state
+The client can trigger omnect-device-service to republish its status:
 
 ```
 curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/republish/v1
 ```
 
 #### Get status
+It is also possible to query ths current status directly:
 
 ```
 curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/status/v1
