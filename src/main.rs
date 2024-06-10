@@ -14,20 +14,19 @@ use twin::Twin;
 
 #[tokio::main]
 async fn main() {
-    let mut builder;
     log_panics::init();
 
-    if cfg!(debug_assertions) {
-        builder = Builder::from_env(Env::default().default_filter_or(concat!(
+    let mut builder = if cfg!(debug_assertions) {
+        Builder::from_env(Env::default().default_filter_or(concat!(
             "debug",
             ",azure_iot_sdk=info",
             ",reqwest=info",
             ",hyper_util=info",
             ",mio=info"
-        )));
+        )))
     } else {
-        builder = Builder::from_env(Env::default().default_filter_or("info"));
-    }
+        Builder::from_env(Env::default().default_filter_or("info"))
+    };
 
     builder.format(|buf, record| match record.level() {
         log::Level::Info => writeln!(buf, "<6>{}: {}", record.target(), record.args()),
