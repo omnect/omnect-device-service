@@ -49,7 +49,6 @@ lazy_static! {
     };
 }
 
-#[macro_export]
 macro_rules! publish_endpoints_path {
     () => {{
         static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str = "/etc/omnect/publish_endpoints.json";

@@ -326,7 +326,7 @@ In all other cases there will be an error status:
 
 #### Configure wait-online reboot timeout
 
-There is a configurable timeout the device waits for a network connection.
+There is a configurable timeout the device waits for a network connection. Further information about used network interfaces and configuration options can be found in [meta-omnect: modify-set-of-interfaces-considered-when-detecting-online-state](https://github.com/omnect/meta-omnect?tab=readme-ov-file#modify-set-of-interfaces-considered-when-detecting-online-state).
 
 **Direct method: set_wait_online_timeout**
 

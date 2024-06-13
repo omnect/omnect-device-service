@@ -20,7 +20,7 @@ Before=network-online.target shutdown.target
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/omnect/systemd-networkd-wait-online.env
-ExecStart=/bin/bash -c '/lib/systemd/systemd-networkd-wait-online ${OMNECT_WAIT_ONLINE_INTERFACES_RUN:---any --interface=eth0 --interface=wlan0 } --timeout=${OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS:-300}'
+ExecStart=/bin/bash -c '/lib/systemd/systemd-networkd-wait-online ${OMNECT_WAIT_ONLINE_INTERFACES:---any } --timeout=${OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS:-300}'
 RemainAfterExit=yes
 
 [Install]

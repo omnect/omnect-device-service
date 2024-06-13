@@ -3,7 +3,6 @@ use freedesktop_entry_parser::parse_entry;
 use regex::RegexBuilder;
 use std::time::Duration;
 
-#[macro_export]
 macro_rules! service_file_path {
     () => {{
         const SERVICE_FILE_PATH_DEFAULT: &'static str =
@@ -13,7 +12,6 @@ macro_rules! service_file_path {
     }};
 }
 
-#[macro_export]
 macro_rules! env_file_path {
     () => {{
         const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/omnect/systemd-networkd-wait-online.env";

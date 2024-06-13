@@ -25,7 +25,6 @@ macro_rules! consent_path {
     }};
 }
 
-#[macro_export]
 macro_rules! request_consent_path {
     () => {{
         PathBuf::from(&format!(r"{}/request_consent.json", consent_path!()))
