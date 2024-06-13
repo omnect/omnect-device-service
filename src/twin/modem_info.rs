@@ -12,7 +12,7 @@ mod inner {
     use super::*;
 
     use futures::future::join_all;
-    use log::debug;
+    use log::{debug, warn};
     use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
     use modemmanager::types::ModemCapability;
     use serde::Serialize;
@@ -141,7 +141,7 @@ mod inner {
         pub fn new() -> Self {
             ModemInfo {
                 connection: OnceCell::new(),
-                None,
+                tx_reported_properties: None,
             }
         }
 
@@ -270,14 +270,18 @@ mod inner {
             .collect::<Result<Vec<_>>>()
             .context("failed querying modem status")?;
 
-            self.tx_reported_properties
-                .send(json!({
-                    "modem_info": {
-                        "modems": modem_reports,
-                    }
-                }))
-                .await
-                .context("report_modem_info: report_impl")
+            let Some(tx) = &self.tx_reported_properties else {
+                warn!("skip since tx_reported_properties is None");
+                return Ok(());
+            };
+
+            tx.send(json!({
+                "modem_info": {
+                    "modems": modem_reports,
+                }
+            }))
+            .await
+            .context("report_modem_info: report_impl")
         }
     }
 }
