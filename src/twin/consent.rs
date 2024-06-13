@@ -2,6 +2,7 @@ use super::Feature;
 use crate::consent_path;
 use anyhow::{anyhow, ensure, Context, Result};
 use async_trait::async_trait;
+use azure_iot_sdk::client::IotMessage;
 use futures_executor::block_on;
 use log::{debug, error, info};
 use notify::{INotifyWatcher, RecursiveMode};
@@ -24,7 +25,6 @@ macro_rules! consent_path {
     }};
 }
 
-#[macro_export]
 macro_rules! request_consent_path {
     () => {{
         PathBuf::from(&format!(r"{}/request_consent.json", consent_path!()))
@@ -38,9 +38,10 @@ macro_rules! history_consent_path {
     }};
 }
 
+#[derive(Default)]
 pub struct DeviceUpdateConsent {
     file_observer: Option<Debouncer<INotifyWatcher>>,
-    tx_reported_properties: Sender<serde_json::Value>,
+    tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
 #[async_trait(?Send)]
@@ -57,19 +58,23 @@ impl Feature for DeviceUpdateConsent {
         env::var("SUPPRESS_DEVICE_UPDATE_USER_CONSENT") != Ok("true".to_string())
     }
 
-    async fn report_initial_state(&self) -> Result<()> {
-        self.ensure()?;
-        Self::report_general_consent(&self.tx_reported_properties).await?;
-        Self::report_user_consent(&self.tx_reported_properties, &request_consent_path!()).await?;
-        Self::report_user_consent(&self.tx_reported_properties, &history_consent_path!()).await
-    }
-
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn start(&mut self) -> Result<()> {
+    async fn connect_twin(
+        &mut self,
+        tx_reported_properties: Sender<serde_json::Value>,
+        _tx_outgoing_message: Sender<IotMessage>,
+    ) -> Result<()> {
         self.ensure()?;
+
+        self.tx_reported_properties = Some(tx_reported_properties.clone());
+
+        Self::report_general_consent(&tx_reported_properties).await?;
+        Self::report_user_consent(&tx_reported_properties, &request_consent_path!()).await?;
+        Self::report_user_consent(&tx_reported_properties, &history_consent_path!()).await?;
+
         self.observe_consent()
     }
 }
@@ -78,13 +83,6 @@ impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
     const FILE_WATCHER_DELAY_SECS: u64 = 1;
-
-    pub fn new(tx_reported_properties: Sender<serde_json::Value>) -> Self {
-        DeviceUpdateConsent {
-            file_observer: None,
-            tx_reported_properties,
-        }
-    }
 
     pub fn user_consent(&self, in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
         info!("user consent requested: {in_json}");
@@ -133,7 +131,11 @@ impl DeviceUpdateConsent {
     }
 
     pub fn observe_consent(&mut self) -> Result<()> {
-        let tx = self.tx_reported_properties.clone();
+        let Some(tx) = &self.tx_reported_properties else {
+            anyhow::bail!("observe_consent: tx_reported_properties is None")
+        };
+
+        let tx = tx.clone();
 
         let mut debouncer = new_debouncer(
             Duration::from_secs(Self::FILE_WATCHER_DELAY_SECS),
@@ -179,6 +181,10 @@ impl DeviceUpdateConsent {
         desired_consents: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
         self.ensure()?;
+
+        let Some(tx) = &self.tx_reported_properties else {
+            anyhow::bail!("update_general_consent: tx_reported_properties is None")
+        };
 
         if let Some(desired_consents) = desired_consents {
             let mut new_consents = desired_consents
@@ -234,7 +240,7 @@ impl DeviceUpdateConsent {
             info!("no general consent defined in desired properties. current general_consent is reported.");
         };
 
-        Self::report_general_consent(&self.tx_reported_properties)
+        Self::report_general_consent(tx)
             .await
             .context("update_general_consent: report_general_consent")
     }
@@ -284,5 +290,51 @@ impl DeviceUpdateConsent {
             .send(json!({ "device_update_consent": value }))
             .await
             .context("report_consent: report_impl")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_and_report_general_consent_failed_test() {
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let usr_consent = DeviceUpdateConsent {
+            file_observer: None,
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        let err = block_on(async { usr_consent.update_general_consent(None).await }).unwrap_err();
+
+        assert!(err.chain().any(|e| e
+            .to_string()
+            .starts_with("update_general_consent: report_general_consent")));
+
+        assert!(err.chain().any(|e| e
+            .to_string()
+            .starts_with("report_general_consent: open consent_conf.json")));
+
+        let err = block_on(async {
+            usr_consent
+                .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
+                .await
+        })
+        .unwrap_err();
+
+        assert!(err.chain().any(|e| e
+            .to_string()
+            .starts_with("update_general_consent: parse desired_consents")));
+
+        let err = block_on(async {
+            usr_consent
+                .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
+                .await
+        })
+        .unwrap_err();
+
+        assert!(err.chain().any(|e| e
+            .to_string()
+            .starts_with("update_general_consent: open consent_conf.json")));
     }
 }

@@ -1,0 +1,2 @@
+[Service]
+ExecStart=/bin/bash -c '/lib/systemd/systemd-networkd-wait-online ${OMNECT_WAIT_ONLINE_INTERFACES:---any } --timeout=${INVALID_ENV_VAR:-300}'

@@ -7,7 +7,6 @@ mod modem_info;
 mod network_status;
 mod reboot;
 mod ssh_tunnel;
-mod web_service;
 mod wifi_commissioning;
 
 cfg_if::cfg_if! {
@@ -21,10 +20,11 @@ cfg_if::cfg_if! {
 
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
-    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel, web_service::WebService,
+    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
     wifi_commissioning::WifiCommissioning,
 };
 use crate::update_validation::UpdateValidation;
+use crate::web_service::{self, Command as WebServiceCommand, PublishChannel, WebService};
 use crate::{system, update_validation};
 use crate::{systemd, systemd::watchdog::WatchdogManager};
 
@@ -75,10 +75,6 @@ trait Feature {
 
     fn as_any(&self) -> &dyn Any;
 
-    async fn report_initial_state(&self) -> Result<()> {
-        Ok(())
-    }
-
     fn ensure(&self) -> Result<()> {
         if !self.is_enabled() {
             bail!("feature disabled: {}", self.name());
@@ -91,7 +87,15 @@ trait Feature {
         unimplemented!();
     }
 
-    fn start(&mut self) -> Result<()> {
+    async fn connect_twin(
+        &mut self,
+        _tx_reported_properties: mpsc::Sender<serde_json::Value>,
+        _tx_outgoing_message: mpsc::Sender<IotMessage>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn connect_web_service(&self) -> Result<()> {
         Ok(())
     }
 }
@@ -99,12 +103,17 @@ trait Feature {
 pub struct Twin {
     client: IotHubClient,
     client_builder: IotHubClientBuilder,
+    web_service: Option<WebService>,
     authenticated_once: bool,
     rx_connection_status: mpsc::Receiver<AuthenticationStatus>,
     rx_twin_desired: mpsc::Receiver<TwinUpdate>,
     rx_direct_method: mpsc::Receiver<DirectMethod>,
-    rx_reported_properties: mpsc::Receiver<serde_json::Value>,
-    rx_outgoing_message: mpsc::Receiver<IotMessage>,
+    rx_web_service: mpsc::Receiver<WebServiceCommand>,
+    ch_reported_properties: (
+        mpsc::Sender<serde_json::Value>,
+        mpsc::Receiver<serde_json::Value>,
+    ),
+    ch_outgoing_message: (mpsc::Sender<IotMessage>, mpsc::Receiver<IotMessage>),
     features: HashMap<TypeId, Box<dyn Feature>>,
     update_validation: update_validation::UpdateValidation,
 }
@@ -114,8 +123,9 @@ impl Twin {
         let (tx_connection_status, rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, rx_twin_desired) = mpsc::channel(100);
         let (tx_direct_method, rx_direct_method) = mpsc::channel(100);
-        let (tx_reported_properties, rx_reported_properties) = mpsc::channel(100);
-        let (tx_outgoing_message, rx_outgoing_message) = mpsc::channel(100);
+        let ch_reported_properties = mpsc::channel(100);
+        let ch_outgoing_message = mpsc::channel(100);
+        let (tx_web_service, rx_web_service) = mpsc::channel(100);
 
         // has to be called before iothub client authentication
         let update_validation = UpdateValidation::new()?;
@@ -123,28 +133,27 @@ impl Twin {
         let client_builder = IotHubClient::builder()
             .observe_connection_state(tx_connection_status)
             .observe_desired_properties(tx_twin_desired)
-            .observe_direct_methods(tx_direct_method)
-            .pnp_model_id("dtmi:azure:iot:deviceUpdateModel;3");
+            .observe_direct_methods(tx_direct_method);
 
         let client = Self::build_twin(&client_builder).await?;
+        let web_service = WebService::run(tx_web_service.clone()).await?;
 
         let features = HashMap::from([
             (
                 TypeId::of::<DeviceUpdateConsent>(),
-                Box::new(DeviceUpdateConsent::new(tx_reported_properties.clone()))
-                    as Box<dyn Feature>,
+                Box::<DeviceUpdateConsent>::default() as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<FactoryReset>(),
-                Box::new(FactoryReset::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+                Box::new(FactoryReset::new()) as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<ModemInfo>(),
-                Box::new(ModemInfo::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+                Box::new(ModemInfo::new()) as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<NetworkStatus>(),
-                Box::new(NetworkStatus::new(tx_reported_properties.clone())) as Box<dyn Feature>,
+                Box::<NetworkStatus>::default() as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<Reboot>(),
@@ -152,7 +161,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<SshTunnel>(),
-                Box::new(SshTunnel::new(tx_outgoing_message)) as Box<dyn Feature>,
+                Box::new(SshTunnel::new()) as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<WifiCommissioning>(),
@@ -163,31 +172,28 @@ impl Twin {
         Ok(Twin {
             client,
             client_builder,
+            web_service,
             rx_connection_status,
             rx_twin_desired,
             rx_direct_method,
-            rx_reported_properties,
-            rx_outgoing_message,
+            rx_web_service,
+            ch_reported_properties,
+            ch_outgoing_message,
             authenticated_once: false,
             features,
             update_validation,
         })
     }
 
-    async fn init(&mut self) -> Result<()> {
-        dotenvy::from_path_override(Path::new(&format!(
-            "{}/os-release",
-            std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/etc".to_string())
-        )))?;
-
-        // report version
+    async fn connect_twin(&mut self) -> Result<()> {
+        // report sdk versions
         self.client.twin_report(json!({
             "module-version": env!("CARGO_PKG_VERSION"),
             "azure-sdk-version": IotHubClient::sdk_version_string()
         }))?;
 
+        // report feature availability
         for f in self.features.values_mut() {
-            // report feature availability
             let value = if f.is_enabled() {
                 json!({ "version": f.version() })
             } else {
@@ -197,17 +203,37 @@ impl Twin {
             self.client.twin_report(json!({ f.name(): value }))?;
         }
 
+        // connect twin channels
         for f in self.features.values_mut() {
             if f.is_enabled() {
-                // report initial feature status
-                f.report_initial_state().await?;
+                f.connect_twin(
+                    self.ch_reported_properties.0.clone(),
+                    self.ch_outgoing_message.0.clone(),
+                )
+                .await?;
             }
         }
 
+        Ok(())
+    }
+
+    async fn connect_web_service(&mut self) -> Result<()> {
+        web_service::publish(
+            PublishChannel::Versions,
+            json!({
+                "os-version": system::sw_version()?,
+                "azure-sdk-version": IotHubClient::sdk_version_string(),
+                "omnect-device-service-version": env!("CARGO_PKG_VERSION")
+            }),
+        )
+        .await?;
+
+        web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": false})).await?;
+
+        // connect twin channels
         for f in self.features.values_mut() {
             if f.is_enabled() {
-                // start feature
-                f.start()?;
+                f.connect_web_service().await?;
             }
         }
 
@@ -249,6 +275,8 @@ impl Twin {
     }
 
     async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
+        let mut online = false;
+
         match auth_status {
             AuthenticationStatus::Authenticated => {
                 if !self.authenticated_once {
@@ -260,10 +288,12 @@ impl Twin {
                      */
                     self.update_validation.set_authenticated().await?;
 
-                    self.init().await?;
+                    self.connect_twin().await?;
 
                     self.authenticated_once = true;
                 };
+
+                online = true;
             }
             AuthenticationStatus::Unauthenticated(reason) => match reason {
                 UnauthenticatedReason::BadCredential
@@ -276,6 +306,7 @@ impl Twin {
                        this may occur on devices without RTC or where time is not synced. since we experienced this
                        behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                     */
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                     self.client = Self::build_twin(&self.client_builder).await?;
                 }
                 UnauthenticatedReason::RetryExpired
@@ -289,7 +320,7 @@ impl Twin {
             },
         }
 
-        Ok(())
+        web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": online})).await
     }
 
     async fn handle_desired(
@@ -369,6 +400,11 @@ impl Twin {
                     .await
             }
             "reboot" => self.feature::<Reboot>()?.reboot().await,
+            "set_wait_online_timeout" => {
+                self.feature::<Reboot>()?
+                    .set_wait_online_timeout(method.payload)
+                    .await
+            }
             _ => Err(anyhow!("direct method unknown")),
         };
 
@@ -379,20 +415,14 @@ impl Twin {
         Ok(())
     }
 
-    async fn handle_web_service_request(&self, request: web_service::Command) -> Result<()> {
+    async fn handle_web_service_request(&self, request: WebServiceCommand) -> Result<()> {
         info!("handle_web_service_request: {:?}", request);
 
         let (tx_result, result) = match request {
-            web_service::Command::GetOsVersion(reply) => {
-                (reply, json!({"version": system::sw_version()?}))
+            WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await.is_ok()),
+            WebServiceCommand::ReloadNetwork(reply) => {
+                (reply, system::reload_network().await.is_ok())
             }
-            web_service::Command::Reboot(reply) => {
-                (reply, json!({"result": systemd::reboot().await.is_ok()}))
-            }
-            web_service::Command::ReloadNetwork(reply) => (
-                reply,
-                json!({"result": system::reload_network().await.is_ok()}),
-            ),
         };
 
         if tx_result.send(result).is_err() {
@@ -403,7 +433,12 @@ impl Twin {
     }
 
     pub async fn run() -> Result<()> {
-        let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
+        // load env vars from /usr/lib/os-release, e.g. to determine feature availability
+        dotenvy::from_path_override(Path::new(&format!(
+            "{}/os-release",
+            std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/usr/lib".to_string())
+        )))?;
+
         let mut signals = Signals::new(TERM_SIGNALS)?;
         let mut sd_notify_interval = if let Some(timeout) = WatchdogManager::init() {
             let timeout = timeout / 2;
@@ -415,7 +450,7 @@ impl Twin {
 
         let mut twin = Self::new().await?;
 
-        let web_service = WebService::new(tx_web_service.clone())?;
+        twin.connect_web_service().await?;
 
         systemd::sd_notify_ready();
 
@@ -426,8 +461,8 @@ impl Twin {
                 },
                 _ = signals.next() => {
                     signals.handle().close();
-                    web_service.shutdown().await;
                     twin.client.shutdown().await;
+                    if let Some(ws) =twin.web_service{ws.shutdown().await;}
                     return Ok(())
                 },
                 Some(status) = twin.rx_connection_status.recv() => {
@@ -438,16 +473,16 @@ impl Twin {
                         .await
                         .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
                 },
-                Some(reported) = twin.rx_reported_properties.recv() => {
+                Some(reported) = twin.ch_reported_properties.1.recv() => {
                     twin.client.twin_report(reported)?
                 },
                 Some(direct_methods) = twin.rx_direct_method.recv() => {
                     twin.handle_direct_method(direct_methods).await?
                 },
-                Some(message) = twin.rx_outgoing_message.recv() => {
+                Some(message) = twin.ch_outgoing_message.1.recv() => {
                     twin.client.send_d2c_message(message)?
                 },
-                Some(request) = rx_web_service.recv() => {
+                Some(request) = twin.rx_web_service.recv() => {
                     twin.handle_web_service_request(request).await?
                 }
             );

@@ -51,10 +51,6 @@ pub mod mod_test {
         pub fn observe_direct_methods(self, _tx_direct_method: DirectMethodObserver) -> Self {
             self
         }
-
-        pub fn pnp_model_id(self, _model_id: &'static str) -> Self {
-            self
-        }
     }
 
     mock! {
@@ -142,6 +138,7 @@ pub mod mod_test {
             let test_env = TestEnvironment::new(testcase_name.as_str());
 
             // copy test files and dirs
+            test_env.copy_file("testfiles/positive/systemd-networkd-wait-online.service");
             test_files.iter().for_each(|file| {
                 test_env.copy_file(file);
             });
@@ -151,9 +148,16 @@ pub mod mod_test {
             });
 
             // set env vars
+            let wait_online_srv = format!(
+                "{}/systemd-networkd-wait-online.service",
+                test_env.dirpath()
+            );
+
             env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
+            env::set_var("WPA_SUPPLICANT_DIR_PATH", test_env.dirpath().as_str());
+            env::set_var("WAIT_ONLINE_SERVICE_FILE_PATH", wait_online_srv);
             env::set_var("CONNECTION_STRING", "my-constr");
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
@@ -177,7 +181,8 @@ pub mod mod_test {
             run_test(&mut config);
 
             // compute reported properties
-            while let Ok(val) = config.twin.rx_reported_properties.try_recv() {
+            while let Ok(val) = config.twin.ch_reported_properties.1.try_recv() {
+                info!("{val:?}");
                 config.twin.client.twin_report(val).unwrap()
             }
 
@@ -185,6 +190,8 @@ pub mod mod_test {
             env::remove_var("SSH_TUNNEL_DIR_PATH");
             env::remove_var("OS_RELEASE_DIR_PATH");
             env::remove_var("CONSENT_DIR_PATH");
+            env::remove_var("WPA_SUPPLICANT_DIR_PATH");
+            env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
         }
     }
@@ -233,12 +240,19 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"reboot":{"version":1}})))
+                .with(eq(json!({"reboot":{"version":2}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({ "wifi_commissioning": null })))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(
+                    json!({"wait_online_timeout_secs":{"nanos":0, "secs": 300}}),
+                ))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -280,7 +294,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], vec![], expect, test);
@@ -331,12 +345,19 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"reboot":{"version":1}})))
+                .with(eq(json!({"reboot":{"version":2}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({ "wifi_commissioning": null })))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(
+                    json!({"wait_online_timeout_secs":{"nanos":0, "secs": 300}}),
+                ))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -360,7 +381,7 @@ pub mod mod_test {
 
         let test = |test_attr: &'_ mut TestConfig| {
             assert!(test_attr.twin.feature::<FactoryReset>().is_err());
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -379,7 +400,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 4)
+                .times(TwinFeature::COUNT + 3)
                 .returning(|_| Ok(()));
         };
 
@@ -388,7 +409,7 @@ pub mod mod_test {
             assert!(test_attr.twin.feature::<DeviceUpdateConsent>().is_err());
             assert!(test_attr.twin.feature::<NetworkStatus>().is_err());
             assert!(test_attr.twin.feature::<Reboot>().is_err());
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -470,55 +491,6 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn update_and_report_general_consent_failed_test1() {
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(0).returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            let usr_consent = test_attr.twin.feature::<DeviceUpdateConsent>();
-
-            assert!(usr_consent.is_ok());
-
-            let usr_consent = usr_consent.unwrap();
-            let err =
-                block_on(async { usr_consent.update_general_consent(None).await }).unwrap_err();
-
-            assert!(err.chain().any(|e| e
-                .to_string()
-                .starts_with("update_general_consent: report_general_consent")));
-
-            assert!(err.chain().any(|e| e
-                .to_string()
-                .starts_with("report_general_consent: open consent_conf.json")));
-
-            let err = block_on(async {
-                usr_consent
-                    .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
-                    .await
-            })
-            .unwrap_err();
-
-            assert!(err.chain().any(|e| e
-                .to_string()
-                .starts_with("update_general_consent: parse desired_consents")));
-
-            let err = block_on(async {
-                usr_consent
-                    .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
-                    .await
-            })
-            .unwrap_err();
-
-            assert!(err.chain().any(|e| e
-                .to_string()
-                .starts_with("update_general_consent: open consent_conf.json")));
-        };
-
-        TestCase::run(vec![], vec![], vec![], expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test2() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -538,7 +510,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            let err = block_on(async { test_attr.twin.init().await }).unwrap_err();
+            let err = block_on(async { test_attr.twin.connect_twin().await }).unwrap_err();
 
             assert!(err.chain().any(|e| e
                 .to_string()
@@ -559,7 +531,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 7)
+                .times(TwinFeature::COUNT + 8)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -582,7 +554,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             assert!(block_on(async {
                 test_attr
@@ -626,7 +598,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 7)
+                .times(TwinFeature::COUNT + 8)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -644,7 +616,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
@@ -682,12 +654,12 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 7)
+                .times(TwinFeature::COUNT + 8)
                 .returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             assert_eq!(
                 test_attr
@@ -718,12 +690,12 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 7)
+                .times(TwinFeature::COUNT + 8)
                 .returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             assert_eq!(
                 test_attr
@@ -838,11 +810,12 @@ pub mod mod_test {
             "testfiles/positive/consent_conf.json",
             "testfiles/positive/request_consent.json",
             "testfiles/positive/history_consent.json",
+            "testfiles/positive/wpa_supplicant.conf",
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 7)
+                .times(TwinFeature::COUNT + 8)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -866,7 +839,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             let factory_reset = test_attr.twin.feature::<FactoryReset>().unwrap();
 
@@ -894,7 +867,7 @@ pub mod mod_test {
                 })
                 .unwrap_err()
                 .to_string(),
-                "unknown restore setting received"
+                "unknown restore setting received: unknown"
             );
 
             assert!(block_on(async {
@@ -913,7 +886,10 @@ pub mod mod_test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_direct_method_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/wpa_supplicant.conf",
+        ];
         let env_vars = vec![
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
@@ -966,7 +942,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             let factory_reset = test_attr.twin.feature::<FactoryReset>().unwrap();
 
@@ -1008,7 +984,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1035,7 +1011,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1083,7 +1059,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1128,7 +1104,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -1154,7 +1130,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             assert!(block_on(async {
                 test_attr
@@ -1237,7 +1213,7 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             // test empty tunnel id
             assert!(block_on(async {
@@ -1333,7 +1309,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
         };
 
         let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.init().await }).is_ok());
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
             let cert_path = test_attr.dir.join("cert.pub");
 

@@ -1,4 +1,5 @@
 pub mod unit;
+pub mod wait_online;
 pub mod watchdog;
 
 #[cfg(not(feature = "mock"))]
