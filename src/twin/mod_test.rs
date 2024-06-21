@@ -59,10 +59,10 @@ pub mod mod_test {
             pub fn sdk_version_string() -> String {
                 "".to_string()
             }
-            pub fn twin_report(&mut self, reported: serde_json::Value) -> Result<()> {
+            pub fn twin_report(&self, reported: serde_json::Value) -> Result<()> {
                 Ok(())
             }
-           pub  fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()> {
+           pub  fn send_d2c_message(&self, mut message: IotMessage) -> Result<()> {
             Ok(())
         }
 
