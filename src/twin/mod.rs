@@ -460,6 +460,8 @@ impl Twin {
 
         loop {
             select! (
+                // we enforce top down order in 1st select! macro to handle sd-notify, signals and connections status
+                // with priority over events in the 2nd select!
                 biased;
 
                 _ =  Self::notify_some_interval(&mut sd_notify_interval) => {
@@ -476,7 +478,8 @@ impl Twin {
                 },
                 _ = async {
                     select! (
-                         Some(update_desired) = rx_twin_desired.recv() => {
+                        // random access order in 2nd select! macro
+                        Some(update_desired) = rx_twin_desired.recv() => {
                             twin.handle_desired(update_desired.state, update_desired.value)
                                 .await
                                 .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
