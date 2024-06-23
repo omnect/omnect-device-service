@@ -485,45 +485,24 @@ impl Twin {
                                 .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
                         },
                         Some(reported) = rx_reported_properties.recv() => {
-                            twin.client.twin_report(reported).unwrap()
+                            twin.client.twin_report(reported)?
                         },
                         Some(direct_methods) = rx_direct_method.recv() => {
-                            twin.handle_direct_method(direct_methods).await.unwrap()
+                            twin.handle_direct_method(direct_methods).await?
                         },
                         Some(message) = rx_outgoing_message.recv() => {
-                            twin.client.send_d2c_message(message).unwrap()
+                            twin.client.send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_web_service_request(request).await.unwrap()
+                            twin.handle_web_service_request(request).await?
                         },
-                    )
+                    );
+
+                    Ok::<(), anyhow::Error>(())
                 } => {},
             );
         }
     }
-
-    /*     async fn testit(twin: &Twin) {
-        select! (
-             Some(update_desired) = twin.rx_twin_desired.recv() => {
-                twin.handle_desired(update_desired.state, update_desired.value)
-                    .await
-                    .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
-            },
-            Some(reported) = twin.ch_reported_properties.1.recv() => {
-                twin.client.twin_report(reported).unwrap()
-            },
-            Some(direct_methods) = twin.rx_direct_method.recv() => {
-                twin.handle_direct_method(direct_methods).await.unwrap()
-            },
-            Some(message) = twin.ch_outgoing_message.1.recv() => {
-                twin.client.send_d2c_message(message).unwrap()
-            },
-            Some(request) = twin.rx_web_service.recv() => {
-                twin.handle_web_service_request(request).await.unwrap()
-            },
-            else => {},
-        )
-    } */
 
     #[cfg(not(feature = "mock"))]
     async fn build_twin(builder: &IotHubClientBuilder) -> Result<IotHubClient> {
