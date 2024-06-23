@@ -15,11 +15,7 @@ actix-server = "2.3"
 actix-web = "4.5"
 anyhow = "1.0"
 async-trait = "0.1"
-#azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.12.1", features = [
-#  "module_client",
-#] }
-# azure-iot-sdk = { path = "../azure-iot-sdk", features = ["module_client"] }
-azure-iot-sdk = { git = "https://github.com/janzachmann/azure-iot-sdk.git", branch = "builder-pattern", features = [
+azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.13.0", features = [
   "module_client",
 ] }
 cfg-if = "1.0"
@@ -60,7 +56,7 @@ mockall = "0.11"
 rand = "0.8"
 regex = "1"
 stdext = "0.3"
-omnect-device-service = { path = ".", features = ["bootloader_grub"] }
+omnect-device-service = { path = ".", features = ["mock"] }
 tempfile = "3.6"
 
 [features]
