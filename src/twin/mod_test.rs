@@ -59,10 +59,10 @@ pub mod mod_test {
             pub fn sdk_version_string() -> String {
                 "".to_string()
             }
-            pub fn twin_report(&mut self, reported: serde_json::Value) -> Result<()> {
+            pub fn twin_report(&self, reported: serde_json::Value) -> Result<()> {
                 Ok(())
             }
-           pub  fn send_d2c_message(&mut self, mut message: IotMessage) -> Result<()> {
+           pub  fn send_d2c_message(&self, mut message: IotMessage) -> Result<()> {
             Ok(())
         }
 
@@ -168,9 +168,24 @@ pub mod mod_test {
             let ctx = MockMyIotHub::sdk_version_string_context();
             ctx.expect().returning(|| "".to_string());
 
+            let (tx_connection_status, _rx_connection_status) = mpsc::channel(100);
+            let (tx_twin_desired, _rx_twin_desired) = mpsc::channel(100);
+            let (tx_direct_method, _rx_direct_method) = mpsc::channel(100);
+            let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
+            let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
+            let (tx_web_service, _rx_web_service) = mpsc::channel(100);
+
             // create test config
             let mut config = TestConfig {
-                twin: block_on(Twin::new()).unwrap(),
+                twin: block_on(Twin::new(
+                    tx_connection_status,
+                    tx_twin_desired,
+                    tx_direct_method,
+                    tx_web_service,
+                    tx_reported_properties,
+                    tx_outgoing_message,
+                ))
+                .unwrap(),
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
@@ -181,7 +196,7 @@ pub mod mod_test {
             run_test(&mut config);
 
             // compute reported properties
-            while let Ok(val) = config.twin.ch_reported_properties.1.try_recv() {
+            while let Ok(val) = rx_reported_properties.try_recv() {
                 info!("{val:?}");
                 config.twin.client.twin_report(val).unwrap()
             }

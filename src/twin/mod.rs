@@ -31,8 +31,8 @@ use crate::{systemd, systemd::watchdog::WatchdogManager};
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{
-    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdate, TwinUpdateState,
-    UnauthenticatedReason,
+    AuthenticationObserver, AuthenticationStatus, DirectMethod, DirectMethodObserver, IotMessage,
+    TwinObserver, TwinUpdateState, UnauthenticatedReason,
 };
 use dotenvy;
 use enum_dispatch::enum_dispatch;
@@ -104,29 +104,22 @@ pub struct Twin {
     client: IotHubClient,
     client_builder: IotHubClientBuilder,
     web_service: Option<WebService>,
+    tx_reported_properties: mpsc::Sender<serde_json::Value>,
+    tx_outgoing_message: mpsc::Sender<IotMessage>,
     authenticated_once: bool,
-    rx_connection_status: mpsc::Receiver<AuthenticationStatus>,
-    rx_twin_desired: mpsc::Receiver<TwinUpdate>,
-    rx_direct_method: mpsc::Receiver<DirectMethod>,
-    rx_web_service: mpsc::Receiver<WebServiceCommand>,
-    ch_reported_properties: (
-        mpsc::Sender<serde_json::Value>,
-        mpsc::Receiver<serde_json::Value>,
-    ),
-    ch_outgoing_message: (mpsc::Sender<IotMessage>, mpsc::Receiver<IotMessage>),
     features: HashMap<TypeId, Box<dyn Feature>>,
     update_validation: update_validation::UpdateValidation,
 }
 
 impl Twin {
-    async fn new() -> Result<Self> {
-        let (tx_connection_status, rx_connection_status) = mpsc::channel(100);
-        let (tx_twin_desired, rx_twin_desired) = mpsc::channel(100);
-        let (tx_direct_method, rx_direct_method) = mpsc::channel(100);
-        let ch_reported_properties = mpsc::channel(100);
-        let ch_outgoing_message = mpsc::channel(100);
-        let (tx_web_service, rx_web_service) = mpsc::channel(100);
-
+    async fn new(
+        tx_connection_status: AuthenticationObserver,
+        tx_twin_desired: TwinObserver,
+        tx_direct_method: DirectMethodObserver,
+        tx_web_service: mpsc::Sender<WebServiceCommand>,
+        tx_reported_properties: mpsc::Sender<serde_json::Value>,
+        tx_outgoing_message: mpsc::Sender<IotMessage>,
+    ) -> Result<Self> {
         // has to be called before iothub client authentication
         let update_validation = UpdateValidation::new()?;
 
@@ -173,12 +166,8 @@ impl Twin {
             client,
             client_builder,
             web_service,
-            rx_connection_status,
-            rx_twin_desired,
-            rx_direct_method,
-            rx_web_service,
-            ch_reported_properties,
-            ch_outgoing_message,
+            tx_reported_properties,
+            tx_outgoing_message,
             authenticated_once: false,
             features,
             update_validation,
@@ -193,7 +182,7 @@ impl Twin {
         }))?;
 
         // report feature availability
-        for f in self.features.values_mut() {
+        for f in self.features.values() {
             let value = if f.is_enabled() {
                 json!({ "version": f.version() })
             } else {
@@ -207,8 +196,8 @@ impl Twin {
         for f in self.features.values_mut() {
             if f.is_enabled() {
                 f.connect_twin(
-                    self.ch_reported_properties.0.clone(),
-                    self.ch_outgoing_message.0.clone(),
+                    self.tx_reported_properties.clone(),
+                    self.tx_outgoing_message.clone(),
                 )
                 .await?;
             }
@@ -217,7 +206,7 @@ impl Twin {
         Ok(())
     }
 
-    async fn connect_web_service(&mut self) -> Result<()> {
+    async fn connect_web_service(&self) -> Result<()> {
         web_service::publish(
             PublishChannel::Versions,
             json!({
@@ -231,7 +220,7 @@ impl Twin {
         web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": false})).await?;
 
         // connect twin channels
-        for f in self.features.values_mut() {
+        for f in self.features.values() {
             if f.is_enabled() {
                 f.connect_web_service().await?;
             }
@@ -433,6 +422,13 @@ impl Twin {
     }
 
     pub async fn run() -> Result<()> {
+        let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
+        let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
+        let (tx_direct_method, mut rx_direct_method) = mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
+        let (tx_outgoing_message, mut rx_outgoing_message) = mpsc::channel(100);
+        let (tx_web_service, mut rx_web_service) = mpsc::channel(100);
+
         // load env vars from /usr/lib/os-release, e.g. to determine feature availability
         dotenvy::from_path_override(Path::new(&format!(
             "{}/os-release",
@@ -448,7 +444,15 @@ impl Twin {
             None
         };
 
-        let mut twin = Self::new().await?;
+        let mut twin = Self::new(
+            tx_connection_status,
+            tx_twin_desired,
+            tx_direct_method,
+            tx_web_service,
+            tx_reported_properties,
+            tx_outgoing_message,
+        )
+        .await?;
 
         twin.connect_web_service().await?;
 
@@ -456,6 +460,10 @@ impl Twin {
 
         loop {
             select! (
+                // we enforce top down order in 1st select! macro to handle sd-notify, signals and connections status
+                // with priority over events in the 2nd select!
+                biased;
+
                 _ =  Self::notify_some_interval(&mut sd_notify_interval) => {
                     WatchdogManager::notify()?;
                 },
@@ -465,26 +473,33 @@ impl Twin {
                     if let Some(ws) =twin.web_service{ws.shutdown().await;}
                     return Ok(())
                 },
-                Some(status) = twin.rx_connection_status.recv() => {
+                Some(status) = rx_connection_status.recv() => {
                     twin.handle_connection_status(status).await?;
                 },
-                Some(update_desired) = twin.rx_twin_desired.recv() => {
-                    twin.handle_desired(update_desired.state, update_desired.value)
-                        .await
-                        .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
-                },
-                Some(reported) = twin.ch_reported_properties.1.recv() => {
-                    twin.client.twin_report(reported)?
-                },
-                Some(direct_methods) = twin.rx_direct_method.recv() => {
-                    twin.handle_direct_method(direct_methods).await?
-                },
-                Some(message) = twin.ch_outgoing_message.1.recv() => {
-                    twin.client.send_d2c_message(message)?
-                },
-                Some(request) = twin.rx_web_service.recv() => {
-                    twin.handle_web_service_request(request).await?
-                }
+                _ = async {
+                    select! (
+                        // random access order in 2nd select! macro
+                        Some(update_desired) = rx_twin_desired.recv() => {
+                            twin.handle_desired(update_desired.state, update_desired.value)
+                                .await
+                                .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
+                        },
+                        Some(reported) = rx_reported_properties.recv() => {
+                            twin.client.twin_report(reported)?
+                        },
+                        Some(direct_methods) = rx_direct_method.recv() => {
+                            twin.handle_direct_method(direct_methods).await?
+                        },
+                        Some(message) = rx_outgoing_message.recv() => {
+                            twin.client.send_d2c_message(message)?
+                        },
+                        Some(request) = rx_web_service.recv() => {
+                            twin.handle_web_service_request(request).await?
+                        },
+                    );
+
+                    Ok::<(), anyhow::Error>(())
+                } => {},
             );
         }
     }

@@ -587,8 +587,8 @@ dependencies = [
 
 [[package]]
 name = "azure-iot-sdk"
-version = "0.12.1"
-source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.12.1#e1c9570e06a9f6e6c2dd0ca8d7a8ad59aa9fd816"
+version = "0.13.0"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.13.0#1c36c12687f9a8b75a64b038a1ea4c0a4353e170"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
@@ -603,7 +603,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk-sys"
 version = "0.6.0"
-source = "git+https://github.com/omnect/azure-iot-sdk-sys.git?tag=0.6.0#cdfdcbeac73f97b204e0ff5dfecd170cfb8ce290"
+source = "git+https://github.com/omnect/azure-iot-sdk-sys.git?tag=0.6.0#724203aa9d68b38c01da17650f13326c8953da3c"
 dependencies = [
  "bindgen 0.63.0",
  "pkg-config",
@@ -1668,7 +1668,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2501,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.20.0"
+version = "0.20.1"
 dependencies = [
  "actix-server",
  "actix-web",
