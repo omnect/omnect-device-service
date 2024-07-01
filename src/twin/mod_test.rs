@@ -8,7 +8,7 @@ pub mod mod_test {
     use env_logger::{Builder, Env};
     use futures_executor::block_on;
     use lazy_static::lazy_static;
-    use mockall::{mock, predicate::*};
+    use mockall::{automock, predicate::*};
     use rand::{
         distributions::Alphanumeric,
         {thread_rng, Rng},
@@ -53,21 +53,34 @@ pub mod mod_test {
         }
     }
 
-    mock! {
-        pub  MyIotHub {
-            pub fn builder() -> MyIotHubBuilder {MyIotHubBuilder{}}
-            pub fn sdk_version_string() -> String {
-                "".to_string()
-            }
-            pub fn twin_report(&self, reported: serde_json::Value) -> Result<()> {
-                Ok(())
-            }
-           pub  fn send_d2c_message(&self, mut message: IotMessage) -> Result<()> {
+    #[allow(dead_code)]
+    struct MyIotHub {}
+
+    #[automock]
+    impl MyIotHub {
+        #[allow(dead_code)]
+        pub fn builder() -> MyIotHubBuilder {
+            MyIotHubBuilder {}
+        }
+
+        #[allow(dead_code)]
+        pub fn sdk_version_string() -> String {
+            "".to_string()
+        }
+
+        #[allow(dead_code)]
+        pub fn twin_report(&self, _reported: serde_json::Value) -> Result<()> {
             Ok(())
         }
 
-           pub async fn shutdown(&mut self) {}
-    }}
+        #[allow(dead_code)]
+        pub fn send_d2c_message(&self, mut _message: IotMessage) -> Result<()> {
+            Ok(())
+        }
+
+        #[allow(dead_code)]
+        pub async fn shutdown(&mut self) {}
+    }
 
     pub struct TestEnvironment {
         dirpath: std::string::String,
