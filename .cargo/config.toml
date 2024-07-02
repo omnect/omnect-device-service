@@ -1,2 +1,3 @@
 [env]
 RUST_TEST_THREADS = "1"
+SOCKET_DIR = { value = "/run/aziot", force = false }
