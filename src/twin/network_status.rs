@@ -188,17 +188,18 @@ impl NetworkStatus {
                     name: i.name.clone(),
                 });
 
-                match i.addr {
-                    Some(Addr::V4(addr)) => entry
-                        .addr_v4
-                        .get_or_insert(vec![])
-                        .push(addr.ip.to_string()),
-                    Some(Addr::V6(addr)) => entry
-                        .addr_v6
-                        .get_or_insert(vec![])
-                        .push(addr.ip.to_string()),
-                    None => error!("report_network_status: ip address is missing"),
-                };
+                for a in &i.addr {
+                    match a {
+                        Addr::V4(addr) => entry
+                            .addr_v4
+                            .get_or_insert(vec![])
+                            .push(addr.ip.to_string()),
+                        Addr::V6(addr) => entry
+                            .addr_v6
+                            .get_or_insert(vec![])
+                            .push(addr.ip.to_string()),
+                    };
+                }
             });
 
         tx.send(json!({

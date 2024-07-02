@@ -139,7 +139,6 @@ impl DeviceUpdateConsent {
 
         let mut debouncer = new_debouncer(
             Duration::from_secs(Self::FILE_WATCHER_DELAY_SECS),
-            None,
             move |res: DebounceEventResult| match res {
                 Ok(events) => events.iter().for_each(|ev| {
                     debug!("observe_consent: event: {ev:#?}");
@@ -151,7 +150,10 @@ impl DeviceUpdateConsent {
                             });
                     }
                 }),
-                Err(errors) => errors.iter().for_each(|e| error!("observe_consent: {e:#}")),
+                Err(errors) => errors
+                    .paths
+                    .iter()
+                    .for_each(|e| error!("observe_consent: {e:?}")),
             },
         )?;
 
