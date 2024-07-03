@@ -1,2 +1,4 @@
 [env]
 RUST_TEST_THREADS = "1"
+# required by iot-identity-service whih is used by eis-utils
+SOCKET_DIR = { value = "/run/aziot", force = false }
