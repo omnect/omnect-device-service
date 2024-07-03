@@ -7,7 +7,7 @@ homepage = "https://www.omnect.io/home"
 license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
-repository = "git@github.com:omnect/omnect-device-service.git"
+repository = "https://github.com/omnect/omnect-device-service.git"
 version = "0.20.3"
 
 [dependencies]
