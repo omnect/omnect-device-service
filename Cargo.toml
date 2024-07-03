@@ -44,11 +44,11 @@ signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 strum = "0.26"
 strum_macros = "0.26"
-systemd-zbus = "0.3"
+systemd-zbus = "0.1"
 time = { version = "=0.3", features = ["formatting"] }
 tokio = "1"
 uuid = "1.4"
-zbus = { version = "4.3", default-features = false, features = ["tokio"] }
+zbus = { version = "3", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 cp_r = "0.5"
