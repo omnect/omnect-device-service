@@ -20,7 +20,6 @@ azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.
 ] }
 cfg-if = "1.0"
 dotenvy = "0.15"
-# ToDo: check if 'default-features = false' can be removed. currently needed as workaround for cargo-bitbake.
 env_logger = { version = "0.11", default-features = false }
 enum_dispatch = "0.3"
 freedesktop_entry_parser = "1.3"
