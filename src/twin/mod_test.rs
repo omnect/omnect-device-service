@@ -286,7 +286,7 @@ pub mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(
-                    json!({"device_update_consent":{"general_consent":["swupdate"]}}),
+                    json!({"device_update_consent":{"general_consent":["swupdate"], "reset_consent_on_fail": false}}),
                 ))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -391,7 +391,7 @@ pub mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(
-                    json!({"device_update_consent":{"general_consent":["swupdate"]}}),
+                    json!({"device_update_consent":{"general_consent":["swupdate"], "reset_consent_on_fail": false}}),
                 ))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -519,7 +519,7 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn update_and_report_general_consent_failed_test2() {
+    async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
             "testfiles/positive/consent_conf.json",
@@ -565,7 +565,8 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "device_update_consent": {
-                        "general_consent": ["swupdate"]
+                        "general_consent": ["swupdate"],
+                        "reset_consent_on_fail": false
                     }
                 })))
                 .times(1)
@@ -574,7 +575,8 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "device_update_consent": {
-                        "general_consent": ["swupdate1", "swupdate2"]
+                        "general_consent": ["swupdate1", "swupdate2"],
+                        "reset_consent_on_fail": false
                     }
                 })))
                 .times(2)
@@ -582,7 +584,34 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
+            let file_content = || -> serde_json::Value {
+                serde_json::from_reader(
+                    OpenOptions::new()
+                        .read(true)
+                        .create(false)
+                        .open(test_attr.dir.join("consent_conf.json"))
+                        .unwrap(),
+                )
+                .unwrap()
+            };
+
+            assert_json_diff::assert_json_eq!(
+                file_content(),
+                json!({
+                    "general_consent": ["swupdate"],
+                    "reset_consent_on_fail": false
+                })
+            );
+
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
+
+            assert_json_diff::assert_json_eq!(
+                file_content(),
+                json!({
+                    "general_consent": ["swupdate"],
+                    "reset_consent_on_fail": false
+                })
+            );
 
             assert!(block_on(async {
                 test_attr
@@ -591,6 +620,14 @@ pub mod mod_test {
                     .await
             })
             .is_ok());
+
+            assert_json_diff::assert_json_eq!(
+                file_content(),
+                json!({
+                    "general_consent": ["swupdate"],
+                    "reset_consent_on_fail": false
+                })
+            );
 
             assert!(block_on(async {
                 test_attr
@@ -602,6 +639,14 @@ pub mod mod_test {
                     .await
             })
             .is_ok());
+
+            assert_json_diff::assert_json_eq!(
+                file_content(),
+                json!({
+                    "general_consent": ["swupdate1", "swupdate2"],
+                    "reset_consent_on_fail": false
+                })
+            );
 
             assert!(block_on(async {
                 test_attr

@@ -1,5 +1,6 @@
 {
   "general_consent": [
     "swupdate"
-  ]
+  ],
+  "reset_consent_on_fail": false
 }

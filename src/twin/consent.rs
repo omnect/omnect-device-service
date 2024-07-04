@@ -202,7 +202,7 @@ impl DeviceUpdateConsent {
             new_consents.sort_by_key(|name| name.to_string());
             new_consents.dedup();
 
-            let saved_consents: serde_json::Value = serde_json::from_reader(
+            let mut current_config: serde_json::Value = serde_json::from_reader(
                 OpenOptions::new()
                     .read(true)
                     .create(false)
@@ -211,7 +211,7 @@ impl DeviceUpdateConsent {
             )
             .context("update_general_consent: serde_json::from_reader")?;
 
-            let saved_consents = saved_consents["general_consent"]
+            let saved_consents = current_config["general_consent"]
                 .as_array()
                 .context("update_general_consent: general_consent array malformed")?
                 .iter()
@@ -228,6 +228,8 @@ impl DeviceUpdateConsent {
                 return Ok(());
             }
 
+            current_config["general_consent"] = serde_json::Value::from(new_consents);
+
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -235,7 +237,7 @@ impl DeviceUpdateConsent {
                     .truncate(true)
                     .open(format!("{}/consent_conf.json", consent_path!()))
                     .context("update_general_consent: open consent_conf.json for write")?,
-                &json!({ "general_consent": new_consents }),
+                &current_config,
             )
             .context("update_general_consent: serde_json::to_writer_pretty")?;
         } else {
