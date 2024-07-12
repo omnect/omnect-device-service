@@ -157,7 +157,7 @@ impl WebService {
     }
 
     async fn factory_reset(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
-        debug!("WebService reboot");
+        debug!("WebService factory_reset");
 
         let (tx_reply, rx_reply) = oneshot::channel();
         let cmd = Command::FactoryReset(tx_reply);
