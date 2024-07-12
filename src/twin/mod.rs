@@ -481,7 +481,7 @@ impl Twin {
                 Some(status) = rx_connection_status.recv() => {
                     twin.handle_connection_status(status).await?;
                 },
-                _ = async {
+                result = async {
                     select! (
                         // random access order in 2nd select! macro
                         Some(update_desired) = rx_twin_desired.recv() => {
@@ -499,13 +499,12 @@ impl Twin {
                             twin.client.send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            let res=twin.handle_webservice_request(request).await;
-                            info!("result: {:?}", res);
+                            twin.handle_webservice_request(request).await?
                         },
                     );
 
                     Ok::<(), anyhow::Error>(())
-                } => {},
+                } => result?,
             );
         }
     }
