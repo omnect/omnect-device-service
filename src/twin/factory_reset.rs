@@ -123,7 +123,7 @@ impl FactoryReset {
         self.ensure()?;
 
         web_service::publish(
-            web_service::PublishChannel::FactoryReset,
+            web_service::PublishChannel::FactoryResetResult,
             json!({"factory-reset-status": status}),
         )
         .await
