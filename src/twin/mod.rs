@@ -405,7 +405,7 @@ impl Twin {
     }
 
     async fn handle_webservice_request(&self, request: WebServiceCommand) -> Result<()> {
-        info!("handle_web_service_request: {:?}", request);
+        info!("handle_webservice_request: {:?}", request);
 
         let (tx_result, result) = match request {
             WebServiceCommand::FactoryReset(reply) => (
@@ -420,7 +420,7 @@ impl Twin {
         };
 
         if tx_result.send(result.is_ok()).is_err() {
-            error!("handle_web_service_request: receiver dropped");
+            error!("handle_webservice_request: receiver dropped");
         }
 
         result
@@ -499,7 +499,8 @@ impl Twin {
                             twin.client.send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_webservice_request(request).await?
+                            let res=twin.handle_webservice_request(request).await;
+                            info!("result: {:?}", res);
                         },
                     );
 
