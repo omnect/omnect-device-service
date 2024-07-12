@@ -1,6 +1,7 @@
 use super::super::bootloader_env;
 use super::super::systemd;
 use super::Feature;
+use crate::web_service;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -120,6 +121,13 @@ impl FactoryReset {
 
     async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
         self.ensure()?;
+
+        web_service::publish(
+            web_service::PublishChannel::FactoryReset,
+            json!({"factory-reset-status": status}),
+        )
+        .await
+        .context("report_factory_reset_status: publish")?;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report_factory_reset_status: skip since tx_reported_properties is None");

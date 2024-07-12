@@ -408,6 +408,12 @@ impl Twin {
         info!("handle_web_service_request: {:?}", request);
 
         let (tx_result, result) = match request {
+            WebServiceCommand::FactoryReset(reply) => (
+                reply,
+                self.feature::<FactoryReset>()?
+                    .reset_to_factory_settings(json!({}))
+                    .await.is_ok(),
+            ),
             WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await.is_ok()),
             WebServiceCommand::ReloadNetwork(reply) => {
                 (reply, system::reload_network().await.is_ok())
