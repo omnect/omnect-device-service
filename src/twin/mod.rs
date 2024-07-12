@@ -404,7 +404,7 @@ impl Twin {
         Ok(())
     }
 
-    async fn handle_web_service_request(&self, request: WebServiceCommand) -> Result<()> {
+    async fn handle_webservice_request(&self, request: WebServiceCommand) -> Result<()> {
         info!("handle_web_service_request: {:?}", request);
 
         let (tx_result, result) = match request {
@@ -412,19 +412,18 @@ impl Twin {
                 reply,
                 self.feature::<FactoryReset>()?
                     .reset_to_factory_settings(json!({}))
-                    .await.is_ok(),
+                    .await
+                    .map(|_| ()),
             ),
-            WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await.is_ok()),
-            WebServiceCommand::ReloadNetwork(reply) => {
-                (reply, system::reload_network().await.is_ok())
-            }
+            WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await),
+            WebServiceCommand::ReloadNetwork(reply) => (reply, system::reload_network().await),
         };
 
-        if tx_result.send(result).is_err() {
+        if tx_result.send(result.is_ok()).is_err() {
             error!("handle_web_service_request: receiver dropped");
         }
 
-        Ok(())
+        result
     }
 
     pub async fn run() -> Result<()> {
@@ -488,7 +487,7 @@ impl Twin {
                         Some(update_desired) = rx_twin_desired.recv() => {
                             twin.handle_desired(update_desired.state, update_desired.value)
                                 .await
-                                .unwrap_or_else(|e| error!("twin update desired properties: {e:#}"));
+                                .unwrap_or_else(|e| error!("handle desired properties: {e:#}"));
                         },
                         Some(reported) = rx_reported_properties.recv() => {
                             twin.client.twin_report(reported)?
@@ -500,7 +499,7 @@ impl Twin {
                             twin.client.send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_web_service_request(request).await?
+                            twin.handle_webservice_request(request).await?
                         },
                     );
 
