@@ -411,7 +411,7 @@ impl Twin {
             WebServiceCommand::FactoryReset(reply) => (
                 reply,
                 self.feature::<FactoryReset>()?
-                    .reset_to_factory_settings(json!({}))
+                    .reset_to_factory_settings(json!({"type": 1}))
                     .await
                     .map(|_| ()),
             ),
