@@ -17,12 +17,14 @@ static PUBLISH_ENDPOINTS: OnceLock<Mutex<Vec<PublishEndpoint>>> = OnceLock::new(
 
 #[derive(Debug)]
 pub enum Command {
+    FactoryReset(Reply),
     Reboot(Reply),
     ReloadNetwork(Reply),
 }
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
+    FactoryResetResult,
     OnlineStatus,
     Timeouts,
     Versions,
@@ -98,6 +100,7 @@ impl WebService {
         let srv = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(tx_request.clone()))
+                .route("/factory-reset/v1", web::post().to(Self::factory_reset))
                 .route("/reboot/v1", web::post().to(Self::reboot))
                 .route("/reload-network/v1", web::post().to(Self::reload_network))
                 .route("/republish/v1", web::post().to(Self::republish))
@@ -151,6 +154,15 @@ impl WebService {
         debug!("WebService shutdown");
 
         self.srv_handle.stop(false).await;
+    }
+
+    async fn factory_reset(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+        debug!("WebService factory_reset");
+
+        let (tx_reply, rx_reply) = oneshot::channel();
+        let cmd = Command::FactoryReset(tx_reply);
+
+        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
     }
 
     async fn reboot(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {

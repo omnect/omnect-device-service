@@ -113,7 +113,7 @@ impl Reboot {
             }),
         )
         .await
-        .context("report_wait_online_timeout: send")?;
+        .context("report_wait_online_timeout: publish")?;
 
         Ok(())
     }
