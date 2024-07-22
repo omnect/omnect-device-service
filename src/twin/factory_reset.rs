@@ -162,7 +162,6 @@ impl FactoryReset {
             match status {
                 Ok((update_twin, true)) => {
                     self.report_factory_reset_status(update_twin).await?;
-                    bootloader_env::unset("factory-reset-status")?;
 
                     info!("factory reset result: {update_twin}");
                 }
