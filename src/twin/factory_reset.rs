@@ -1,29 +1,24 @@
 use super::super::bootloader_env;
 use super::super::systemd;
 use super::Feature;
-use crate::factory_path;
 use crate::web_service;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{error, info, warn};
-use serde::Deserialize;
 use serde_json::json;
-use std::{any::Any, collections::HashMap, env, fs::OpenOptions};
+use std::path::Path;
+use std::{any::Any, collections::HashMap, env};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
-#[macro_export]
-macro_rules! factory_path {
+macro_rules! factory_reset_status_path {
     () => {{
-        static FACTORY_DIR_PATH_DEFAULT: &'static str = "/run/omnect-device-service";
-        std::env::var("FACTORY_DIR_PATH").unwrap_or(FACTORY_DIR_PATH_DEFAULT.to_string())
+        static FACTORY_RESET_STATUS_PATH_DEFAULT: &'static str =
+            "/run/omnect-device-service/factory-reset-status";
+        std::env::var("FACTORY_RESET_STATUS_PATH")
+            .unwrap_or(FACTORY_RESET_STATUS_PATH_DEFAULT.to_string())
     }};
-}
-
-#[derive(Debug, Deserialize)]
-struct FactoryResetStatus {
-    status: Option<String>,
 }
 
 pub struct FactoryReset {
@@ -208,18 +203,17 @@ impl FactoryReset {
                 _ | "succeeded" => Ok("0:0".to_string()),
             }
         } else {
-            // bootloader_env::get("factory-reset-status")
-            let current_status: serde_json::Value = serde_json::from_reader(
-                OpenOptions::new()
-                    .read(true)
-                    .create(false)
-                    .open(format!("{}/factory-reset.json", factory_path!()))
-                    .context("get_factory_reset_status: open factory-reset.json fo read")?,
-            )
-            .context("get_factory_reset_status: serde_json::from_reader")?;
+            let factory_reset_status_path = &factory_reset_status_path!();
+            if let Ok(false) = Path::new(&factory_reset_status_path!()).try_exists() {
+                bail!("factory reset status file missing: {factory_reset_status_path}");
+            }
 
-            let result = current_status["status"].to_string();
-            Ok(result)
+            let default_result = Ok("".to_string());
+            let Ok(factory_reset_status) = std::fs::read_to_string(factory_reset_status_path)
+            else {
+                return default_result;
+            };
+            Ok(factory_reset_status)
         }
     }
 }
