@@ -191,29 +191,16 @@ impl FactoryReset {
 
     #[allow(unreachable_patterns, clippy::wildcard_in_or_patterns)]
     fn factory_reset_status(&self) -> Result<String> {
-        if cfg!(feature = "mock") {
-            match std::env::var("TEST_FACTORY_RESET_RESULT")
-                .unwrap_or_else(|_| "succeeded".to_string())
-                .as_str()
-            {
-                "unexpected_factory_reset_result_format" => Ok("unexpected".to_string()),
-                "normal_boot_without_factory_reset" => Ok("".to_string()),
-                "unexpected_restore_settings_error" => Ok("2:-".to_string()),
-                "unexpected_factory_reset_type" => Ok("1:-".to_string()),
-                _ | "succeeded" => Ok("0:0".to_string()),
-            }
-        } else {
-            let factory_reset_status_path = &factory_reset_status_path!();
-            if let Ok(false) = Path::new(&factory_reset_status_path!()).try_exists() {
-                bail!("factory reset status file missing: {factory_reset_status_path}");
-            }
-
-            let default_result = Ok("".to_string());
-            let Ok(factory_reset_status) = std::fs::read_to_string(factory_reset_status_path)
-            else {
-                return default_result;
-            };
-            Ok(factory_reset_status)
+        let factory_reset_status_path = &factory_reset_status_path!();
+        if let Ok(false) = Path::new(&factory_reset_status_path!()).try_exists() {
+            bail!("factory reset status file missing: {factory_reset_status_path}");
         }
+
+        let default_result = Ok("".to_string());
+        let Ok(factory_reset_status) = std::fs::read_to_string(factory_reset_status_path) else {
+            return default_result;
+        };
+        let factory_reset_status = factory_reset_status.trim_end().to_string();
+        Ok(factory_reset_status)
     }
 }
