@@ -40,6 +40,8 @@ async fn main() {
 
     builder.target(Target::Stdout).init();
 
+    system::provisioning_method().unwrap();
+
     info!(
         "module version: {} ({})",
         env!("CARGO_PKG_VERSION"),

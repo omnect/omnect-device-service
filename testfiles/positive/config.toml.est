@@ -1,0 +1,34 @@
+## Hostname
+hostname = "test-omnect-est"
+
+## DPS provisioning with X.509 certificate
+[provisioning]
+source = "dps"
+global_endpoint = "https://global.azure-devices-provisioning.net/"
+id_scope = "0neXXXXXXXX"
+
+[provisioning.attestation]
+method = "x509"
+registration_id = "test-omnect-est"
+
+[provisioning.attestation.identity_cert]
+method = "est"
+common_name = "test-omnect-est"
+
+[provisioning.attestation.identity_cert.auto_renew]
+rotate_key = true
+threshold = "80%"
+retry = "4%"
+
+## Cert issuance via EST
+[cert_issuance.est]
+trusted_certs = [
+     "file:///mnt/cert/ca/ca.crt",
+]
+
+[cert_issuance.est.auth]
+bootstrap_identity_cert = "file:///mnt/cert/priv/device_id_cert.pem"
+bootstrap_identity_pk = "file:///mnt/cert/priv/device_id_cert_key.pem"            # file URI, or...
+
+[cert_issuance.est.urls]
+default = "https://omnect-est.url:8080/.well-known/est"

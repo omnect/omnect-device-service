@@ -532,9 +532,11 @@ impl Twin {
 
     #[cfg(feature = "mock")]
     async fn build_twin(builder: &IotHubClientBuilder) -> Result<IotHubClient> {
+        use anyhow::Context;
+
         info!("start client and wait for authentication...");
 
-        builder.build_module_client(&std::env::var("CONNECTION_STRING")?)
+        builder.build_module_client(&std::env::var("CONNECTION_STRING").context("connection string missing")?)
     }
 
     fn notify_some_interval(

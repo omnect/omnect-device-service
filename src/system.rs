@@ -1,6 +1,6 @@
 use crate::{systemd, systemd::unit::UnitAction};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use log::info;
 use serde_json::json;
 use std::fs;
@@ -12,32 +12,30 @@ static DEV_OMNECT: &str = "/dev/omnect/";
 static NETWORK_SERVICE: &str = "systemd-networkd.service";
 static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 30;
 
-fn info_current_root() -> Result<()> {
+fn current_root() -> Result<&'static str> {
     let current_root = fs::read_link(DEV_OMNECT.to_owned() + "rootCurrent")
         .context("getting current root device")?;
-    let root_a = fs::read_link(DEV_OMNECT.to_owned() + "rootA").context("getting rootA")?;
-    let root_b = fs::read_link(DEV_OMNECT.to_owned() + "rootB").context("getting rootB")?;
 
-    let root = if current_root == root_a {
-        "a"
-    } else if current_root == root_b {
-        "b"
-    } else {
-        "unknown"
-    };
-    info!("device booted from root {root}.");
-    Ok(())
+    if current_root == fs::read_link(DEV_OMNECT.to_owned() + "rootA").context("getting rootA")? {
+        return Ok("a");
+    }
+
+    if current_root == fs::read_link(DEV_OMNECT.to_owned() + "rootB").context("getting rootB")? {
+        return Ok("b");
+    }
+
+    bail!("device booted from unknown root")
 }
 
-fn info_bootloader_updated() {
-    if let Ok(true) = Path::new(BOOTLOADER_UPDATED_FILE).try_exists() {
-        info!("bootloader was updated.")
-    }
+fn bootloader_updated() -> bool {
+    Path::new(BOOTLOADER_UPDATED_FILE)
+        .try_exists()
+        .is_ok_and(|res| res)
 }
 
 pub fn infos() -> Result<()> {
-    info_current_root()?;
-    info_bootloader_updated();
+    info!("bootloader was updated: {}", bootloader_updated());
+    info!("device booted from root {}.", current_root()?);
     Ok(())
 }
 
@@ -68,5 +66,19 @@ pub fn sw_version() -> Result<serde_json::Value> {
     Ok(json!( {
         "osName": sw_versions[0],
         "swVersion": sw_versions[1],
+    }))
+}
+
+pub fn provisioning_method() -> Result<serde_json::Value> {
+    let path = "testfiles/positive/config.toml.est";
+    let config: toml::map::Map<String, toml::Value> = std::fs::read_to_string(path).context(format!("cannot read {}", path))?.parse::<toml::Table>()?;
+
+    info!("{:?}", config);
+    let source = &config["provisioning"]["source"];
+    let method = &config["provisioning"]["attestation"]["method"];
+
+
+    Ok(json!( {
+        "bla": "blub"
     }))
 }
