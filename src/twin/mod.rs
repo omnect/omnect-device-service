@@ -477,12 +477,14 @@ impl Twin {
 
                     // report remaining properties
                     while let Ok(reported) = rx_reported_properties.try_recv() {
-                        twin.client.twin_report(reported)?
+                        twin.client.twin_report(reported)
+                        .unwrap_or_else(|e| error!("couldn't report while shutting down: {e:#}"));
                     }
 
                     // send remaining messages
                     while let Ok(message) = rx_outgoing_message.try_recv() {
-                        twin.client.send_d2c_message(message)?
+                        twin.client.send_d2c_message(message)
+                        .unwrap_or_else(|e| error!("couldn't send while shutting down: {e:#}"));
                     }
 
                     signals.handle().close();
