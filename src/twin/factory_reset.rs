@@ -2,22 +2,21 @@ use super::super::bootloader_env;
 use super::super::systemd;
 use super::Feature;
 use crate::web_service;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{error, info, warn};
+use log::{info, warn};
 use serde_json::json;
-use std::path::Path;
 use std::{any::Any, collections::HashMap, env};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
 macro_rules! factory_reset_status_path {
     () => {{
-        static FACTORY_RESET_STATUS_PATH_DEFAULT: &'static str =
+        static FACTORY_RESET_STATUS_FILE_PATH_DEFAULT: &'static str =
             "/run/omnect-device-service/factory-reset-status";
-        std::env::var("FACTORY_RESET_STATUS_PATH")
-            .unwrap_or(FACTORY_RESET_STATUS_PATH_DEFAULT.to_string())
+        std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
+            .unwrap_or(FACTORY_RESET_STATUS_FILE_PATH_DEFAULT.to_string())
     }};
 }
 
@@ -53,7 +52,22 @@ impl Feature for FactoryReset {
 
         self.tx_reported_properties = Some(tx_reported_properties);
 
-        self.report_factory_reset_result().await
+        match Self::factory_reset_status() {
+            Ok(Some(status)) => {
+                info!("factory reset status: {status}");
+                self.report_factory_reset_status(status).await?
+            }
+            Ok(None) => {
+                info!("factory reset status: normal boot without factory reset");
+            }
+            Err(e) => {
+                warn!("factory reset status: {e}");
+                self.report_factory_reset_status(e.to_string().as_str())
+                    .await?
+            }
+        };
+
+        Ok(())
     }
 }
 
@@ -157,50 +171,76 @@ impl FactoryReset {
         .context("report_factory_reset_status: send")
     }
 
-    async fn report_factory_reset_result(&self) -> Result<()> {
-        self.ensure()?;
-
-        if let Ok(status) = self.factory_reset_status() {
-            let status = match status.as_str() {
-                "0:0" => Ok(("succeeded", true)),
-                "1:-" => Ok(("unexpected factory reset type", true)),
-                "2:-" => Ok(("unexpected restore settings error", true)),
-                "" => Ok(("normal boot without factory reset", false)),
-                _ => Err(anyhow!("unexpected factory reset result format")),
-            };
-
-            match status {
-                Ok((update_twin, true)) => {
-                    self.report_factory_reset_status(update_twin).await?;
-
-                    info!("factory reset result: {update_twin}");
-                }
-                Ok((update_twin, false)) => {
-                    info!("factory reset result: {update_twin}");
-                }
-                Err(update_twin) => {
-                    warn!("factory reset result: {update_twin}");
-                }
-            };
-        } else {
-            error!("getting factory reset status failed");
-        }
-
-        Ok(())
-    }
-
-    #[allow(unreachable_patterns, clippy::wildcard_in_or_patterns)]
-    fn factory_reset_status(&self) -> Result<String> {
-        let factory_reset_status_path = &factory_reset_status_path!();
-        if let Ok(false) = Path::new(&factory_reset_status_path!()).try_exists() {
-            bail!("factory reset status file missing: {factory_reset_status_path}");
-        }
-
-        let default_result = Ok("".to_string());
-        let Ok(factory_reset_status) = std::fs::read_to_string(factory_reset_status_path) else {
-            return default_result;
+    fn factory_reset_status() -> Result<Option<&'static str>> {
+        let Ok(factory_reset_status) = std::fs::read_to_string(factory_reset_status_path!()) else {
+            bail!(
+                "factory reset status file missing: {}",
+                factory_reset_status_path!()
+            );
         };
-        let factory_reset_status = factory_reset_status.trim_end().to_string();
-        Ok(factory_reset_status)
+
+        match factory_reset_status.trim_end() {
+            "0:0" => Ok(Some("succeeded")),
+            "1:-" => bail!("unexpected factory reset type"),
+            "2:-" => bail!("unexpected restore setting"),
+            "" => Ok(None),
+            _ => bail!("unexpected factory reset status format"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn factory_reset_status_test() {
+        std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
+        assert!(FactoryReset::factory_reset_status()
+            .unwrap_err()
+            .to_string()
+            .starts_with("factory reset status file missing"));
+
+        std::env::set_var(
+            "FACTORY_RESET_STATUS_FILE_PATH",
+            "testfiles/negative/factory-reset-status_unexpected_reset_type",
+        );
+        assert!(FactoryReset::factory_reset_status()
+            .unwrap_err()
+            .to_string()
+            .starts_with("unexpected factory reset type"));
+
+        std::env::set_var(
+            "FACTORY_RESET_STATUS_FILE_PATH",
+            "testfiles/negative/factory-reset-status_unexpected_reset_settings",
+        );
+        assert!(FactoryReset::factory_reset_status()
+            .unwrap_err()
+            .to_string()
+            .starts_with("unexpected restore setting"));
+
+        std::env::set_var(
+            "FACTORY_RESET_STATUS_FILE_PATH",
+            "testfiles/negative/factory-reset-status_unexpected_factory_reset_format",
+        );
+        assert!(FactoryReset::factory_reset_status()
+            .unwrap_err()
+            .to_string()
+            .starts_with("unexpected factory reset status format"));
+
+        std::env::set_var(
+            "FACTORY_RESET_STATUS_FILE_PATH",
+            "testfiles/positive/factory-reset-status_succeeded",
+        );
+        assert_eq!(
+            FactoryReset::factory_reset_status().unwrap().unwrap(),
+            "succeeded"
+        );
+
+        std::env::set_var(
+            "FACTORY_RESET_STATUS_FILE_PATH",
+            "testfiles/positive/factory-reset-status_normal_boot",
+        );
+        assert!(FactoryReset::factory_reset_status().unwrap().is_none());
     }
 }
