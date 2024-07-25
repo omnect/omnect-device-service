@@ -473,6 +473,17 @@ impl Twin {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
+
+                    // report remaining properties
+                    while let Ok(reported) = rx_reported_properties.try_recv() {
+                        twin.client.twin_report(reported)?
+                    }
+
+                    // send remaining messages
+                    while let Ok(message) = rx_outgoing_message.try_recv() {
+                        twin.client.send_d2c_message(message)?
+                    }
+
                     signals.handle().close();
                     twin.client.shutdown().await;
                     if let Some(ws) =twin.web_service{ws.shutdown().await;}
