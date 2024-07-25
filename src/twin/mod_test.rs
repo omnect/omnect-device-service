@@ -152,6 +152,7 @@ pub mod mod_test {
 
             // copy test files and dirs
             test_env.copy_file("testfiles/positive/systemd-networkd-wait-online.service");
+            test_env.copy_file("testfiles/positive/factory-reset-status_succeeded");
             test_files.iter().for_each(|file| {
                 test_env.copy_file(file);
             });
@@ -161,16 +162,21 @@ pub mod mod_test {
             });
 
             // set env vars
-            let wait_online_srv = format!(
-                "{}/systemd-networkd-wait-online.service",
-                test_env.dirpath()
-            );
-
             env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
             env::set_var("WPA_SUPPLICANT_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("WAIT_ONLINE_SERVICE_FILE_PATH", wait_online_srv);
+            env::set_var(
+                "WAIT_ONLINE_SERVICE_FILE_PATH",
+                format!(
+                    "{}/systemd-networkd-wait-online.service",
+                    test_env.dirpath()
+                ),
+            );
+            env::set_var(
+                "FACTORY_RESET_STATUS_FILE_PATH",
+                format!("{}/factory-reset-status_succeeded", test_env.dirpath()),
+            );
             env::set_var("CONNECTION_STRING", "my-constr");
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
@@ -220,6 +226,7 @@ pub mod mod_test {
             env::remove_var("CONSENT_DIR_PATH");
             env::remove_var("WPA_SUPPLICANT_DIR_PATH");
             env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
+            env::remove_var("FACTORY_RESET_STATUS_FILE_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
         }
     }
@@ -1031,153 +1038,6 @@ pub mod mod_test {
                 .unwrap(),
                 None
             );
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn factory_reset_unexpected_result_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-            (
-                "TEST_FACTORY_RESET_RESULT",
-                "unexpected_factory_reset_result_format",
-            ),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
-                .returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn factory_reset_normal_result_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-            (
-                "TEST_FACTORY_RESET_RESULT",
-                "normal_boot_without_factory_reset",
-            ),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
-                .returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn factory_reset_unexpected_setting_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-            (
-                "TEST_FACTORY_RESET_RESULT",
-                "unexpected_restore_settings_error",
-            ),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .withf(|val| {
-                    let reported = format!("{:?}", val);
-                    let reported = reported.as_str();
-
-                    let re = format!(
-                        "{}{}{}",
-                        regex::escape(
-                            r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
-                        ),
-                        UTC_REGEX,
-                        regex::escape(
-                            r#""), "status": String("unexpected restore settings error")}}}"#,
-                        ),
-                    );
-
-                    let re = Regex::new(re.as_str()).unwrap();
-                    re.is_match(reported)})
-                .times(1)
-                .returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn factory_reset_unexpected_type_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-            ("SUPPRESS_NETWORK_STATUS", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-            ("TEST_FACTORY_RESET_RESULT", "unexpected_factory_reset_type"),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .withf(|val| {
-                    let reported = format!("{:?}", val);
-                    let reported = reported.as_str();
-
-                    let re = format!(
-                        "{}{}{}",
-                        regex::escape(
-                            r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
-                        ),
-                        UTC_REGEX,
-                        regex::escape(
-                            r#""), "status": String("unexpected factory reset type")}}}"#,
-                        ),
-                    );
-
-                    let re = Regex::new(re.as_str()).unwrap();
-                    re.is_match(reported)})
-                .times(1)
-                .returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
