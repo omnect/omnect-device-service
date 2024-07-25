@@ -473,6 +473,7 @@ impl Twin {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
+                    info!("shutdown");
 
                     // report remaining properties
                     while let Ok(reported) = rx_reported_properties.try_recv() {
