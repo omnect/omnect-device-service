@@ -178,7 +178,8 @@ impl Twin {
         // report sdk versions
         self.client.twin_report(json!({
             "module-version": env!("CARGO_PKG_VERSION"),
-            "azure-sdk-version": IotHubClient::sdk_version_string()
+            "azure-sdk-version": IotHubClient::sdk_version_string(),
+            "provisioning-config": system::provisioning_config()?
         }))?;
 
         // report feature availability
@@ -212,7 +213,8 @@ impl Twin {
             json!({
                 "os-version": system::sw_version()?,
                 "azure-sdk-version": IotHubClient::sdk_version_string(),
-                "omnect-device-service-version": env!("CARGO_PKG_VERSION")
+                "omnect-device-service-version": env!("CARGO_PKG_VERSION"),
+                "provisioning-config": system::provisioning_config()?
             }),
         )
         .await?;
@@ -536,7 +538,9 @@ impl Twin {
 
         info!("start client and wait for authentication...");
 
-        builder.build_module_client(&std::env::var("CONNECTION_STRING").context("connection string missing")?)
+        builder.build_module_client(
+            &std::env::var("CONNECTION_STRING").context("connection string missing")?,
+        )
     }
 
     fn notify_some_interval(
