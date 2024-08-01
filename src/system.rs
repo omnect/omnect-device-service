@@ -1,6 +1,6 @@
 use crate::{systemd, systemd::unit::UnitAction};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use log::info;
 use serde_json::json;
 use std::fs;
@@ -22,7 +22,7 @@ macro_rules! identity_config_file_path {
 
 macro_rules! device_cert_file_path {
     () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/cert/device_id_cert.pem";
+        const ENV_FILE_PATH_DEFAULT: &'static str = "/var/lib/aziot/certd/certs/deviceid-*.cer";
         std::env::var("DEVICE_CERT_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
     }};
 }
@@ -103,9 +103,22 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
                 .and_then(|val| val.get("method").and_then(|val| val.as_str()))
         });
 
-    let path = device_cert_file_path!();
+    let glob_path = device_cert_file_path!();
+    let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
+        .context(format!(
+            "provisioning_config: cannot read glob pattern {glob_path}"
+        ))?
+        .filter_map(Result::ok)
+        .collect();
+
+    ensure!(
+        paths.len() == 1,
+        "provisioning_config: unexpected number of device certificates found."
+    );
+
     let file = std::io::BufReader::new(
-        std::fs::File::open(&path).context(format!("provisioning_config: cannot read {path}"))?,
+        std::fs::File::open(&paths[0])
+            .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
     );
     let not_after = x509_parser::pem::Pem::read(file)
         .context("provisioning_config: read PEM")?
@@ -151,7 +164,7 @@ mod tests {
         assert!(provisioning_config()
             .unwrap_err()
             .to_string()
-            .starts_with("cannot read"));
+            .starts_with("provisioning_config: cannot read"));
 
         std::env::set_var(
             "IDENTITY_CONFIG_FILE_PATH",
@@ -159,7 +172,7 @@ mod tests {
         );
         std::env::set_var(
             "DEVICE_CERT_FILE_PATH",
-            "testfiles/positive/device_id_cert.pem",
+            "testfiles/positive/device_id_*.pem",
         );
         assert_eq!(
             provisioning_config().unwrap(),
