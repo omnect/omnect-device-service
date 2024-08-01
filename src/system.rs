@@ -111,9 +111,11 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
         .filter_map(Result::ok)
         .collect();
 
+    let num_certs = paths.len();
+
     ensure!(
-        paths.len() == 1,
-        "provisioning_config: unexpected number of device certificates found."
+        num_certs == 1,
+        "provisioning_config: found {num_certs} certs instead of one with glob path {glob_path}."
     );
 
     let file = std::io::BufReader::new(
@@ -170,10 +172,7 @@ mod tests {
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.est",
         );
-        std::env::set_var(
-            "DEVICE_CERT_FILE_PATH",
-            "testfiles/positive/device_id_*.pem",
-        );
+        std::env::set_var("DEVICE_CERT_FILE_PATH", "testfiles/positive/deviceid-*.cer");
         assert_eq!(
             provisioning_config().unwrap(),
             json!(["dps", {"x509": "2024-06-21T07:12:30Z", "est": true}])
