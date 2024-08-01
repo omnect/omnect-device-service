@@ -6,6 +6,7 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
+use time::format_description::well_known::Rfc3339;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 static DEV_OMNECT: &str = "/dev/omnect/";
@@ -14,8 +15,15 @@ static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 30;
 
 macro_rules! identity_config_file_path {
     () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/mnt/factory/etc/aziot/config.toml";
+        const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
         std::env::var("IDENTITY_CONFIG_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
+    }};
+}
+
+macro_rules! device_cert_file_path {
+    () => {{
+        const ENV_FILE_PATH_DEFAULT: &'static str = "/cert/device_id_cert.pem";
+        std::env::var("DEVICE_CERT_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
     }};
 }
 
@@ -79,9 +87,9 @@ pub fn sw_version() -> Result<serde_json::Value> {
 pub fn provisioning_config() -> Result<serde_json::Value> {
     let path = identity_config_file_path!();
     let config: toml::map::Map<String, toml::Value> = std::fs::read_to_string(&path)
-        .context(format!("cannot read {}", path))?
+        .context(format!("provisioning_config: cannot read {path}"))?
         .parse::<toml::Table>()
-        .context("cannot parse table")?;
+        .context("provisioning_config: cannot parse table")?;
     let prov_source = config["provisioning"]["source"].as_str();
     let prov_auth_method = config["provisioning"]
         .get("authentication")
@@ -95,18 +103,40 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
                 .and_then(|val| val.get("method").and_then(|val| val.as_str()))
         });
 
+    let path = device_cert_file_path!();
+    let file = std::io::BufReader::new(
+        std::fs::File::open(&path).context(format!("provisioning_config: cannot read {path}"))?,
+    );
+    let not_after = x509_parser::pem::Pem::read(file)
+        .context("provisioning_config: read PEM")?
+        .0
+        .parse_x509()
+        .context("provisioning_config: parse x509")?
+        .tbs_certificate
+        .validity()
+        .not_after
+        .to_datetime()
+        .format(&Rfc3339)
+        .context("provisioning_config: format date")?;
+
     match (
         prov_source,
         prov_auth_method,
         dps_attestation_method,
         dps_attestation_identity_cert_method,
     ) {
-        (Some("dps"), None, Some("x509"), Some("est")) => Ok(json!(["dps", "x509", "est"])),
-        (Some("dps"), None, Some("x509"), None) => Ok(json!(["dps", "x509"])),
+        (Some("dps"), None, Some("x509"), Some("est")) => {
+            Ok(json!(["dps", {"x509": not_after, "est": true}]))
+        }
+        (Some("dps"), None, Some("x509"), None) => {
+            Ok(json!(["dps", {"x509": not_after, "est": false}]))
+        }
         (Some("dps"), None, Some("tpm"), None) => Ok(json!(["dps", "tpm"])),
         (Some("dps"), None, Some("symmetric_key"), None) => Ok(json!(["dps", "symmetric_key"])),
         (Some("manual"), Some("sas"), None, None) => Ok(json!(["manual", "sas"])),
-        (Some("manual"), Some("x509"), None, None) => Ok(json!(["manual", "x509"])),
+        (Some("manual"), Some("x509"), None, None) => {
+            Ok(json!(["manual", {"x509": not_after, "est": false}]))
+        }
         _ => bail!("invalid provisioning configuration found"),
     }
 }
@@ -127,9 +157,13 @@ mod tests {
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.est",
         );
+        std::env::set_var(
+            "DEVICE_CERT_FILE_PATH",
+            "testfiles/positive/device_id_cert.pem",
+        );
         assert_eq!(
             provisioning_config().unwrap(),
-            json!(["dps", "x509", "est"])
+            json!(["dps", {"x509": "2024-06-21T07:12:30Z", "est": true}])
         );
     }
 }
