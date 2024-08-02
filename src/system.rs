@@ -103,36 +103,42 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
                 .and_then(|val| val.get("method").and_then(|val| val.as_str()))
         });
 
-    let glob_path = device_cert_file_path!();
-    let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
-        .context(format!(
-            "provisioning_config: cannot read glob pattern {glob_path}"
-        ))?
-        .filter_map(Result::ok)
-        .collect();
+    let not_after = if prov_auth_method.is_some_and(|val| val == "x509")
+        || dps_attestation_method.is_some_and(|val| val == "x509")
+    {
+        let glob_path = device_cert_file_path!();
+        let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
+            .context(format!(
+                "provisioning_config: cannot read glob pattern {glob_path}"
+            ))?
+            .filter_map(Result::ok)
+            .collect();
 
-    let num_certs = paths.len();
+        let num_certs = paths.len();
 
-    ensure!(
+        ensure!(
         num_certs == 1,
         "provisioning_config: found {num_certs} certs instead of one with glob path {glob_path}."
     );
 
-    let file = std::io::BufReader::new(
-        std::fs::File::open(&paths[0])
-            .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
-    );
-    let not_after = x509_parser::pem::Pem::read(file)
-        .context("provisioning_config: read PEM")?
-        .0
-        .parse_x509()
-        .context("provisioning_config: parse x509")?
-        .tbs_certificate
-        .validity()
-        .not_after
-        .to_datetime()
-        .format(&Rfc3339)
-        .context("provisioning_config: format date")?;
+        let file = std::io::BufReader::new(
+            std::fs::File::open(&paths[0])
+                .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
+        );
+        x509_parser::pem::Pem::read(file)
+            .context("provisioning_config: read PEM")?
+            .0
+            .parse_x509()
+            .context("provisioning_config: parse x509")?
+            .tbs_certificate
+            .validity()
+            .not_after
+            .to_datetime()
+            .format(&Rfc3339)
+            .context("provisioning_config: format date")?
+    } else {
+        "".to_owned()
+    };
 
     match (
         prov_source,
@@ -140,18 +146,42 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
         dps_attestation_method,
         dps_attestation_identity_cert_method,
     ) {
-        (Some("dps"), None, Some("x509"), Some("est")) => {
-            Ok(json!(["dps", {"x509": not_after, "est": true}]))
-        }
-        (Some("dps"), None, Some("x509"), None) => {
-            Ok(json!(["dps", {"x509": not_after, "est": false}]))
-        }
-        (Some("dps"), None, Some("tpm"), None) => Ok(json!(["dps", "tpm"])),
-        (Some("dps"), None, Some("symmetric_key"), None) => Ok(json!(["dps", "symmetric_key"])),
-        (Some("manual"), Some("sas"), None, None) => Ok(json!(["manual", "sas"])),
-        (Some("manual"), Some("x509"), None, None) => {
-            Ok(json!(["manual", {"x509": not_after, "est": false}]))
-        }
+        (Some("dps"), None, Some("x509"), Some("est")) => Ok(json!({
+            "source": "dps",
+            "method": "x509",
+            "x509": {
+                "expires": not_after,
+                "est": true
+            }
+        })),
+        (Some("dps"), None, Some("x509"), None) => Ok(json!({
+            "source": "dps",
+            "method": "x509",
+            "x509": {
+                "expires": not_after,
+                "est": false
+            }
+        })),
+        (Some("dps"), None, Some("tpm"), None) => Ok(json!({
+            "source": "dps",
+            "method": "tpm"
+        })),
+        (Some("dps"), None, Some("symmetric_key"), None) => Ok(json!({
+            "source": "dps",
+            "method": "symmetric_key"
+        })),
+        (Some("manual"), Some("sas"), None, None) => Ok(json!({
+            "source": "manual",
+            "method": "sas"
+        })),
+        (Some("manual"), Some("x509"), None, None) => Ok(json!({
+            "source": "manual",
+            "method": "x509",
+            "x509": {
+                "expires": not_after,
+                "est": false
+            }
+        })),
         _ => bail!("invalid provisioning configuration found"),
     }
 }
@@ -175,7 +205,26 @@ mod tests {
         std::env::set_var("DEVICE_CERT_FILE_PATH", "testfiles/positive/deviceid-*.cer");
         assert_eq!(
             provisioning_config().unwrap(),
-            json!(["dps", {"x509": "2024-06-21T07:12:30Z", "est": true}])
+            json!({
+                "source": "dps",
+                "method": "x509",
+                "x509": {
+                    "expires": "2024-06-21T07:12:30Z",
+                    "est": true
+                }
+            })
+        );
+
+        std::env::set_var(
+            "IDENTITY_CONFIG_FILE_PATH",
+            "testfiles/positive/config.toml.tpm",
+        );
+        assert_eq!(
+            provisioning_config().unwrap(),
+            json!({
+                "source": "dps",
+                "method": "tpm"
+            })
         );
     }
 }
