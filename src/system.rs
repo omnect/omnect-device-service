@@ -103,43 +103,6 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
                 .and_then(|val| val.get("method").and_then(|val| val.as_str()))
         });
 
-    let not_after = if prov_auth_method.is_some_and(|val| val == "x509")
-        || dps_attestation_method.is_some_and(|val| val == "x509")
-    {
-        let glob_path = device_cert_file_path!();
-        let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
-            .context(format!(
-                "provisioning_config: cannot read glob pattern {glob_path}"
-            ))?
-            .filter_map(Result::ok)
-            .collect();
-
-        let num_certs = paths.len();
-
-        ensure!(
-        num_certs == 1,
-        "provisioning_config: found {num_certs} certs instead of one with glob path {glob_path}."
-    );
-
-        let file = std::io::BufReader::new(
-            std::fs::File::open(&paths[0])
-                .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
-        );
-        x509_parser::pem::Pem::read(file)
-            .context("provisioning_config: read PEM")?
-            .0
-            .parse_x509()
-            .context("provisioning_config: parse x509")?
-            .tbs_certificate
-            .validity()
-            .not_after
-            .to_datetime()
-            .format(&Rfc3339)
-            .context("provisioning_config: format date")?
-    } else {
-        "".to_owned()
-    };
-
     match (
         prov_source,
         prov_auth_method,
@@ -150,7 +113,7 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
             "source": "dps",
             "method": "x509",
             "x509": {
-                "expires": not_after,
+                "expires": not_after()?,
                 "est": true
             }
         })),
@@ -158,7 +121,7 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
             "source": "dps",
             "method": "x509",
             "x509": {
-                "expires": not_after,
+                "expires": not_after()?,
                 "est": false
             }
         })),
@@ -178,12 +141,45 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
             "source": "manual",
             "method": "x509",
             "x509": {
-                "expires": not_after,
+                "expires": not_after()?,
                 "est": false
             }
         })),
         _ => bail!("invalid provisioning configuration found"),
     }
+}
+
+fn not_after() -> Result<String> {
+    let glob_path = device_cert_file_path!();
+    let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
+        .context(format!(
+            "provisioning_config: cannot read glob pattern {glob_path}"
+        ))?
+        .filter_map(Result::ok)
+        .collect();
+
+    let num_certs = paths.len();
+
+    ensure!(
+        num_certs == 1,
+        "provisioning_config: found {num_certs} certs instead of one with glob path {glob_path}."
+    );
+
+    let file = std::io::BufReader::new(
+        std::fs::File::open(&paths[0])
+            .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
+    );
+    x509_parser::pem::Pem::read(file)
+        .context("provisioning_config: read PEM")?
+        .0
+        .parse_x509()
+        .context("provisioning_config: parse x509")?
+        .tbs_certificate
+        .validity()
+        .not_after
+        .to_datetime()
+        .format(&Rfc3339)
+        .context("provisioning_config: format date")
 }
 
 #[cfg(test)]
