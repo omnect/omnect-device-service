@@ -1,0 +1,15 @@
+## Hostname
+hostname = "my-omnect-iot-tpm-device"
+
+## DPS provisioning with tpm
+[provisioning]
+source = "dps"
+global_endpoint = "https://global.azure-devices-provisioning.net"
+id_scope = "my-scope-id"
+
+[provisioning.attestation]
+method = "tpm"
+registration_id = "my-reg-id"
+
+# [tpm]
+# tcti = "device:/dev/tpmrm0" # adapt if using e.g. abrmd, default is "device"
