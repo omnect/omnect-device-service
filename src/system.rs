@@ -113,7 +113,7 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
             "source": "dps",
             "method": "x509",
             "x509": {
-                "expires": not_after()?,
+                "expires": certificate_validity_not_after()?,
                 "est": true
             }
         })),
@@ -121,7 +121,7 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
             "source": "dps",
             "method": "x509",
             "x509": {
-                "expires": not_after()?,
+                "expires": certificate_validity_not_after()?,
                 "est": false
             }
         })),
@@ -141,7 +141,7 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
             "source": "manual",
             "method": "x509",
             "x509": {
-                "expires": not_after()?,
+                "expires": certificate_validity_not_after()?,
                 "est": false
             }
         })),
@@ -149,7 +149,7 @@ pub fn provisioning_config() -> Result<serde_json::Value> {
     }
 }
 
-fn not_after() -> Result<String> {
+fn certificate_validity_not_after() -> Result<String> {
     let glob_path = device_cert_file_path!();
     let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
         .context(format!(
