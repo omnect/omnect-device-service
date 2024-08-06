@@ -248,8 +248,6 @@ impl Twin {
         Ok(feature)
     }
 
-    // currently not used but kept for future use
-    #[allow(dead_code)]
     fn feature_mut<T>(&mut self) -> Result<&mut T>
     where
         T: Feature + 'static,
