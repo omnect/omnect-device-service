@@ -28,7 +28,6 @@ This module serves as interface between omnect cloud and device to support certa
     - [Network status](#network-status)
       - [Feature availability](#feature-availability-4)
       - [Current reported network status](#current-reported-network-status)
-      - [Configure current desired include network filter](#configure-current-desired-include-network-filter)
       - [Refresh Network status](#refresh-network-status)
     - [SSH Tunnel handling](#ssh-tunnel-handling)
       - [Feature availability](#feature-availability-5)
@@ -522,19 +521,6 @@ The module reports the status of network adapters. For this purpose the module s
   ]
 }
 ```
-
-#### Configure current desired include network filter
-
-In order to report and filter network adapters by name the following desired property can be used. The filter is case insensitive and might contain a leading and/or trailing wildcard '*', e.g.:
-```
-"include_network_filter":
-[
-  "docker*",
-  "*eth*",
-  "wlan0"
-]
-```
-If the filter is empty all network adapters are reported. In case the `include_network_filter` property doesn't exis at all no adapters will we reported.
 
 #### Refresh Network status
 
