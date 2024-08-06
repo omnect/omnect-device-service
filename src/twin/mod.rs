@@ -146,7 +146,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<NetworkStatus>(),
-                Box::<NetworkStatus>::default() as Box<dyn Feature>,
+                Box::new(NetworkStatus::new()?) as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<Reboot>(),
@@ -248,6 +248,8 @@ impl Twin {
         Ok(feature)
     }
 
+    // currently not used but kept for future use
+    #[allow(dead_code)]
     fn feature_mut<T>(&mut self) -> Result<&mut T>
     where
         T: Feature + 'static,
@@ -328,12 +330,6 @@ impl Twin {
                         .update_general_consent(gc.as_array())
                         .await?;
                 }
-
-                if let Some(inf) = desired.get("include_network_filter") {
-                    self.feature_mut::<NetworkStatus>()?
-                        .update_include_network_filter(inf.as_array())
-                        .await?;
-                }
             }
             TwinUpdateState::Complete => {
                 if desired.get("desired").is_none() {
@@ -343,18 +339,12 @@ impl Twin {
                 self.feature::<DeviceUpdateConsent>()?
                     .update_general_consent(desired["desired"]["general_consent"].as_array())
                     .await?;
-
-                self.feature_mut::<NetworkStatus>()?
-                    .update_include_network_filter(
-                        desired["desired"]["include_network_filter"].as_array(),
-                    )
-                    .await?;
             }
         }
         Ok(())
     }
 
-    async fn handle_direct_method(&self, method: DirectMethod) -> Result<()> {
+    async fn handle_direct_method(&mut self, method: DirectMethod) -> Result<()> {
         info!(
             "handle_direct_method: {} with payload: {}",
             method.name, method.payload
@@ -370,11 +360,7 @@ impl Twin {
                 .feature::<DeviceUpdateConsent>()?
                 .user_consent(method.payload),
             "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
-            "refresh_network_status" => {
-                self.feature::<NetworkStatus>()?
-                    .refresh_network_status()
-                    .await
-            }
+            "refresh_network_status" => self.feature_mut::<NetworkStatus>()?.refresh().await,
             "get_ssh_pub_key" => {
                 self.feature::<SshTunnel>()?
                     .get_ssh_pub_key(method.payload)

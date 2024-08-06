@@ -290,7 +290,18 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version":1}})))
+                .with(eq(json!({"network_status":{"version":2}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"network_status":{
+                    "interfaces": [{
+                        "addr_v4": ["0.0.0.0"],
+                        "mac": "00:11:22:33:44",
+                        "name": "eth0"
+                    }]
+                }})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -403,7 +414,18 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version":1}})))
+                .with(eq(json!({"network_status":{"version":2,}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"network_status":{
+                    "interfaces": [{
+                        "addr_v4": ["0.0.0.0"],
+                        "mac": "00:11:22:33:44",
+                        "name": "eth0"
+                    }]
+                }})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -512,21 +534,6 @@ pub mod mod_test {
                 block_on(async {
                     test_attr
                         .twin
-                        .handle_desired(
-                            TwinUpdateState::Partial,
-                            json!({"include_network_filter": []}),
-                        )
-                        .await
-                })
-                .unwrap_err()
-                .to_string(),
-                "feature disabled: network_status"
-            );
-
-            assert_eq!(
-                block_on(async {
-                    test_attr
-                        .twin
                         .handle_desired(TwinUpdateState::Complete, json!(""))
                         .await
                 })
@@ -594,7 +601,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 9)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -706,7 +713,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 9)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -762,7 +769,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 9)
                 .returning(|_| Ok(()));
         };
 
@@ -798,7 +805,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 9)
                 .returning(|_| Ok(()));
         };
 
@@ -923,7 +930,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 8)
+                .times(TwinFeature::COUNT + 9)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -1066,86 +1073,6 @@ pub mod mod_test {
                 .unwrap(),
                 None
             );
-        };
-
-        TestCase::run(test_files, vec![], env_vars, expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn update_report_and_refresh_network_status_test() {
-        let test_files = vec!["testfiles/positive/os-release"];
-        let env_vars = vec![
-            ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
-            ("SUPPRESS_FACTORY_RESET", "true"),
-            ("SUPPRESS_REBOOT", "true"),
-            ("SUPPRESS_SSH_TUNNEL", "true"),
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"interfaces":[]}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report().times(10).returning(|_| Ok(()));
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(
-                        TwinUpdateState::Partial,
-                        json!({"include_network_filter": []}),
-                    )
-                    .await
-            })
-            .is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(
-                        TwinUpdateState::Partial,
-                        json!({"include_network_filter": []}),
-                    )
-                    .await
-            })
-            .is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(
-                        TwinUpdateState::Partial,
-                        json!({ "include_network_filter": ["*"] }),
-                    )
-                    .await
-            })
-            .is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(
-                        TwinUpdateState::Partial,
-                        json!({ "include_network_filter": ["*"] }),
-                    )
-                    .await
-            })
-            .is_ok());
-
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .feature::<NetworkStatus>()
-                    .unwrap()
-                    .refresh_network_status()
-                    .await
-            })
-            .is_ok());
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
