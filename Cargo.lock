@@ -2080,8 +2080,8 @@ dependencies = [
 
 [[package]]
 name = "modemmanager"
-version = "0.3.2"
-source = "git+https://github.com/omnect/modemmanager.git?tag=0.3.2#adac09bfa2e1b6698104e7626949c3be0040c8f3"
+version = "0.3.3"
+source = "git+https://github.com/omnect/modemmanager.git?tag=0.3.3#bddd3b79091d86adb27ee7324e5668a78562fc05"
 dependencies = [
  "modemmanager-sys",
  "num",

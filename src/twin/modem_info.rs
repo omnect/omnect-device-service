@@ -16,6 +16,7 @@ mod inner {
     use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
     use modemmanager::types::ModemCapability;
     use serde::Serialize;
+    use std::collections::HashMap;
     use tokio::sync::OnceCell;
     use zbus::{
         fdo::{DBusProxy, ObjectManagerProxy},
@@ -166,7 +167,12 @@ mod inner {
 
                 let bearer_properties = bearer.properties().await?;
 
-                serde_json::to_value(&bearer_properties).map_err(|e| anyhow::anyhow!("{e}"))
+                Ok(serde_json::to_value(
+                    bearer_properties
+                        .into_iter()
+                        .map(|(key, value)| (key, value.to_string()))
+                        .collect::<HashMap<_, _>>(),
+                )?)
             }))
             .await
             .into_iter()
