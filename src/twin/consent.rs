@@ -130,7 +130,7 @@ impl DeviceUpdateConsent {
         }
     }
 
-    pub fn observe_consent(&mut self) -> Result<()> {
+    fn observe_consent(&mut self) -> Result<()> {
         let Some(tx) = &self.tx_reported_properties else {
             anyhow::bail!("observe_consent: tx_reported_properties is None")
         };

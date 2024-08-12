@@ -5,6 +5,7 @@ mod factory_reset;
 mod mod_test;
 mod modem_info;
 mod network_status;
+mod provisioning_config;
 mod reboot;
 mod ssh_tunnel;
 mod wifi_commissioning;
@@ -20,8 +21,8 @@ cfg_if::cfg_if! {
 
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
-    network_status::NetworkStatus, reboot::Reboot, ssh_tunnel::SshTunnel,
-    wifi_commissioning::WifiCommissioning,
+    network_status::NetworkStatus, provisioning_config::ProvisioningConfig, reboot::Reboot,
+    ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
 };
 use crate::update_validation::UpdateValidation;
 use crate::web_service::{self, Command as WebServiceCommand, PublishChannel, WebService};
@@ -61,6 +62,7 @@ enum TwinFeature {
     DeviceUpdateConsent,
     ModemInfo,
     NetworkStatus,
+    ProvisioningConfig,
     SshTunnel,
 }
 
@@ -149,6 +151,10 @@ impl Twin {
                 Box::new(NetworkStatus::new()?) as Box<dyn Feature>,
             ),
             (
+                TypeId::of::<ProvisioningConfig>(),
+                Box::new(ProvisioningConfig::new()?) as Box<dyn Feature>,
+            ),
+            (
                 TypeId::of::<Reboot>(),
                 Box::<Reboot>::default() as Box<dyn Feature>,
             ),
@@ -179,7 +185,6 @@ impl Twin {
         self.client.twin_report(json!({
             "module-version": env!("CARGO_PKG_VERSION"),
             "azure-sdk-version": IotHubClient::sdk_version_string(),
-            "provisioning-config": system::provisioning_config()?
         }))?;
 
         // report feature availability
@@ -214,7 +219,6 @@ impl Twin {
                 "os-version": system::sw_version()?,
                 "azure-sdk-version": IotHubClient::sdk_version_string(),
                 "omnect-device-service-version": env!("CARGO_PKG_VERSION"),
-                "provisioning-config": system::provisioning_config()?
             }),
         )
         .await?;
@@ -315,7 +319,7 @@ impl Twin {
     }
 
     async fn handle_desired(
-        &mut self,
+        &self,
         state: TwinUpdateState,
         desired: serde_json::Value,
     ) -> Result<()> {
@@ -500,6 +504,9 @@ impl Twin {
                         },
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request).await?
+                        },
+                        _ = twin.feature::<ProvisioningConfig>()?.next() => {
+                            twin.feature_mut::<ProvisioningConfig>()?.refresh().await?
                         },
                     );
 

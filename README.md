@@ -17,25 +17,28 @@ This module serves as interface between omnect cloud and device to support certa
       - [Configure current desired general consent](#configure-current-desired-general-consent)
       - [Grant user consent](#grant-user-consent)
       - [Current reported user consent status](#current-reported-user-consent-status)
-    - [Reboot](#reboot)
+    - [provisioning configuration](#provisioning-configuration)
       - [Feature availability](#feature-availability-2)
+      - [Current reported provisioning configuration](#current-reported-provisioning-configuration)
+    - [Reboot](#reboot)
+      - [Feature availability](#feature-availability-3)
       - [Trigger reboot](#trigger-reboot)
       - [Configure wait-online reboot timeout](#configure-wait-online-reboot-timeout)
     - [Modem Info](#modem-info)
-      - [Feature availability](#feature-availability-3)
+      - [Feature availability](#feature-availability-4)
       - [Current reported modem info](#current-reported-modem-info)
       - [Refresh modem info](#refresh-modem-info)
     - [Network status](#network-status)
-      - [Feature availability](#feature-availability-4)
+      - [Feature availability](#feature-availability-5)
       - [Current reported network status](#current-reported-network-status)
       - [Refresh Network status](#refresh-network-status)
     - [SSH Tunnel handling](#ssh-tunnel-handling)
-      - [Feature availability](#feature-availability-5)
+      - [Feature availability](#feature-availability-6)
       - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
       - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
       - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
     - [Wifi commissioning service](#wifi-commissioning-service)
-      - [Feature availability](#feature-availability-6)
+      - [Feature availability](#feature-availability-7)
   - [Local web service](#local-web-service)
     - [Trigger reboot](#trigger-reboot-1)
     - [Reload network daemon](#reload-network-daemon)
@@ -264,6 +267,49 @@ As soon as the consent for a new update has been granted via the direct method "
     [
       "<version>"
     ]
+  }
+}
+```
+
+### provisioning configuration
+
+ToDo.: bla
+
+#### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"provisioning_config":
+{
+  "version": <ver>
+}
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_PROVISIONING_CONFIG=true
+```
+
+#### Current reported provisioning configuration
+
+The module reports the current provisiong configuration status. For this purpose the module sends a reported property to the cloud.
+
+non-x509 method:
+```
+"provisioning-config": {
+  "source": string("dps" | "manual")
+  "method": string("tpm", "sas", "symmetric_key")
+}
+```
+x509 method:
+```
+"provisioning_config":{
+  "source": string("dps" | "manual"),
+  "method": {
+    "x509": {
+      "expires": string(datetime) // e.g. "2024-06-21T07:12:30Z"
+      "est": bool,
+    }
   }
 }
 ```
