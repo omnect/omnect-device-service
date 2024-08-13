@@ -297,18 +297,20 @@ The module reports the current provisioning configuration status. For this purpo
 non-x509 method:
 ```
 "provisioning-config": {
-  "source": string("dps" | "manual")
+  "version":number,
+  "source": string("dps" | "manual"),
   "method": string("tpm", "sas", "symmetric_key")
 }
 ```
 x509 method:
 ```
 "provisioning_config":{
+  "version":number,
   "source": string("dps" | "manual"),
   "method": {
     "x509": {
-      "expires": string(datetime) // e.g. "2024-06-21T07:12:30Z"
-      "est": bool,
+      "expires": string(datetime), // e.g. "2024-06-21T07:12:30Z"
+      "est": bool
     }
   }
 }
