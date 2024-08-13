@@ -221,7 +221,7 @@ impl ProvisioningConfig {
         RefCell<Option<Receiver<notify::Result<notify::Event>>>>,
     )> {
         /*
-            we deactivate observing the certificate, since it is not completely tested yet
+            we deactivate observing the certificate for the moment, since it is not completely tested yet
         */
         return Ok((None, None.into()));
 
