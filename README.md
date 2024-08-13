@@ -273,7 +273,7 @@ As soon as the consent for a new update has been granted via the direct method "
 
 ### provisioning configuration
 
-ToDo.: bla
+omnect-os uses the [azure iot-identity-service](https://github.com/Azure/iot-identity-service) to provision the device.
 
 #### Feature availability
 
@@ -292,7 +292,7 @@ SUPPRESS_PROVISIONING_CONFIG=true
 
 #### Current reported provisioning configuration
 
-The module reports the current provisiong configuration status. For this purpose the module sends a reported property to the cloud.
+The module reports the current provisioning configuration status. For this purpose the module sends a reported property to the cloud.
 
 non-x509 method:
 ```

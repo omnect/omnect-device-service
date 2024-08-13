@@ -7,7 +7,7 @@ use log::{debug, info, warn};
 use notify::{Config, INotifyWatcher, RecommendedWatcher, Watcher};
 use serde::Serialize;
 use serde_json::json;
-use std::{any::Any, cell::RefCell, env, path::Path, path::PathBuf};
+use std::{any::Any, cell::RefCell, env, path::PathBuf};
 use time::format_description::well_known::Rfc3339;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -213,12 +213,18 @@ impl ProvisioningConfig {
         .context("report: send")
     }
 
+    #[allow(unreachable_code, unused_variables)]
     fn watcher(
         method: &Method,
     ) -> Result<(
         Option<INotifyWatcher>,
         RefCell<Option<Receiver<notify::Result<notify::Event>>>>,
     )> {
+        /*
+            we deactivate observing the certificate, since it is not completely tested yet
+        */
+        return Ok((None, None.into()));
+
         let mut watcher = None;
         let mut receiver = None;
 
@@ -236,10 +242,6 @@ impl ProvisioningConfig {
                 Config::default(),
             )?;
 
-            w.watch(
-                Path::new(&identity_config_file_path!()),
-                notify::RecursiveMode::NonRecursive,
-            )?;
             w.watch(cert.path.as_path(), notify::RecursiveMode::NonRecursive)?;
 
             watcher = Some(w);
