@@ -90,21 +90,14 @@ enum Method {
     X509(X509),
 }
 
-impl Method {
-    fn is_x509(&self) -> bool {
-        match *self {
-            Method::X509(_) => true,
-            _ => false,
-        }
-    }
-}
+type WatcherReceiver = Receiver<notify::Result<notify::Event>>;
 
 #[derive(Debug, Serialize)]
 pub struct ProvisioningConfig {
     #[serde(skip_serializing)]
     identity_watcher: Option<RecommendedWatcher>,
     #[serde(skip_serializing)]
-    rx_identity_watcher: RefCell<Option<Receiver<notify::Result<notify::Event>>>>,
+    rx_identity_watcher: Option<RefCell<WatcherReceiver>>,
     #[serde(skip_serializing)]
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     source: Source,
@@ -166,13 +159,18 @@ impl ProvisioningConfig {
         Ok(this)
     }
 
+    /*
+    reading https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_refcell_ref
+    there should not be an issue here. thus we suppress clippy warning.
+    */
+    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn next(&self) -> impl future::Future<Output = ()> {
-        let Some(ref mut rx) = *self.rx_identity_watcher.borrow_mut() else {
+        let Some(ref rx) = self.rx_identity_watcher else {
             debug!("provisioning_config watcher: not active");
             return future::pending().right_future();
         };
 
-        let Some(_) = rx.recv().await else {
+        let Some(_) = rx.borrow_mut().recv().await else {
             debug!("provisioning_config watcher: sender dropped");
             return future::pending().right_future();
         };
@@ -207,7 +205,7 @@ impl ProvisioningConfig {
         };
 
         tx.send(json!({
-            "provisioning_config": serde_json::to_value(&self).context("report: cannot serialize")?
+            "provisioning_config": serde_json::to_value(self).context("report: cannot serialize")?
         }))
         .await
         .context("report: send")
@@ -216,19 +214,16 @@ impl ProvisioningConfig {
     #[allow(unreachable_code, unused_variables)]
     fn watcher(
         method: &Method,
-    ) -> Result<(
-        Option<INotifyWatcher>,
-        RefCell<Option<Receiver<notify::Result<notify::Event>>>>,
-    )> {
+    ) -> Result<(Option<INotifyWatcher>, Option<RefCell<WatcherReceiver>>)> {
         /*
             we deactivate observing the certificate for the moment, since it is not completely tested yet
         */
-        return Ok((None, None.into()));
+        return Ok((None, None));
 
         let mut watcher = None;
         let mut receiver = None;
 
-        if method.is_x509() {
+        if matches!(method, Method::X509(_)) {
             let Method::X509(cert) = method else {
                 bail!("provisioning_config watcher: unexpected certificate")
             };
@@ -245,10 +240,10 @@ impl ProvisioningConfig {
             w.watch(cert.path.as_path(), notify::RecursiveMode::NonRecursive)?;
 
             watcher = Some(w);
-            receiver = Some(rx);
+            receiver = Some(RefCell::new(rx));
         }
 
-        Ok((watcher, receiver.into()))
+        Ok((watcher, receiver))
     }
 
     fn config() -> Result<(Source, Method)> {
