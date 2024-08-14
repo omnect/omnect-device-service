@@ -296,7 +296,7 @@ The module reports the current provisioning configuration status. For this purpo
 
 non-x509 method:
 ```
-"provisioning-config": {
+"provisioning_config": {
   "version":number,
   "source": string("dps" | "manual"),
   "method": string("tpm", "sas", "symmetric_key")
