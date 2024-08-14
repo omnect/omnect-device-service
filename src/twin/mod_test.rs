@@ -256,15 +256,7 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "module-version": env!("CARGO_PKG_VERSION"),
-                    "azure-sdk-version": IotHubClient::sdk_version_string(),
-                    "provisioning-config": {
-                        "source": "dps",
-                        "method": "x509",
-                        "x509": {
-                            "expires": "2024-06-21T07:12:30Z",
-                            "est": true
-                        }
-                    }
+                    "azure-sdk-version": IotHubClient::sdk_version_string()
                 })))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -357,6 +349,26 @@ pub mod mod_test {
                     re.is_match(reported)})
                 .times(1)
                 .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"provisioning_config":{"version": 1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({
+                    "provisioning_config":{
+                        "source": "dps",
+                        "method": {
+                            "x509": {
+                                "expires": "2024-06-21T07:12:30Z",
+                                "est": true,
+                            }
+                        }
+                    }
+                })))
+                .times(1)
+                .returning(|_| Ok(()));
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
@@ -381,14 +393,6 @@ pub mod mod_test {
                 .with(eq(json!({
                     "module-version": env!("CARGO_PKG_VERSION"),
                     "azure-sdk-version": IotHubClient::sdk_version_string(),
-                    "provisioning-config": {
-                        "source": "dps",
-                        "method": "x509",
-                        "x509": {
-                            "expires": "2024-06-21T07:12:30Z",
-                            "est": true
-                        }
-                    }
                 })))
                 .times(1)
                 .returning(|_| Ok(()));
@@ -414,7 +418,7 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version":2,}})))
+                .with(eq(json!({"network_status":{"version": 2}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -462,6 +466,26 @@ pub mod mod_test {
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
                 .times(1)
                 .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"provisioning_config":{"version": 1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({
+                    "provisioning_config":{
+                        "source": "dps",
+                        "method": {
+                            "x509": {
+                                "expires": "2024-06-21T07:12:30Z",
+                                "est": true,
+                            }
+                        }
+                    }
+                })))
+                .times(1)
+                .returning(|_| Ok(()));
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
@@ -481,6 +505,7 @@ pub mod mod_test {
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
+            ("SUPPRESS_PROVISIONING_CONFIG", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
@@ -573,10 +598,11 @@ pub mod mod_test {
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
+            ("SUPPRESS_PROVISIONING_CONFIG", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(10).returning(|_| Ok(()));
+            mock.expect_twin_report().times(11).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -601,7 +627,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 9)
+                .times(TwinFeature::COUNT + 10)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -713,7 +739,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 9)
+                .times(TwinFeature::COUNT + 10)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -769,7 +795,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 9)
+                .times(TwinFeature::COUNT + 10)
                 .returning(|_| Ok(()));
         };
 
@@ -805,7 +831,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 9)
+                .times(TwinFeature::COUNT + 10)
                 .returning(|_| Ok(()));
         };
 
@@ -930,7 +956,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 9)
+                .times(TwinFeature::COUNT + 10)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -1010,6 +1036,7 @@ pub mod mod_test {
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
+            ("SUPPRESS_PROVISIONING_CONFIG", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
@@ -1089,6 +1116,7 @@ pub mod mod_test {
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
+            ("SUPPRESS_PROVISIONING_CONFIG", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
@@ -1097,7 +1125,7 @@ pub mod mod_test {
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(7).returning(|_| Ok(()));
+            mock.expect_twin_report().times(8).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1182,6 +1210,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
+            ("SUPPRESS_PROVISIONING_CONFIG", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
@@ -1190,7 +1219,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
                 .times(1)
                 .returning(|_| Ok(()));
 
-            mock.expect_twin_report().times(7).returning(|_| Ok(()));
+            mock.expect_twin_report().times(8).returning(|_| Ok(()));
 
             // currently no way to explicitly wait for the spawned task
             // mock.expect_send_d2c_message().times(1).returning(|_| Ok(()));
