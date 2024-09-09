@@ -2,7 +2,7 @@ use super::Feature;
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use futures::{future, FutureExt};
+use futures::future;
 use log::{debug, info, warn};
 use notify::{Config, INotifyWatcher, RecommendedWatcher, Watcher};
 use serde::Serialize;
@@ -18,11 +18,22 @@ macro_rules! identity_config_file_path {
     }};
 }
 
-macro_rules! device_cert_file_path {
-    () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/var/lib/aziot/certd/certs/deviceid-*.cer";
-        env::var("DEVICE_CERT_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
-    }};
+macro_rules! cert_file_path {
+    ($val:expr) => {
+        match $val {
+            true => {
+                const EST_CERT_FILE_PATH_DEFAULT: &'static str =
+                    "/var/lib/aziot/certd/certs/deviceid-*.cer";
+                env::var("EST_CERT_FILE_PATH").unwrap_or(EST_CERT_FILE_PATH_DEFAULT.to_string())
+            }
+            false => {
+                const DEVICE_CERT_FILE_PATH_DEFAULT: &'static str =
+                    "/mnt/cert/priv/device_id_cert.pem";
+                env::var("DEVICE_CERT_FILE_PATH")
+                    .unwrap_or(DEVICE_CERT_FILE_PATH_DEFAULT.to_string())
+            }
+        }
+    };
 }
 
 #[derive(Debug, Serialize)]
@@ -42,7 +53,8 @@ struct X509 {
 
 impl X509 {
     fn new(est: bool) -> Result<Self> {
-        let glob_path = device_cert_file_path!();
+        let glob_path = cert_file_path!(est);
+
         let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
             .context(format!(
                 "provisioning_config: cannot read glob pattern {glob_path}"
@@ -164,20 +176,20 @@ impl ProvisioningConfig {
     there should not be an issue here. thus we suppress clippy warning.
     */
     #[allow(clippy::await_holding_refcell_ref)]
-    pub async fn next(&self) -> impl future::Future<Output = ()> {
+    pub async fn next(&self) {
         let Some(ref rx) = self.rx_identity_watcher else {
             debug!("provisioning_config watcher: not active");
-            return future::pending().right_future();
+            return future::pending().await;
         };
 
         let Some(_) = rx.borrow_mut().recv().await else {
             debug!("provisioning_config watcher: sender dropped");
-            return future::pending().right_future();
+            return future::pending().await;
         };
 
         info!("provisioning_config watcher: config changed");
 
-        future::ready(()).left_future()
+        future::ready(()).await
     }
 
     pub async fn refresh(&mut self) -> Result<()> {
@@ -273,10 +285,12 @@ impl ProvisioningConfig {
 
         match (prov_source, method, dps_attestation_identity_cert_method) {
             (Some("dps"), "x509", Some("est")) => Ok((Source::Dps, Method::X509(X509::new(true)?))),
+            //fix
             (Some("dps"), "x509", None) => Ok((Source::Dps, Method::X509(X509::new(false)?))),
             (Some("dps"), "tpm", None) => Ok((Source::Dps, Method::Tpm)),
             (Some("dps"), "symmetric_key", None) => Ok((Source::Dps, Method::SymetricKey)),
             (Some("manual"), "sas", None) => Ok((Source::Manual, Method::Sas)),
+            //fix
             (Some("manual"), "x509", None) => Ok((Source::Manual, Method::X509(X509::new(false)?))),
             _ => bail!("provisioning_config: invalid provisioning configuration found"),
         }
@@ -299,7 +313,7 @@ mod tests {
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.est",
         );
-        env::set_var("DEVICE_CERT_FILE_PATH", "testfiles/positive/deviceid-*.cer");
+        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid-*.cer");
         assert_eq!(
             serde_json::to_value(ProvisioningConfig::new().unwrap()).unwrap(),
             json!({

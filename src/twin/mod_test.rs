@@ -185,7 +185,7 @@ pub mod mod_test {
                 format!("{}/config.toml.est", test_env.dirpath()),
             );
             env::set_var(
-                "DEVICE_CERT_FILE_PATH",
+                "EST_CERT_FILE_PATH",
                 format!("{}/deviceid-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
             );
 
@@ -238,7 +238,7 @@ pub mod mod_test {
             env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
             env::remove_var("FACTORY_RESET_STATUS_FILE_PATH");
             env::remove_var("IDENTITY_CONFIG_FILE_PATH");
-            env::remove_var("DEVICE_CERT_FILE_PATH");
+            env::remove_var("EST_CERT_FILE_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
         }
     }
