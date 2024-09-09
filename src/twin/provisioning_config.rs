@@ -285,12 +285,10 @@ impl ProvisioningConfig {
 
         match (prov_source, method, dps_attestation_identity_cert_method) {
             (Some("dps"), "x509", Some("est")) => Ok((Source::Dps, Method::X509(X509::new(true)?))),
-            //fix
             (Some("dps"), "x509", None) => Ok((Source::Dps, Method::X509(X509::new(false)?))),
             (Some("dps"), "tpm", None) => Ok((Source::Dps, Method::Tpm)),
             (Some("dps"), "symmetric_key", None) => Ok((Source::Dps, Method::SymetricKey)),
             (Some("manual"), "sas", None) => Ok((Source::Manual, Method::Sas)),
-            //fix
             (Some("manual"), "x509", None) => Ok((Source::Manual, Method::X509(X509::new(false)?))),
             _ => bail!("provisioning_config: invalid provisioning configuration found"),
         }
