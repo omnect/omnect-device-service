@@ -449,6 +449,8 @@ impl Twin {
         )
         .await?;
 
+        let mut refresh_prov_certs_interval = twin.feature::<ProvisioningConfig>()?.refresh_interval();
+
         twin.connect_web_service().await?;
 
         systemd::sd_notify_ready();
@@ -505,8 +507,8 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request).await?
                         },
-                        _ = twin.feature::<ProvisioningConfig>()?.next() => {
-                            twin.feature_mut::<ProvisioningConfig>()?.refresh().await?
+                        _ =  Self::notify_some_interval(&mut refresh_prov_certs_interval) => {
+                            twin.feature_mut::<ProvisioningConfig>()?.refresh().await?;
                         },
                     );
 
