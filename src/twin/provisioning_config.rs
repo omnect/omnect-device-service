@@ -246,7 +246,7 @@ impl ProvisioningConfig {
 
         let expires = match &self.method {
             Method::X509(X509 { est, expires, .. }) if *est => expires,
-            _ => bail!("refresh: unexpected method"),
+            _ => bail!("refresh: unexpected provisioning method"),
         };
 
         let x509 = X509::new(true, &self.hostname)?;
