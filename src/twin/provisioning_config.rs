@@ -258,10 +258,10 @@ impl ProvisioningConfig {
 
             self.method = Method::X509(x509);
             self.report().await?;
-            Ok(true)
-        } else {
-            Ok(false)
+            return Ok(true);
         }
+
+        Ok(false)
     }
 
     async fn report(&self) -> Result<()> {
@@ -328,10 +328,7 @@ mod tests {
             "testfiles/positive/config.toml.est",
         );
 
-        env::set_var(
-            "EST_CERT_FILE_PATH",
-            "testfiles/positive/deviceid1-*.cer",
-        );
+        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
 
         let mut config = ProvisioningConfig::new().unwrap();
 
@@ -350,10 +347,7 @@ mod tests {
 
         assert_eq!(config.refresh().await.unwrap(), false);
 
-        env::set_var(
-            "EST_CERT_FILE_PATH",
-            "testfiles/positive/deviceid2-*.cer",
-        );
+        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         assert_eq!(config.refresh().await.unwrap(), true);
     }
