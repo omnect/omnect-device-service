@@ -19,6 +19,8 @@ macro_rules! identity_config_file_path {
     }};
 }
 
+// currently we expect certs depending on EST on/off
+// maybe we should change to "/var/lib/aziot/certd/certs/" for both?
 macro_rules! cert_file_path {
     ($val:expr) => {
         match $val {
