@@ -242,8 +242,6 @@ impl ProvisioningConfig {
     }
 
     pub async fn refresh(&mut self) -> Result<bool> {
-        debug!("refresh: read est certificate expiration date");
-
         self.ensure()?;
 
         let expires = match &self.method {
@@ -254,14 +252,15 @@ impl ProvisioningConfig {
         let x509 = X509::new(true, &self.hostname)?;
 
         if &x509.expires != expires {
-            info!("refresh: expiration date changed {}", &x509.expires);
+            info!("refresh: est expiration date changed {}", &x509.expires);
 
             self.method = Method::X509(x509);
             self.report().await?;
-            return Ok(true);
+            Ok(true)
+        } else {
+            debug!("refresh: est expiration date didn't change");
+            Ok(false)
         }
-
-        Ok(false)
     }
 
     async fn report(&self) -> Result<()> {
