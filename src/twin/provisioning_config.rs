@@ -19,26 +19,6 @@ macro_rules! identity_config_file_path {
     }};
 }
 
-// currently we expect certs depending on EST on/off
-// maybe we should change to "/var/lib/aziot/certd/certs/" for both?
-macro_rules! cert_file_path {
-    ($val:expr) => {
-        match $val {
-            true => {
-                const EST_CERT_FILE_PATH_DEFAULT: &'static str =
-                    "/var/lib/aziot/certd/certs/deviceid-*.cer";
-                env::var("EST_CERT_FILE_PATH").unwrap_or(EST_CERT_FILE_PATH_DEFAULT.to_string())
-            }
-            false => {
-                const DEVICE_CERT_FILE_PATH_DEFAULT: &'static str =
-                    "/mnt/cert/priv/device_id_cert.pem";
-                env::var("DEVICE_CERT_FILE_PATH")
-                    .unwrap_or(DEVICE_CERT_FILE_PATH_DEFAULT.to_string())
-            }
-        }
-    };
-}
-
 macro_rules! refresh_est_expiry_interval_secs {
     () => {{
         static REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &'static str = "60";
@@ -64,7 +44,16 @@ struct X509 {
 
 impl X509 {
     fn new(est: bool, hostname: &String) -> Result<Self> {
-        let glob_path = cert_file_path!(est);
+        // currently we expect cert paths depending on using EST or not.
+        // maybe we should change to "/var/lib/aziot/certd/certs/" for all scenarios?
+        let glob_path = if est {
+            const EST_CERT_FILE_PATH_DEFAULT: &'static str =
+                "/var/lib/aziot/certd/certs/deviceid-*.cer";
+            env::var("EST_CERT_FILE_PATH").unwrap_or(EST_CERT_FILE_PATH_DEFAULT.to_string())
+        } else {
+            const DEVICE_CERT_FILE_PATH_DEFAULT: &'static str = "/mnt/cert/priv/device_id_cert.pem";
+            env::var("DEVICE_CERT_FILE_PATH").unwrap_or(DEVICE_CERT_FILE_PATH_DEFAULT.to_string())
+        };
 
         let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
             .context(format!(

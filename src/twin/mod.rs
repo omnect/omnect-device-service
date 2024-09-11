@@ -449,7 +449,8 @@ impl Twin {
         )
         .await?;
 
-        let mut refresh_prov_certs_interval = twin.feature::<ProvisioningConfig>()?.refresh_interval();
+        let mut refresh_prov_certs_interval =
+            twin.feature::<ProvisioningConfig>()?.refresh_interval();
 
         twin.connect_web_service().await?;
 
@@ -507,7 +508,7 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request).await?
                         },
-                        _ =  Self::notify_some_interval(&mut refresh_prov_certs_interval) => {
+                        _ = Self::notify_some_interval(&mut refresh_prov_certs_interval) => {
                             twin.feature_mut::<ProvisioningConfig>()?.refresh().await?;
                         },
                     );
