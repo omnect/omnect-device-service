@@ -2,6 +2,7 @@ use super::Feature;
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
+use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
@@ -12,21 +13,14 @@ use tokio::{
     time::{interval, Interval},
 };
 
-macro_rules! identity_config_file_path {
-    () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
-        env::var("IDENTITY_CONFIG_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
-    }};
-}
-
-macro_rules! refresh_est_expiry_interval_secs {
-    () => {{
-        static REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &'static str = "60";
+lazy_static! {
+    static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
+        const REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &str = "60";
         std::env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
             .unwrap_or(REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
             .expect("cannot parse REFRESH_EST_EXPIRY_INTERVAL_SECS env var")
-    }};
+    };
 }
 
 #[derive(Debug, Serialize)]
@@ -47,11 +41,10 @@ impl X509 {
         // currently we expect cert paths depending on using EST or not.
         // maybe we should change to "/var/lib/aziot/certd/certs/" for all scenarios?
         let glob_path = if est {
-            const EST_CERT_FILE_PATH_DEFAULT: &'static str =
-                "/var/lib/aziot/certd/certs/deviceid-*.cer";
+            const EST_CERT_FILE_PATH_DEFAULT: &str = "/var/lib/aziot/certd/certs/deviceid-*.cer";
             env::var("EST_CERT_FILE_PATH").unwrap_or(EST_CERT_FILE_PATH_DEFAULT.to_string())
         } else {
-            const DEVICE_CERT_FILE_PATH_DEFAULT: &'static str = "/mnt/cert/priv/device_id_cert.pem";
+            const DEVICE_CERT_FILE_PATH_DEFAULT: &str = "/mnt/cert/priv/device_id_cert.pem";
             env::var("DEVICE_CERT_FILE_PATH").unwrap_or(DEVICE_CERT_FILE_PATH_DEFAULT.to_string())
         };
 
@@ -161,9 +154,11 @@ impl Feature for ProvisioningConfig {
 impl ProvisioningConfig {
     const PROVISIONING_CONFIG_VERSION: u8 = 1;
     const ID: &'static str = "provisioning_config";
+    const IDENTITY_CONFIG_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
 
     pub fn new() -> Result<Self> {
-        let path = identity_config_file_path!();
+        let path = env::var("IDENTITY_CONFIG_FILE_PATH")
+            .unwrap_or(ProvisioningConfig::IDENTITY_CONFIG_FILE_PATH_DEFAULT.to_string());
         let config: toml::map::Map<String, toml::Value> = std::fs::read_to_string(&path)
             .context(format!("provisioning_config: cannot read {path}"))?
             .parse::<toml::Table>()
@@ -224,7 +219,7 @@ impl ProvisioningConfig {
     pub fn refresh_interval(&self) -> Option<Interval> {
         match &self.method {
             Method::X509(cert) if cert.est => Some(interval(Duration::from_secs(
-                refresh_est_expiry_interval_secs!(),
+                *REFRESH_EST_EXPIRY_INTERVAL_SECS,
             ))),
             _ => None,
         }
