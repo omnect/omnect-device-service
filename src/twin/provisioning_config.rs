@@ -2,27 +2,25 @@ use super::Feature;
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use futures::{future, FutureExt};
+use lazy_static::lazy_static;
 use log::{debug, info, warn};
-use notify::{Config, INotifyWatcher, RecommendedWatcher, Watcher};
 use serde::Serialize;
 use serde_json::json;
-use std::{any::Any, cell::RefCell, env, path::PathBuf};
+use std::{any::Any, env, time::Duration};
 use time::format_description::well_known::Rfc3339;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::{
+    sync::mpsc::Sender,
+    time::{interval, Interval},
+};
 
-macro_rules! identity_config_file_path {
-    () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
-        env::var("IDENTITY_CONFIG_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
-    }};
-}
-
-macro_rules! device_cert_file_path {
-    () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/var/lib/aziot/certd/certs/deviceid-*.cer";
-        env::var("DEVICE_CERT_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
-    }};
+lazy_static! {
+    static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
+        const REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &str = "60";
+        std::env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
+            .unwrap_or(REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT.to_string())
+            .parse::<u64>()
+            .expect("cannot parse REFRESH_EST_EXPIRY_INTERVAL_SECS env var")
+    };
 }
 
 #[derive(Debug, Serialize)]
@@ -36,13 +34,20 @@ enum Source {
 struct X509 {
     est: bool,
     expires: String,
-    #[serde(skip_serializing)]
-    path: PathBuf,
 }
 
 impl X509 {
-    fn new(est: bool) -> Result<Self> {
-        let glob_path = device_cert_file_path!();
+    fn new(est: bool, hostname: &String) -> Result<Self> {
+        // currently we expect cert paths depending on using EST or not.
+        // maybe we should change to "/var/lib/aziot/certd/certs/" for all scenarios?
+        let glob_path = if est {
+            const EST_CERT_FILE_PATH_DEFAULT: &str = "/var/lib/aziot/certd/certs/deviceid-*.cer";
+            env::var("EST_CERT_FILE_PATH").unwrap_or(EST_CERT_FILE_PATH_DEFAULT.to_string())
+        } else {
+            const DEVICE_CERT_FILE_PATH_DEFAULT: &str = "/mnt/cert/priv/device_id_cert.pem";
+            env::var("DEVICE_CERT_FILE_PATH").unwrap_or(DEVICE_CERT_FILE_PATH_DEFAULT.to_string())
+        };
+
         let paths: Vec<std::path::PathBuf> = glob::glob(&glob_path)
             .context(format!(
                 "provisioning_config: cannot read glob pattern {glob_path}"
@@ -61,23 +66,34 @@ impl X509 {
             std::fs::File::open(&paths[0])
                 .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
         );
-        let expires = x509_parser::pem::Pem::read(file)
-            .context("provisioning_config: read PEM")?
+
+        let pem = x509_parser::pem::Pem::read(file).context("provisioning_config: read PEM")?;
+
+        let cert = pem
             .0
             .parse_x509()
             .context("provisioning_config: parse x509")?
-            .tbs_certificate
+            .tbs_certificate;
+
+        ensure!(
+            cert.subject.iter_common_name().count() == 1,
+            "provisioning_config: unexpected cname count"
+        );
+
+        let cname = cert.subject.iter_common_name().next().unwrap().as_str()?;
+        ensure!(
+            hostname == cname,
+            "provisioning_config: hostname and cname don't match ({hostname} vs {cname})"
+        );
+
+        let expires = cert
             .validity()
             .not_after
             .to_datetime()
             .format(&Rfc3339)
             .context("provisioning_config: format date")?;
 
-        Ok(X509 {
-            est,
-            expires,
-            path: paths[0].to_path_buf(),
-        })
+        Ok(X509 { est, expires })
     }
 }
 
@@ -90,18 +106,14 @@ enum Method {
     X509(X509),
 }
 
-type WatcherReceiver = Receiver<notify::Result<notify::Event>>;
-
 #[derive(Debug, Serialize)]
 pub struct ProvisioningConfig {
-    #[serde(skip_serializing)]
-    identity_watcher: Option<RecommendedWatcher>,
-    #[serde(skip_serializing)]
-    rx_identity_watcher: Option<RefCell<WatcherReceiver>>,
     #[serde(skip_serializing)]
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     source: Source,
     method: Method,
+    #[serde(skip_serializing)]
+    hostname: String,
 }
 
 #[async_trait(?Send)]
@@ -142,116 +154,21 @@ impl Feature for ProvisioningConfig {
 impl ProvisioningConfig {
     const PROVISIONING_CONFIG_VERSION: u8 = 1;
     const ID: &'static str = "provisioning_config";
+    const IDENTITY_CONFIG_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
 
     pub fn new() -> Result<Self> {
-        let (source, method) = Self::config()?;
-        let (identity_watcher, rx_identity_watcher) = Self::watcher(&method)?;
-        let this = ProvisioningConfig {
-            identity_watcher,
-            rx_identity_watcher,
-            tx_reported_properties: None,
-            source,
-            method,
-        };
-
-        debug!("provisioning_config: new {this:?}");
-
-        Ok(this)
-    }
-
-    /*
-    reading https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_refcell_ref
-    there should not be an issue here. thus we suppress clippy warning.
-    */
-    #[allow(clippy::await_holding_refcell_ref)]
-    pub async fn next(&self) -> impl future::Future<Output = ()> {
-        let Some(ref rx) = self.rx_identity_watcher else {
-            debug!("provisioning_config watcher: not active");
-            return future::pending().right_future();
-        };
-
-        let Some(_) = rx.borrow_mut().recv().await else {
-            debug!("provisioning_config watcher: sender dropped");
-            return future::pending().right_future();
-        };
-
-        info!("provisioning_config watcher: config changed");
-
-        future::ready(()).left_future()
-    }
-
-    pub async fn refresh(&mut self) -> Result<()> {
-        info!("provisioning_config: refresh");
-
-        self.ensure()?;
-
-        let (source, method) = Self::config()?;
-        let (identity_watcher, rx_identity_watcher) = Self::watcher(&method)?;
-
-        self.source = source;
-        self.method = method;
-        self.identity_watcher = identity_watcher;
-        self.rx_identity_watcher = rx_identity_watcher;
-
-        debug!("provisioning_config: refresh {self:?}");
-
-        self.report().await
-    }
-
-    async fn report(&self) -> Result<()> {
-        let Some(tx) = &self.tx_reported_properties else {
-            warn!("report: skip since tx_reported_properties is None");
-            return Ok(());
-        };
-
-        tx.send(json!({
-            "provisioning_config": serde_json::to_value(self).context("report: cannot serialize")?
-        }))
-        .await
-        .context("report: send")
-    }
-
-    #[allow(unreachable_code, unused_variables)]
-    fn watcher(
-        method: &Method,
-    ) -> Result<(Option<INotifyWatcher>, Option<RefCell<WatcherReceiver>>)> {
-        /*
-            we deactivate observing the certificate for the moment, since it is not completely tested yet
-        */
-        return Ok((None, None));
-
-        let mut watcher = None;
-        let mut receiver = None;
-
-        if matches!(method, Method::X509(_)) {
-            let Method::X509(cert) = method else {
-                bail!("provisioning_config watcher: unexpected certificate")
-            };
-            let (tx, rx) = channel(1);
-            let mut w = RecommendedWatcher::new(
-                move |res| {
-                    futures::executor::block_on(async {
-                        tx.send(res).await.unwrap();
-                    })
-                },
-                Config::default(),
-            )?;
-
-            w.watch(cert.path.as_path(), notify::RecursiveMode::NonRecursive)?;
-
-            watcher = Some(w);
-            receiver = Some(RefCell::new(rx));
-        }
-
-        Ok((watcher, receiver))
-    }
-
-    fn config() -> Result<(Source, Method)> {
-        let path = identity_config_file_path!();
+        let path = env::var("IDENTITY_CONFIG_FILE_PATH")
+            .unwrap_or(ProvisioningConfig::IDENTITY_CONFIG_FILE_PATH_DEFAULT.to_string());
         let config: toml::map::Map<String, toml::Value> = std::fs::read_to_string(&path)
             .context(format!("provisioning_config: cannot read {path}"))?
             .parse::<toml::Table>()
             .context("provisioning_config: cannot parse table")?;
+        let hostname = config
+            .get("hostname")
+            .context("provisioning_config: hostname not found")?
+            .as_str()
+            .context("provisioning_config: hostname cannot be parsed")?
+            .to_string();
         let prov_source = config["provisioning"]["source"].as_str();
         let prov_auth_method = config["provisioning"]
             .get("authentication")
@@ -271,15 +188,76 @@ impl ProvisioningConfig {
             _ => bail!("provisioning_config: invalid provisioning method found"),
         };
 
-        match (prov_source, method, dps_attestation_identity_cert_method) {
-            (Some("dps"), "x509", Some("est")) => Ok((Source::Dps, Method::X509(X509::new(true)?))),
-            (Some("dps"), "x509", None) => Ok((Source::Dps, Method::X509(X509::new(false)?))),
-            (Some("dps"), "tpm", None) => Ok((Source::Dps, Method::Tpm)),
-            (Some("dps"), "symmetric_key", None) => Ok((Source::Dps, Method::SymetricKey)),
-            (Some("manual"), "sas", None) => Ok((Source::Manual, Method::Sas)),
-            (Some("manual"), "x509", None) => Ok((Source::Manual, Method::X509(X509::new(false)?))),
+        let (source, method) = match (prov_source, method, dps_attestation_identity_cert_method) {
+            (Some("dps"), "x509", Some("est")) => {
+                (Source::Dps, Method::X509(X509::new(true, &hostname)?))
+            }
+            (Some("dps"), "x509", None) => {
+                (Source::Dps, Method::X509(X509::new(false, &hostname)?))
+            }
+            (Some("dps"), "tpm", None) => (Source::Dps, Method::Tpm),
+            (Some("dps"), "symmetric_key", None) => (Source::Dps, Method::SymetricKey),
+            (Some("manual"), "sas", None) => (Source::Manual, Method::Sas),
+            (Some("manual"), "x509", None) => {
+                (Source::Manual, Method::X509(X509::new(false, &hostname)?))
+            }
             _ => bail!("provisioning_config: invalid provisioning configuration found"),
+        };
+
+        let this = ProvisioningConfig {
+            tx_reported_properties: None,
+            source,
+            method,
+            hostname,
+        };
+
+        debug!("provisioning_config: new {this:?}");
+
+        Ok(this)
+    }
+
+    pub fn refresh_interval(&self) -> Option<Interval> {
+        match &self.method {
+            Method::X509(cert) if cert.est => Some(interval(Duration::from_secs(
+                *REFRESH_EST_EXPIRY_INTERVAL_SECS,
+            ))),
+            _ => None,
         }
+    }
+
+    pub async fn refresh(&mut self) -> Result<bool> {
+        self.ensure()?;
+
+        let expires = match &self.method {
+            Method::X509(X509 { est, expires, .. }) if *est => expires,
+            _ => bail!("refresh: unexpected provisioning method"),
+        };
+
+        let x509 = X509::new(true, &self.hostname)?;
+
+        if &x509.expires != expires {
+            info!("refresh: est expiration date changed {}", &x509.expires);
+
+            self.method = Method::X509(x509);
+            self.report().await?;
+            Ok(true)
+        } else {
+            debug!("refresh: est expiration date didn't change");
+            Ok(false)
+        }
+    }
+
+    async fn report(&self) -> Result<()> {
+        let Some(tx) = &self.tx_reported_properties else {
+            warn!("report: skip since tx_reported_properties is None");
+            return Ok(());
+        };
+
+        tx.send(json!({
+            "provisioning_config": serde_json::to_value(self).context("report: cannot serialize")?
+        }))
+        .await
+        .context("report: send")
     }
 }
 
@@ -299,14 +277,14 @@ mod tests {
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.est",
         );
-        env::set_var("DEVICE_CERT_FILE_PATH", "testfiles/positive/deviceid-*.cer");
+        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
         assert_eq!(
             serde_json::to_value(ProvisioningConfig::new().unwrap()).unwrap(),
             json!({
                 "source": "dps",
                 "method": {
                     "x509": {
-                        "expires": "2024-06-21T07:12:30Z",
+                        "expires": "2024-10-10T11:27:38Z",
                         "est": true,
                     }
                 }
@@ -324,5 +302,36 @@ mod tests {
                 "method": "tpm"
             })
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn provisioning_refresh_test() {
+        env::set_var(
+            "IDENTITY_CONFIG_FILE_PATH",
+            "testfiles/positive/config.toml.est",
+        );
+
+        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
+
+        let mut config = ProvisioningConfig::new().unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&config).unwrap(),
+            json!({
+                "source": "dps",
+                "method": {
+                    "x509": {
+                        "expires": "2024-10-10T11:27:38Z",
+                        "est": true,
+                    }
+                }
+            })
+        );
+
+        assert_eq!(config.refresh().await.unwrap(), false);
+
+        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
+
+        assert_eq!(config.refresh().await.unwrap(), true);
     }
 }

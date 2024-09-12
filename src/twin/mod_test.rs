@@ -154,7 +154,7 @@ pub mod mod_test {
             test_env.copy_file("testfiles/positive/systemd-networkd-wait-online.service");
             test_env.copy_file("testfiles/positive/factory-reset-status_succeeded");
             test_env.copy_file("testfiles/positive/config.toml.est");
-            test_env.copy_file("testfiles/positive/deviceid-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer");
+            test_env.copy_file("testfiles/positive/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer");
             test_files.iter().for_each(|file| {
                 test_env.copy_file(file);
             });
@@ -185,8 +185,8 @@ pub mod mod_test {
                 format!("{}/config.toml.est", test_env.dirpath()),
             );
             env::set_var(
-                "DEVICE_CERT_FILE_PATH",
-                format!("{}/deviceid-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
+                "EST_CERT_FILE_PATH",
+                format!("{}/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
             );
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
@@ -238,7 +238,7 @@ pub mod mod_test {
             env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
             env::remove_var("FACTORY_RESET_STATUS_FILE_PATH");
             env::remove_var("IDENTITY_CONFIG_FILE_PATH");
-            env::remove_var("DEVICE_CERT_FILE_PATH");
+            env::remove_var("EST_CERT_FILE_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
         }
     }
@@ -361,7 +361,7 @@ pub mod mod_test {
                         "source": "dps",
                         "method": {
                             "x509": {
-                                "expires": "2024-06-21T07:12:30Z",
+                                "expires": "2024-10-10T11:27:38Z",
                                 "est": true,
                             }
                         }
@@ -478,7 +478,7 @@ pub mod mod_test {
                         "source": "dps",
                         "method": {
                             "x509": {
-                                "expires": "2024-06-21T07:12:30Z",
+                                "expires": "2024-10-10T11:27:38Z",
                                 "est": true,
                             }
                         }

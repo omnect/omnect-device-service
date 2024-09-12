@@ -1,5 +1,5 @@
 ## Hostname
-hostname = "test-omnect-est"
+hostname = "test-device"
 
 ## DPS provisioning with X.509 certificate
 [provisioning]

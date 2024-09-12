@@ -1,5 +1,5 @@
 ## Hostname
-hostname = "my-omnect-iot-tpm-device"
+hostname = "test-device"
 
 ## DPS provisioning with tpm
 [provisioning]
