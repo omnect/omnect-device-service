@@ -258,32 +258,32 @@ pub mod mod_test {
                     "module-version": env!("CARGO_PKG_VERSION"),
                     "azure-sdk-version": IotHubClient::sdk_version_string()
                 })))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"factory_reset":{"version":1}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"version":1}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"modem_info":null})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"network_status":{"version":2}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -294,41 +294,41 @@ pub mod mod_test {
                         "name": "eth0"
                     }]
                 }})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"reboot":{"version":2}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({ "wifi_commissioning": null })))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(
                     json!({"wait_online_timeout_secs":{"nanos":0, "secs": 300}}),
                 ))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(
                     json!({"device_update_consent":{"general_consent":["swupdate"], "reset_consent_on_fail": false}}),
                 ))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"user_consent_request":[{"swupdate":"<version>"}]}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -347,12 +347,12 @@ pub mod mod_test {
 
                     let re = Regex::new(re.as_str()).unwrap();
                     re.is_match(reported)})
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({"provisioning_config":{"version": 1}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -367,11 +367,12 @@ pub mod mod_test {
                         }
                     }
                 })))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
@@ -633,21 +634,11 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "device_update_consent": {
-                        "general_consent": ["swupdate"],
-                        "reset_consent_on_fail": false
-                    }
-                })))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({
-                    "device_update_consent": {
                         "general_consent": ["swupdate1", "swupdate2"],
                         "reset_consent_on_fail": false
                     }
                 })))
-                .times(2)
+                .times(1)
                 .returning(|_| Ok(()));
         };
 

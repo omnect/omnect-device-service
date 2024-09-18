@@ -274,34 +274,38 @@ impl Twin {
 
         match auth_status {
             AuthenticationStatus::Authenticated => {
-                if !self.authenticated_once {
-                    info!("Succeeded to connect to iothub");
+                info!("Succeeded to connect to iothub");
 
+                if !self.authenticated_once {
                     /*
                      * the update validation test "wait_for_system_running" enforces that
                      * omnect-device-service already notified its own success
                      */
                     self.update_validation.set_authenticated().await?;
 
-                    self.connect_twin().await?;
-
                     self.authenticated_once = true;
                 };
+
+                self.connect_twin().await?;
 
                 online = true;
             }
             AuthenticationStatus::Unauthenticated(reason) => match reason {
                 UnauthenticatedReason::BadCredential
                 | UnauthenticatedReason::CommunicationError => {
-                    error!("Failed to connect to iothub: {reason:?}");
+                    error!("Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time");
 
                     /*
                        here we start all over again. reason: there are situations where we get
-                       a wrong connection string (BadCredential) from identity service due to wrong system time.
+                       a wrong connection string (BadCredential) from identity service due to wrong system time or
+                       certificate renewal caused by iot-identity-service reprovisioning.
                        this may occur on devices without RTC or where time is not synced. since we experienced this
                        behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                     */
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let duration_ms = 1000;
+                    info!("Sleep for {duration_ms}ms and start all over again");
+                    tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+
                     self.client = Self::build_twin(&self.client_builder).await?;
                 }
                 UnauthenticatedReason::RetryExpired
