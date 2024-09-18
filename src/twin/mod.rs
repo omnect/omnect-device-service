@@ -108,6 +108,7 @@ pub struct Twin {
     web_service: Option<WebService>,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
+    authenticated: bool,
     authenticated_once: bool,
     features: HashMap<TypeId, Box<dyn Feature>>,
     update_validation: update_validation::UpdateValidation,
@@ -174,6 +175,7 @@ impl Twin {
             web_service,
             tx_reported_properties,
             tx_outgoing_message,
+            authenticated: false,
             authenticated_once: false,
             features,
             update_validation,
@@ -270,56 +272,63 @@ impl Twin {
     }
 
     async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
-        let mut online = false;
-
         match auth_status {
             AuthenticationStatus::Authenticated => {
-                info!("Succeeded to connect to iothub");
+                if !self.authenticated {
+                    info!("Succeeded to connect to iothub");
 
-                if !self.authenticated_once {
-                    /*
-                     * the update validation test "wait_for_system_running" enforces that
-                     * omnect-device-service already notified its own success
-                     */
-                    self.update_validation.set_authenticated().await?;
+                    if !self.authenticated_once {
+                        /*
+                         * the update validation test "wait_for_system_running" enforces that
+                         * omnect-device-service already notified its own success
+                         */
+                        self.update_validation.set_authenticated().await?;
 
-                    self.authenticated_once = true;
-                };
+                        self.authenticated_once = true;
+                    };
 
-                self.connect_twin().await?;
+                    self.connect_twin().await?;
 
-                online = true;
+                    self.authenticated = true;
+                }
             }
-            AuthenticationStatus::Unauthenticated(reason) => match reason {
-                UnauthenticatedReason::BadCredential
-                | UnauthenticatedReason::CommunicationError => {
-                    error!("Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time");
+            AuthenticationStatus::Unauthenticated(reason) => {
+                self.authenticated = false;
+                match reason {
+                    UnauthenticatedReason::BadCredential
+                    | UnauthenticatedReason::CommunicationError => {
+                        error!("Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time");
 
-                    /*
-                       here we start all over again. reason: there are situations where we get
-                       a wrong connection string (BadCredential) from identity service due to wrong system time or
-                       certificate renewal caused by iot-identity-service reprovisioning.
-                       this may occur on devices without RTC or where time is not synced. since we experienced this
-                       behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
-                    */
-                    let duration_ms = 1000;
-                    info!("Sleep for {duration_ms}ms and start all over again");
-                    tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+                        /*
+                           here we start all over again. reason: there are situations where we get
+                           a wrong connection string (BadCredential) from identity service due to wrong system time or
+                           certificate renewal caused by iot-identity-service reprovisioning.
+                           this may occur on devices without RTC or where time is not synced. since we experienced this
+                           behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
+                        */
+                        let duration_ms = 10000;
+                        info!("Sleep for {duration_ms}ms and start all over again");
+                        tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
 
-                    self.client = Self::build_twin(&self.client_builder).await?;
+                        self.client = Self::build_twin(&self.client_builder).await?;
+                    }
+                    UnauthenticatedReason::RetryExpired
+                    | UnauthenticatedReason::ExpiredSasToken
+                    | UnauthenticatedReason::NoNetwork => {
+                        info!("Failed to connect to iothub: {reason:?}")
+                    }
+                    UnauthenticatedReason::DeviceDisabled => {
+                        warn!("Failed to connect to iothub: {reason:?}")
+                    }
                 }
-                UnauthenticatedReason::RetryExpired
-                | UnauthenticatedReason::ExpiredSasToken
-                | UnauthenticatedReason::NoNetwork => {
-                    info!("Failed to connect to iothub: {reason:?}")
-                }
-                UnauthenticatedReason::DeviceDisabled => {
-                    warn!("Failed to connect to iothub: {reason:?}")
-                }
-            },
+            }
         }
 
-        web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": online})).await
+        web_service::publish(
+            PublishChannel::OnlineStatus,
+            json!({"iothub": self.authenticated}),
+        )
+        .await
     }
 
     async fn handle_desired(
