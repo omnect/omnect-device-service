@@ -293,7 +293,6 @@ impl Twin {
                 }
             }
             AuthenticationStatus::Unauthenticated(reason) => {
-                self.authenticated = false;
                 match reason {
                     UnauthenticatedReason::BadCredential
                     | UnauthenticatedReason::CommunicationError => {
@@ -306,6 +305,7 @@ impl Twin {
                            this may occur on devices without RTC or where time is not synced. since we experienced this
                            behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                         */
+                        self.authenticated = false;
                         self.client.shutdown().await;
 
                         let duration_ms = 1000;
