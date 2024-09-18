@@ -306,7 +306,9 @@ impl Twin {
                            this may occur on devices without RTC or where time is not synced. since we experienced this
                            behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                         */
-                        let duration_ms = 10000;
+                        self.client.shutdown().await;
+
+                        let duration_ms = 1000;
                         info!("Sleep for {duration_ms}ms and start all over again");
                         tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
 
