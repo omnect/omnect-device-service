@@ -240,13 +240,14 @@ impl DeviceUpdateConsent {
                 &current_config,
             )
             .context("update_general_consent: serde_json::to_writer_pretty")?;
-        } else {
-            info!("no general consent defined in desired properties. current general_consent is reported.");
-        };
 
-        Self::report_general_consent(tx)
-            .await
-            .context("update_general_consent: report_general_consent")
+            Self::report_general_consent(tx)
+                .await
+                .context("update_general_consent: report_general_consent")
+        } else {
+            info!("no general consent defined in desired properties.");
+            Ok(())
+        }
     }
 
     async fn report_general_consent(
@@ -302,22 +303,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_and_report_general_consent_failed_test() {
+    fn update_and_report_general_consent_test() {
         let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let usr_consent = DeviceUpdateConsent {
             file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
         };
 
-        let err = block_on(async { usr_consent.update_general_consent(None).await }).unwrap_err();
-
-        assert!(err.chain().any(|e| e
-            .to_string()
-            .starts_with("update_general_consent: report_general_consent")));
-
-        assert!(err.chain().any(|e| e
-            .to_string()
-            .starts_with("report_general_consent: open consent_conf.json")));
+        assert!(block_on(async { usr_consent.update_general_consent(None).await }).is_ok());
 
         let err = block_on(async {
             usr_consent
