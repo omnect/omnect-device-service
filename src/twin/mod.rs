@@ -102,14 +102,20 @@ trait Feature {
     }
 }
 
+#[derive(PartialEq)]
+enum TwinState {
+    Uninitialized,
+    Initialized,
+    Authenticated,
+}
+
 pub struct Twin {
     client: IotHubClient,
     client_builder: IotHubClientBuilder,
     web_service: Option<WebService>,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
-    authenticated: bool,
-    authenticated_once: bool,
+    state: TwinState,
     features: HashMap<TypeId, Box<dyn Feature>>,
     update_validation: update_validation::UpdateValidation,
 }
@@ -133,6 +139,7 @@ impl Twin {
 
         let client = Self::build_twin(&client_builder).await?;
         let web_service = WebService::run(tx_web_service.clone()).await?;
+        let state = TwinState::Uninitialized;
 
         let features = HashMap::from([
             (
@@ -175,8 +182,7 @@ impl Twin {
             web_service,
             tx_reported_properties,
             tx_outgoing_message,
-            authenticated: false,
-            authenticated_once: false,
+            state,
             features,
             update_validation,
         })
@@ -274,22 +280,20 @@ impl Twin {
     async fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<()> {
         match auth_status {
             AuthenticationStatus::Authenticated => {
-                if !self.authenticated {
+                if self.state != TwinState::Authenticated {
                     info!("Succeeded to connect to iothub");
 
-                    if !self.authenticated_once {
+                    if self.state == TwinState::Uninitialized {
                         /*
                          * the update validation test "wait_for_system_running" enforces that
                          * omnect-device-service already notified its own success
                          */
                         self.update_validation.set_authenticated().await?;
-
-                        self.authenticated_once = true;
                     };
 
                     self.connect_twin().await?;
 
-                    self.authenticated = true;
+                    self.state = TwinState::Authenticated;
                 }
             }
             AuthenticationStatus::Unauthenticated(reason) => {
@@ -305,7 +309,7 @@ impl Twin {
                            this may occur on devices without RTC or where time is not synced. since we experienced this
                            behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                         */
-                        self.authenticated = false;
+                        self.state = TwinState::Initialized;
                         self.client.shutdown().await;
 
                         let duration_ms = 1000;
@@ -328,7 +332,7 @@ impl Twin {
 
         web_service::publish(
             PublishChannel::OnlineStatus,
-            json!({"iothub": self.authenticated}),
+            json!({"iothub": self.state == TwinState::Authenticated}),
         )
         .await
     }
