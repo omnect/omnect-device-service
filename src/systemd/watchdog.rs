@@ -5,7 +5,7 @@ use std::{
     sync::{Mutex, OnceLock},
     time::Duration,
 };
-use tokio::time::Instant;
+use tokio::time::{Instant, Interval};
 
 static WATCHDOG_MANAGER: OnceLock<Mutex<Option<WatchdogSettings>>> = OnceLock::new();
 
@@ -17,14 +17,14 @@ struct WatchdogSettings {
 pub struct WatchdogManager {}
 
 impl WatchdogManager {
-    pub fn init() -> Option<Duration> {
+    pub fn init() -> Option<Interval> {
         let mut settings = WATCHDOG_MANAGER
             .get_or_init(|| Mutex::new(None))
             .lock()
             .unwrap();
 
         if let Some(settings) = settings.as_ref() {
-            Some(settings.timeout)
+            Some(tokio::time::interval(settings.timeout / 2))
         } else {
             let mut micros = u64::MAX;
             if sd_notify::watchdog_enabled(false, &mut micros) {
@@ -36,7 +36,7 @@ impl WatchdogManager {
                     timeout,
                     now: Instant::now(),
                 });
-                Some(timeout)
+                Some(tokio::time::interval(timeout / 2))
             } else {
                 info!("watchdog is disabled");
                 None

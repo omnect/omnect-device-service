@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "https://github.com/omnect/omnect-device-service.git"
-version = "0.22.4"
+version = "0.23.0"
 
 [dependencies]
 actix-server = "2.3"
@@ -48,6 +48,7 @@ strum_macros = "0.26"
 systemd-zbus = "0.1"
 time = { version = "=0.3", features = ["formatting"] }
 tokio = "1"
+tokio-stream = "0.1"
 toml = "0.8"
 uuid = "1.4"
 x509-parser = "=0.16"
