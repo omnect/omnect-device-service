@@ -327,7 +327,7 @@ impl Twin {
 
         web_service::publish(
             PublishChannel::OnlineStatus,
-            json!({"iothub": self.state == TwinState::Authenticated}),
+            json!({"iothub": auth_status == AuthenticationStatus::Authenticated}),
         )
         .await?;
 
