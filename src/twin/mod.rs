@@ -46,6 +46,7 @@ use std::{
     any::{Any, TypeId},
     collections::HashMap,
     path::Path,
+    time,
 };
 use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{select, sync::mpsc};
@@ -300,16 +301,6 @@ impl Twin {
                            behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                         */
                         self.state = TwinState::Initialized;
-                        self.client
-                            .as_mut()
-                            .context("client not present")?
-                            .shutdown()
-                            .await;
-                        self.client = None;
-
-                        let duration_ms = 1000;
-                        info!("Sleep for {duration_ms}ms and start all over again");
-                        tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
 
                         restart_twin = true;
                     }
@@ -462,6 +453,18 @@ impl Twin {
         }
     }
 
+    async fn reset_with_timeout(&mut self, timeout: Option<time::Duration>) {
+        if let Some(client) = self.client.as_mut() {
+            client.shutdown().await;
+            self.client = None;
+        }
+
+        if let Some(t) = timeout {
+            info!("Sleep for {}ms and start iotclient again", t.as_millis());
+            tokio::time::sleep(t).await
+        }
+    }
+
     pub async fn run() -> Result<()> {
         let (tx_connection_status, mut rx_connection_status) = mpsc::channel(100);
         let (tx_twin_desired, mut rx_twin_desired) = mpsc::channel(100);
@@ -513,12 +516,21 @@ impl Twin {
                     return Ok(())
                 },
                 client_result = &mut client_connected, if twin.client.is_none() => {
-                    let client = client_result.context("couldn't create iotclient")?;
-                    info!("iothub client created");
-                    twin.client = Some(client);
+                    match client_result {
+                        Ok(client) => {
+                            info!("iothub client created");
+                            twin.client = Some(client);
+                        },
+                        Err(e) => {
+                            error!("couldn't create iothub client: {e:#}");
+                            twin.reset_with_timeout(Some(time::Duration::from_secs(10))).await;
+                            client_connected.set(Self::connect_iothub_client(&client_builder));
+                        }
+                    }
                 },
                 Some(status) = rx_connection_status.recv() => {
                     if twin.handle_connection_status(status).await?{
+                        twin.reset_with_timeout(Some(time::Duration::from_secs(1))).await;
                         client_connected.set(Self::connect_iothub_client(&client_builder));
                     };
                 },
