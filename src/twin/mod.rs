@@ -19,16 +19,15 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::{
-    twin::{
-        consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
-        network_status::NetworkStatus, provisioning_config::ProvisioningConfig, reboot::Reboot,
-        ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
-    },
-    web_service::{self, Command as WebServiceCommand, PublishChannel, WebService},
-    {systemd, systemd::watchdog::WatchdogManager},
-    {update_validation, update_validation::UpdateValidation},
+use crate::twin::{
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
+    network_status::NetworkStatus, provisioning_config::ProvisioningConfig, reboot::Reboot,
+    ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
 };
+use crate::web_service::{self, Command as WebServiceCommand, PublishChannel, WebService};
+use crate::{system, util};
+use crate::{systemd, systemd::watchdog::WatchdogManager};
+use crate::{update_validation, update_validation::UpdateValidation};
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -211,7 +210,7 @@ impl Twin {
         web_service::publish(
             PublishChannel::Versions,
             json!({
-                "os-version": crate::system::sw_version()?,
+                "os-version": system::sw_version()?,
                 "azure-sdk-version": IotHubClient::sdk_version_string(),
                 "omnect-device-service-version": env!("CARGO_PKG_VERSION"),
             }),
@@ -413,9 +412,7 @@ impl Twin {
                     .map(|_| ()),
             ),
             WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await),
-            WebServiceCommand::ReloadNetwork(reply) => {
-                (reply, crate::system::reload_network().await)
-            }
+            WebServiceCommand::ReloadNetwork(reply) => (reply, system::reload_network().await),
         };
 
         if tx_result.send(result.is_ok()).is_err() {
@@ -494,8 +491,8 @@ impl Twin {
 
         tokio::pin! {
             let client_connected = Self::connect_iothub_client(&client_builder);
-            let wdt_interval = crate::util::IntervalStream::new(WatchdogManager::init());
-            let prov_conf_interval = crate::util::IntervalStream::new(twin.feature::<ProvisioningConfig>()?.refresh_interval());
+            let wdt_interval = util::IntervalStream::new(WatchdogManager::init());
+            let prov_conf_interval = util::IntervalStream::new(twin.feature::<ProvisioningConfig>()?.refresh_interval());
         };
 
         systemd::sd_notify_ready();
