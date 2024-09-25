@@ -353,10 +353,8 @@ impl Twin {
     }
 
     async fn handle_direct_method(&mut self, method: DirectMethod) -> Result<()> {
-        info!(
-            "handle_direct_method: {} with payload: {}",
-            method.name, method.payload
-        );
+        let name = method.name.clone();
+        let payload = method.payload.clone();
 
         let result = match method.name.as_str() {
             "factory_reset" => {
@@ -393,8 +391,14 @@ impl Twin {
             _ => Err(anyhow!("direct method unknown")),
         };
 
+        match &result {
+            Ok(Some(result)) => info!("{name}({payload}) succeeded with result: {result}"),
+            Ok(None) => info!("{name}({payload}) succeeded"),
+            Err(e) => error!("{name}({payload}) returned error: {e}"),
+        }
+
         if method.responder.send(result).is_err() {
-            error!("handle_direct_method: receiver dropped");
+            error!("handle_direct_method: {name}({payload}) receiver dropped");
         }
 
         Ok(())
