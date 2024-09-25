@@ -453,14 +453,15 @@ impl Twin {
         }
     }
 
-    async fn reset_with_timeout(&mut self, timeout: Option<time::Duration>) {
-        if let Some(client) = self.client.as_mut() {
+    async fn reset_client_with_timeout(&mut self, timeout: Option<time::Duration>) {
+        info!("reset_client: shutdown iotclient");
+        let client = self.client.as_mut().take();
+        if let Some(client) = client {
             client.shutdown().await;
-            self.client = None;
         }
 
         if let Some(t) = timeout {
-            info!("Sleep for {}ms and start iotclient again", t.as_millis());
+            info!("reset_client: sleep for {}ms", t.as_millis());
             tokio::time::sleep(t).await
         }
     }
@@ -505,7 +506,6 @@ impl Twin {
                 // with priority over events in the 2nd select!
                 biased;
 
-                //_ = trigger_wdt_interval.tick(), if trigger_wdt => {
                 _ = wdt_interval.next() => {
                     WatchdogManager::notify()?;
                 },
@@ -523,14 +523,14 @@ impl Twin {
                         },
                         Err(e) => {
                             error!("couldn't create iothub client: {e:#}");
-                            twin.reset_with_timeout(Some(time::Duration::from_secs(10))).await;
+                            twin.reset_client_with_timeout(Some(time::Duration::from_secs(10))).await;
                             client_connected.set(Self::connect_iothub_client(&client_builder));
                         }
                     }
                 },
                 Some(status) = rx_connection_status.recv() => {
                     if twin.handle_connection_status(status).await?{
-                        twin.reset_with_timeout(Some(time::Duration::from_secs(1))).await;
+                        twin.reset_client_with_timeout(Some(time::Duration::from_secs(1))).await;
                         client_connected.set(Self::connect_iothub_client(&client_builder));
                     };
                 },
