@@ -489,9 +489,9 @@ impl Twin {
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
         tokio::pin! {
-            let client_connected = Self::connect_iothub_client(&client_builder);
-            let wdt_interval = util::IntervalStream::new(WatchdogManager::init());
-            let prov_conf_interval = util::IntervalStream::new(twin.feature::<ProvisioningConfig>()?.refresh_interval());
+            let client_created = Self::connect_iothub_client(&client_builder);
+            let trigger_watchdog = util::IntervalStream::new(WatchdogManager::init());
+            let refresh_provisioning = util::IntervalStream::new(twin.feature::<ProvisioningConfig>()?.refresh_interval());
         };
 
         systemd::sd_notify_ready();
@@ -502,7 +502,7 @@ impl Twin {
                 // with priority over events in the 2nd select!
                 biased;
 
-                _ = wdt_interval.next() => {
+                _ = trigger_watchdog.next() => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
@@ -511,8 +511,8 @@ impl Twin {
                     signals.handle().close();
                     return Ok(())
                 },
-                client_result = &mut client_connected, if twin.client.is_none() => {
-                    match client_result {
+                result = &mut client_created, if twin.client.is_none() => {
+                    match result {
                         Ok(client) => {
                             info!("iothub client created");
                             twin.client = Some(client);
@@ -520,14 +520,14 @@ impl Twin {
                         Err(e) => {
                             error!("couldn't create iothub client: {e:#}");
                             twin.reset_client_with_timeout(Some(time::Duration::from_secs(10))).await;
-                            client_connected.set(Self::connect_iothub_client(&client_builder));
+                            client_created.set(Self::connect_iothub_client(&client_builder));
                         }
                     }
                 },
                 Some(status) = rx_connection_status.recv() => {
                     if twin.handle_connection_status(status).await?{
                         twin.reset_client_with_timeout(Some(time::Duration::from_secs(1))).await;
-                        client_connected.set(Self::connect_iothub_client(&client_builder));
+                        client_created.set(Self::connect_iothub_client(&client_builder));
                     };
                 },
                 result = async {
@@ -556,7 +556,7 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request).await?
                         },
-                        _ = prov_conf_interval.next() => {
+                        _ = refresh_provisioning.next() => {
                             twin.feature_mut::<ProvisioningConfig>()?.refresh().await?;
                         },
                     );
