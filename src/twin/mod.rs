@@ -455,9 +455,10 @@ impl Twin {
     }
 
     async fn reset_client_with_timeout(&mut self, timeout: Option<time::Duration>) {
-        info!("reset_client: shutdown iotclient");
-        if let Some(client) = self.client.as_mut().take() {
+        if let Some(client) = self.client.as_mut() {
+            info!("reset_client: shutdown iotclient");
             client.shutdown().await;
+            self.client = None;
         }
 
         if let Some(t) = timeout {
