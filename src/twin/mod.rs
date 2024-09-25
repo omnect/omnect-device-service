@@ -405,7 +405,7 @@ impl Twin {
     }
 
     async fn handle_webservice_request(&self, request: WebServiceCommand) -> Result<()> {
-        info!("handle_webservice_request: {:?}", request);
+        let req_str = format!("{request:?}");
 
         let (tx_result, result) = match request {
             WebServiceCommand::FactoryReset(reply) => (
@@ -418,6 +418,11 @@ impl Twin {
             WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await),
             WebServiceCommand::ReloadNetwork(reply) => (reply, system::reload_network().await),
         };
+
+        match &result {
+            Ok(()) => info!("handle_webservice_request: {req_str} succeeded"),
+            Err(e) => error!("handle_webservice_request: {req_str} failed with: {e}"),
+        }
 
         if tx_result.send(result.is_ok()).is_err() {
             error!("handle_webservice_request: receiver dropped");
