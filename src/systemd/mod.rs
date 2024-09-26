@@ -3,9 +3,9 @@ pub mod wait_online;
 pub mod watchdog;
 
 use anyhow::{bail, Result};
-use log::{debug, info};
 #[cfg(not(feature = "mock"))]
 use log::error;
+use log::{debug, info};
 use sd_notify::NotifyState;
 #[cfg(not(feature = "mock"))]
 use std::process::Command;
@@ -33,17 +33,27 @@ pub async fn reboot() -> Result<()> {
         error!("reboot: failed to execute 'journalctl --sync' with: {e}")
     }
 
-    zbus::Connection::system()
-        .await?
-        .call_method(
-            Some("org.freedesktop.login1"),
-            "/org/freedesktop/login1",
-            Some("org.freedesktop.login1.Manager"),
-            "Reboot",
-            &(true),
+    for i in [0..3] {
+        let result = tokio::time::timeout_at(
+            Instant::now() + Duration::from_secs(3),
+            zbus::Connection::system().await?.call_method(
+                Some("org.freedesktop.login1"),
+                "/org/freedesktop/login1",
+                Some("org.freedesktop.login1.Manager"),
+                "Reboot",
+                &(true),
+            ),
         )
-        .await?;
-    Ok(())
+        .await;
+
+        match result {
+            Err(e) => error!("reboot: trial{i:?} {e}"),
+            Ok(Err(e)) => error!("reboot: trial{i:?} {e}"),
+            _ => return Ok(()),
+        }
+    }
+
+    bail!("reboot: failed")
 }
 
 pub async fn wait_for_system_running(timeout: Duration) -> Result<()> {
