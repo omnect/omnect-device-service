@@ -2,10 +2,10 @@ pub mod unit;
 pub mod wait_online;
 pub mod watchdog;
 
-#[cfg(not(feature = "mock"))]
-use anyhow::Context;
 use anyhow::{bail, Result};
 use log::{debug, info};
+#[cfg(not(feature = "mock"))]
+use log::error;
 use sd_notify::NotifyState;
 #[cfg(not(feature = "mock"))]
 use std::process::Command;
@@ -25,11 +25,13 @@ pub fn sd_notify_ready() {
 pub async fn reboot() -> Result<()> {
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
-    let _ = Command::new("sudo")
+    if let Err(e) = Command::new("sudo")
         .arg("journalctl")
         .arg("--sync")
         .status()
-        .context("reboot: failed to execute 'journalctl --sync'")?;
+    {
+        error!("reboot: failed to execute 'journalctl --sync' with: {e}")
+    }
 
     zbus::Connection::system()
         .await?

@@ -366,10 +366,8 @@ impl Twin {
     }
 
     async fn handle_direct_method(&mut self, method: DirectMethod) -> Result<()> {
-        info!(
-            "handle_direct_method: {} with payload: {}",
-            method.name, method.payload
-        );
+        let name = method.name.clone();
+        let payload = method.payload.clone();
 
         let result = match method.name.as_str() {
             "factory_reset" => {
@@ -406,15 +404,21 @@ impl Twin {
             _ => Err(anyhow!("direct method unknown")),
         };
 
+        match &result {
+            Ok(Some(result)) => info!("{name}({payload}) succeeded with result: {result}"),
+            Ok(None) => info!("{name}({payload}) succeeded"),
+            Err(e) => error!("{name}({payload}) returned error: {e}"),
+        }
+
         if method.responder.send(result).is_err() {
-            error!("handle_direct_method: receiver dropped");
+            error!("handle_direct_method: {name}({payload}) receiver dropped");
         }
 
         Ok(())
     }
 
     async fn handle_webservice_request(&self, request: WebServiceCommand) -> Result<()> {
-        info!("handle_webservice_request: {:?}", request);
+        let req_str = format!("{request:?}");
 
         let (tx_result, result) = match request {
             WebServiceCommand::FactoryReset(reply) => (
@@ -427,6 +431,11 @@ impl Twin {
             WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await),
             WebServiceCommand::ReloadNetwork(reply) => (reply, system::reload_network().await),
         };
+
+        match &result {
+            Ok(()) => info!("handle_webservice_request: {req_str} succeeded"),
+            Err(e) => error!("handle_webservice_request: {req_str} failed with: {e}"),
+        }
 
         if tx_result.send(result.is_ok()).is_err() {
             error!("handle_webservice_request: receiver dropped");
