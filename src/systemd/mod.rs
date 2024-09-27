@@ -33,6 +33,11 @@ pub async fn reboot() -> Result<()> {
         error!("reboot: failed to execute 'journalctl --sync' with: {e}")
     }
 
+    /*
+       we observed situations when the reboot future never completed.
+       that's why we have here a retry + timeout workaround.
+       the workaround should be removed someday in case we never face the situation again.
+    */
     for i in [0..3] {
         let result = tokio::time::timeout_at(
             Instant::now() + Duration::from_secs(3),
