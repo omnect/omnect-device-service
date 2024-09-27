@@ -456,7 +456,8 @@ impl Twin {
                         .unwrap_or_else(|e| error!("couldn't send while shutting down: {e:#}"));
                 }
 
-                self.reset_client_with_delay(None);
+                client.shutdown().await;
+                self.client = None;
             }
 
             if let Some(ws) = &self.web_service {
