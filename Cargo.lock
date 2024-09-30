@@ -2238,18 +2238,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "network-interface"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "433419f898328beca4f2c6c73a1b52540658d92b0a99f0269330457e0fd998d5"
-dependencies = [
- "cc",
- "libc",
- "thiserror",
- "winapi",
-]
-
-[[package]]
 name = "nix"
 version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2424,7 +2412,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "actix-server",
  "actix-web",
@@ -2447,7 +2435,6 @@ dependencies = [
  "log-panics",
  "mockall",
  "modemmanager",
- "network-interface",
  "nix 0.29.0",
  "notify",
  "notify-debouncer-mini",
@@ -3512,6 +3499,17 @@ dependencies = [
 [[package]]
 name = "tokio-stream"
 version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f4e6ce100d0eb49a2734f8c0812bcd324cf357d21810932c5df6b96ef2b86f1"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f4e6ce100d0eb49a2734f8c0812bcd324cf357d21810932c5df6b96ef2b86f1"
 dependencies = [

@@ -19,6 +19,35 @@ macro_rules! env_file_path {
     }};
 }
 
+#[cfg(not(feature = "mock"))]
+pub async fn networkd_interfaces() -> Result<serde_json::Value> {
+    let reply = zbus::Connection::system()
+        .await?
+        .call_method(
+            Some("org.freedesktop.network1"),
+            "/org/freedesktop/network1",
+            Some("org.freedesktop.network1.Manager"),
+            "Describe",
+            &(),
+        )
+        .await?;
+
+    serde_json::from_str(reply.body().unwrap()).context("cannot parse network description")
+}
+
+#[cfg(feature = "mock")]
+pub async fn networkd_interfaces() -> Result<serde_json::Value> {
+    use std::fs::OpenOptions;
+    let json = serde_json::from_reader(
+        OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open("testfiles/positive/systemd-networkd-link-description.json")
+            .unwrap(),
+    )?;
+    Ok(json)
+}
+
 pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
     /*
        we expect systemd-networkd-wait-online.service file to be present.
@@ -115,9 +144,8 @@ pub fn set_networkd_wait_online_timeout(timeout: Option<Duration>) -> Result<()>
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
+    use std::fs;
 
     #[test]
     fn networkd_wait_online_timeout_invalid_input() {

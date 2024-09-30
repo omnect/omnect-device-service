@@ -1,5 +1,5 @@
+pub mod networkd;
 pub mod unit;
-pub mod wait_online;
 pub mod watchdog;
 
 use anyhow::{bail, Result};

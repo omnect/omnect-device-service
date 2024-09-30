@@ -142,7 +142,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<NetworkStatus>(),
-                Box::new(NetworkStatus::new()?) as Box<dyn Feature>,
+                Box::new(NetworkStatus::new().await?) as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<ProvisioningConfig>(),
@@ -365,6 +365,7 @@ impl Twin {
                     .feature::<DeviceUpdateConsent>()?
                     .user_consent(method.payload),
                 "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
+                // rm
                 "refresh_network_status" => self.feature_mut::<NetworkStatus>()?.refresh().await,
                 "get_ssh_pub_key" => {
                     self.feature::<SshTunnel>()?
@@ -510,6 +511,10 @@ impl Twin {
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
             let trigger_watchdog = util::IntervalStream::new(WatchdogManager::init());
+            /*
+                idea: make refresh and refresh_interval a feature trait method. use array of FuturesUnordered to join all timer.use unimplemented!
+                https://users.rust-lang.org/t/how-to-select-a-vec-of-future/89106
+            */
             let refresh_provisioning = util::IntervalStream::new(twin.feature::<ProvisioningConfig>()?.refresh_interval());
         };
 
