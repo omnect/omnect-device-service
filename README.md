@@ -40,6 +40,7 @@ This module serves as interface between omnect cloud and device to support certa
     - [Wifi commissioning service](#wifi-commissioning-service)
       - [Feature availability](#feature-availability-7)
   - [Local web service](#local-web-service)
+    - [Factory reset](#factory-reset-1)
     - [Trigger reboot](#trigger-reboot-1)
     - [Reload network daemon](#reload-network-daemon)
     - [Status updates](#status-updates)
@@ -771,6 +772,12 @@ omnect-device-service provides a http web service that exposes a web API over a 
 Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)<br>
 
 The web service features is disabled by default and must be explicitly activated via environment variable `WEBSERVICE_ENABLED=true`.
+
+### Factory reset
+
+```
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1
+```
 
 ### Trigger reboot
 

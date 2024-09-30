@@ -3,6 +3,7 @@ pub mod system;
 pub mod systemd;
 pub mod twin;
 pub mod update_validation;
+pub mod util;
 pub mod web_service;
 
 use azure_iot_sdk::client::*;
@@ -17,13 +18,18 @@ async fn main() {
     log_panics::init();
 
     let mut builder = if cfg!(debug_assertions) {
-        Builder::from_env(Env::default().default_filter_or(concat!(
-            "debug",
-            ",azure_iot_sdk=info",
-            ",reqwest=info",
-            ",hyper_util=info",
-            ",mio=info"
-        )))
+        Builder::from_env(Env::default().default_filter_or(
+            "trace, \
+            actix_server=error, \
+            azure_iot_sdk=info, \
+            eis_utils=info, \
+            hyper=error, \
+            hyper_util=error, \
+            mio=error, \
+            notify=error, \
+            reqwest=error, \
+            tracing=error",
+        ))
     } else {
         Builder::from_env(Env::default().default_filter_or("info"))
     };

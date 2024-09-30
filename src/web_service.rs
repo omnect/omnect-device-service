@@ -245,9 +245,13 @@ impl WebService {
     ) -> impl Responder {
         tx_request.send(cmd).await.unwrap();
 
-        match rx_reply.await.unwrap() {
-            true => HttpResponse::Ok().finish(),
-            false => {
+        match rx_reply.await {
+            Ok(true) => HttpResponse::Ok().finish(),
+            Ok(false) => {
+                HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
+            }
+            Err(_) => {
+                error!("couldn't receive command result");
                 HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
             }
         }

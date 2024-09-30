@@ -3,10 +3,10 @@ use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::{any::Any, env, time::Duration};
+use std::{any::Any, env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
 use tokio::{
     sync::mpsc::Sender,
@@ -55,16 +55,26 @@ impl X509 {
             .filter_map(Result::ok)
             .collect();
 
-        let num_certs = paths.len();
+        let expires = match paths.len() {
+            0 => {
+                if est {
+                    warn!("no certs found. maybe device isn't provisioned yet?");
+                    "unknown".to_owned()
+                } else {
+                    bail!("couldn't find certificate")
+                }
+            }
+            1 => Self::expires(paths[0].as_path(), hostname)?,
+            num => bail!("expected exactly 1 certificate but found {num}"),
+        };
 
-        ensure!(
-                num_certs == 1,
-                "provisioning_config: found {num_certs} certs instead of one with glob path {glob_path}."
-            );
+        Ok(X509 { est, expires })
+    }
 
+    fn expires(cert_path: &Path, hostname: &String) -> Result<String> {
         let file = std::io::BufReader::new(
-            std::fs::File::open(&paths[0])
-                .context(format!("provisioning_config: cannot read {:?}", paths[0]))?,
+            std::fs::File::open(cert_path)
+                .context(format!("provisioning_config: cannot read {:?}", cert_path))?,
         );
 
         let pem = x509_parser::pem::Pem::read(file).context("provisioning_config: read PEM")?;
@@ -86,14 +96,11 @@ impl X509 {
             "provisioning_config: hostname and cname don't match ({hostname} vs {cname})"
         );
 
-        let expires = cert
-            .validity()
+        cert.validity()
             .not_after
             .to_datetime()
             .format(&Rfc3339)
-            .context("provisioning_config: format date")?;
-
-        Ok(X509 { est, expires })
+            .context("provisioning_config: format date")
     }
 }
 
@@ -242,7 +249,7 @@ impl ProvisioningConfig {
             self.report().await?;
             Ok(true)
         } else {
-            debug!("refresh: est expiration date didn't change");
+            trace!("refresh: est expiration date didn't change");
             Ok(false)
         }
     }

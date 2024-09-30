@@ -36,7 +36,6 @@ pub mod mod_test {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
             Ok(MockMyIotHub::default())
         }
-
         pub fn observe_connection_state(
             self,
             _tx_connection_status: AuthenticationObserver,
@@ -204,22 +203,31 @@ pub mod mod_test {
             let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
             let (tx_web_service, _rx_web_service) = mpsc::channel(100);
 
+            let mut twin = block_on(Twin::new(
+                tx_web_service,
+                tx_reported_properties,
+                tx_outgoing_message,
+            ))
+            .unwrap();
+
+            let client_builder = IotHubClient::builder()
+                .observe_connection_state(tx_connection_status)
+                .observe_desired_properties(tx_twin_desired)
+                .observe_direct_methods(tx_direct_method);
+            twin.client = Some(
+                client_builder
+                    .build_module_client("connection_string")
+                    .unwrap(),
+            );
+
             // create test config
             let mut config = TestConfig {
-                twin: block_on(Twin::new(
-                    tx_connection_status,
-                    tx_twin_desired,
-                    tx_direct_method,
-                    tx_web_service,
-                    tx_reported_properties,
-                    tx_outgoing_message,
-                ))
-                .unwrap(),
+                twin,
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
             // set testcase specific mock expectaions
-            set_mock_expectations(&mut config.twin.client);
+            set_mock_expectations(&mut config.twin.client.as_mut().unwrap());
 
             // run test
             run_test(&mut config);
@@ -227,7 +235,13 @@ pub mod mod_test {
             // compute reported properties
             while let Ok(val) = rx_reported_properties.try_recv() {
                 info!("{val:?}");
-                config.twin.client.twin_report(val).unwrap()
+                config
+                    .twin
+                    .client
+                    .as_ref()
+                    .unwrap()
+                    .twin_report(val)
+                    .unwrap()
             }
 
             // cleanup env vars
@@ -536,49 +550,37 @@ pub mod mod_test {
         let expect = |_mock: &mut MockMyIotHub| {};
 
         let test = |test_attr: &'_ mut TestConfig| {
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(TwinUpdateState::Partial, json!(""))
-                    .await
-            })
-            .is_ok());
+            assert!(test_attr
+                .twin
+                .handle_desired(TwinUpdateState::Partial, json!(""))
+                .is_ok());
 
             assert_eq!(
-                block_on(async {
-                    test_attr
-                        .twin
-                        .handle_desired(TwinUpdateState::Partial, json!({"general_consent": {}}))
-                        .await
-                })
-                .unwrap_err()
-                .to_string(),
+                test_attr
+                    .twin
+                    .handle_desired(TwinUpdateState::Partial, json!({"general_consent": {}}))
+                    .unwrap_err()
+                    .to_string(),
                 "feature disabled: device_update_consent"
             );
 
             assert_eq!(
-                block_on(async {
-                    test_attr
-                        .twin
-                        .handle_desired(TwinUpdateState::Complete, json!(""))
-                        .await
-                })
-                .unwrap_err()
-                .to_string(),
+                test_attr
+                    .twin
+                    .handle_desired(TwinUpdateState::Complete, json!(""))
+                    .unwrap_err()
+                    .to_string(),
                 "handle_desired: 'desired' missing while TwinUpdateState::Complete"
             );
             assert_eq!(
-                block_on(async {
-                    test_attr
-                        .twin
-                        .handle_desired(
-                            TwinUpdateState::Complete,
-                            json!({"desired": {"general_consent": {}}}),
-                        )
-                        .await
-                })
-                .unwrap_err()
-                .to_string(),
+                test_attr
+                    .twin
+                    .handle_desired(
+                        TwinUpdateState::Complete,
+                        json!({"desired": {"general_consent": {}}}),
+                    )
+                    .unwrap_err()
+                    .to_string(),
                 "feature disabled: device_update_consent"
             );
         };
@@ -672,13 +674,10 @@ pub mod mod_test {
                 })
             );
 
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(TwinUpdateState::Complete, json!({"desired": {}}))
-                    .await
-            })
-            .is_ok());
+            assert!(test_attr
+                .twin
+                .handle_desired(TwinUpdateState::Complete, json!({"desired": {}}))
+                .is_ok());
 
             assert_json_diff::assert_json_eq!(
                 file_content(),
@@ -688,16 +687,13 @@ pub mod mod_test {
                 })
             );
 
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(
-                        TwinUpdateState::Partial,
-                        json!({"general_consent": ["SWUPDATE2", "SWUPDATE1"]}),
-                    )
-                    .await
-            })
-            .is_ok());
+            assert!(test_attr
+                .twin
+                .handle_desired(
+                    TwinUpdateState::Partial,
+                    json!({"general_consent": ["SWUPDATE2", "SWUPDATE1"]}),
+                )
+                .is_ok());
 
             assert_json_diff::assert_json_eq!(
                 file_content(),
@@ -707,13 +703,10 @@ pub mod mod_test {
                 })
             );
 
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_desired(TwinUpdateState::Complete, json!({"desired": {}}))
-                    .await
-            })
-            .is_ok());
+            assert!(test_attr
+                .twin
+                .handle_desired(TwinUpdateState::Complete, json!({"desired": {}}))
+                .is_ok());
         };
 
         TestCase::run(test_files, vec![], vec![], expect, test);

@@ -54,7 +54,8 @@ impl Feature for NetworkStatus {
     ) -> Result<()> {
         self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
-        self.report().await
+        self.refresh().await?;
+        Ok(())
     }
 }
 
