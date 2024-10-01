@@ -32,7 +32,7 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
     */
 
     use log::debug;
-    for i in [0..3] {
+    for i in 0..3 {
         debug!("networkd_interfaces: trial{i:?}");
         let result = timeout_at(
             Instant::now() + Duration::from_secs(3),
