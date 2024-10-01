@@ -21,18 +21,35 @@ macro_rules! env_file_path {
 
 #[cfg(not(feature = "mock"))]
 pub async fn networkd_interfaces() -> Result<serde_json::Value> {
-    let reply = zbus::Connection::system()
-        .await?
-        .call_method(
-            Some("org.freedesktop.network1"),
-            "/org/freedesktop/network1",
-            Some("org.freedesktop.network1.Manager"),
-            "Describe",
-            &(),
+    /*
+       we observed situations when the future never completes.
+       that's why we have here a retry + timeout workaround.
+       the workaround should be removed someday in case we never face the situation again.
+    */
+    for i in [0..3] {
+        let result = tokio::time::timeout_at(
+            Instant::now() + Duration::from_secs(3),
+            zbus::Connection::system().await?.call_method(
+                Some("org.freedesktop.network1"),
+                "/org/freedesktop/network1",
+                Some("org.freedesktop.network1.Manager"),
+                "Describe",
+                &(),
+            ),
         )
-        .await?;
+        .await;
 
-    serde_json::from_str(reply.body().unwrap()).context("cannot parse network description")
+        match result {
+            Err(e) => error!("networkd_interfaces: trial{i:?} {e}"),
+            Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} {e}"),
+            _ => {
+                return serde_json::from_str(reply.body().unwrap())
+                    .context("cannot parse network description")
+            }
+        }
+    }
+
+    bail!("networkd_interfaces: failed")
 }
 
 #[cfg(feature = "mock")]

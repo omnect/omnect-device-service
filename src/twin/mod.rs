@@ -124,60 +124,66 @@ pub struct Twin {
 }
 
 impl Twin {
-    async fn new(
+    fn new(
         tx_web_service: mpsc::Sender<WebServiceCommand>,
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
-        // has to be called before iothub client authentication
-        let update_validation = UpdateValidation::new()?;
-        let client = None;
-        let web_service = WebService::run(tx_web_service.clone()).await?;
-        let state = TwinState::Uninitialized;
+        block_on(async {
+            // has to be called before iothub client authentication
+            let update_validation = UpdateValidation::new()?;
+            let client = None;
+            let web_service = WebService::run(tx_web_service.clone()).await?;
+            let state = TwinState::Uninitialized;
 
-        let features = HashMap::from([
-            (
-                TypeId::of::<DeviceUpdateConsent>(),
-                Box::<DeviceUpdateConsent>::default() as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<FactoryReset>(),
-                Box::new(FactoryReset::new()) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<ModemInfo>(),
-                Box::new(ModemInfo::new()) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<NetworkStatus>(),
-                Box::new(NetworkStatus::new().await?) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<ProvisioningConfig>(),
-                Box::new(ProvisioningConfig::new()?) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<Reboot>(),
-                Box::<Reboot>::default() as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<SshTunnel>(),
-                Box::new(SshTunnel::new()) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<WifiCommissioning>(),
-                Box::<WifiCommissioning>::default() as Box<dyn Feature>,
-            ),
-        ]);
+            let features = HashMap::from([
+                (
+                    TypeId::of::<DeviceUpdateConsent>(),
+                    Box::<DeviceUpdateConsent>::default() as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<FactoryReset>(),
+                    Box::new(FactoryReset::new()) as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<ModemInfo>(),
+                    Box::new(ModemInfo::new()) as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<NetworkStatus>(),
+                    Box::new(NetworkStatus::new().await?) as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<ProvisioningConfig>(),
+                    Box::new(ProvisioningConfig::new()?) as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<Reboot>(),
+                    Box::<Reboot>::default() as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<SshTunnel>(),
+                    Box::new(SshTunnel::new()) as Box<dyn Feature>,
+                ),
+                (
+                    TypeId::of::<WifiCommissioning>(),
+                    Box::<WifiCommissioning>::default() as Box<dyn Feature>,
+                ),
+            ]);
 
-        Ok(Twin {
-            client,
-            web_service,
-            tx_reported_properties,
-            tx_outgoing_message,
-            state,
-            features,
-            update_validation,
+            let twin = Twin {
+                client,
+                web_service,
+                tx_reported_properties,
+                tx_outgoing_message,
+                state,
+                features,
+                update_validation,
+            };
+
+            twin.connect_web_service().await?;
+
+            Ok(twin)
         })
     }
 
@@ -507,15 +513,12 @@ impl Twin {
             std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/usr/lib".to_string())
         )))?;
 
-        let mut twin =
-            Self::new(tx_web_service, tx_reported_properties, tx_outgoing_message).await?;
+        let mut twin = Self::new(tx_web_service, tx_reported_properties, tx_outgoing_message)?;
 
         let client_builder = IotHubClient::builder()
             .observe_connection_state(tx_connection_status)
             .observe_desired_properties(tx_twin_desired)
             .observe_direct_methods(tx_direct_method);
-
-        twin.connect_web_service().await?;
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
@@ -523,8 +526,12 @@ impl Twin {
             let client_created = Self::connect_iothub_client(&client_builder);
             let trigger_watchdog = util::IntervalStreamOption::new(WatchdogManager::init());
             let refresh_features = futures::stream::select_all::select_all(twin.features.iter().filter_map(|(id, f)| {
-                if f.is_enabled(){ f.refresh_interval()
-                    .map(|i| util::IntervalStreamTypeId::new(i, *id))}else{None}
+                if f.is_enabled() {
+                    f.refresh_interval()
+                        .map(|i| util::IntervalStreamTypeId::new(i, *id))
+                } else {
+                    None
+                }
             }));
         };
 
