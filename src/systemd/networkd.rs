@@ -1,7 +1,11 @@
 use anyhow::{bail, ensure, Context, Result};
 use freedesktop_entry_parser::parse_entry;
+#[cfg(not(feature = "mock"))]
+use log::error;
 use regex::RegexBuilder;
 use std::time::Duration;
+#[cfg(not(feature = "mock"))]
+use tokio::time::{timeout_at, Instant};
 
 macro_rules! service_file_path {
     () => {{
@@ -27,7 +31,7 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
        the workaround should be removed someday in case we never face the situation again.
     */
     for i in [0..3] {
-        let result = tokio::time::timeout_at(
+        let result = timeout_at(
             Instant::now() + Duration::from_secs(3),
             zbus::Connection::system().await?.call_method(
                 Some("org.freedesktop.network1"),
@@ -42,8 +46,8 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
         match result {
             Err(e) => error!("networkd_interfaces: trial{i:?} {e}"),
             Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} {e}"),
-            _ => {
-                return serde_json::from_str(reply.body().unwrap())
+            Ok(Ok(result)) => {
+                return serde_json::from_str(result.body().unwrap())
                     .context("cannot parse network description")
             }
         }
