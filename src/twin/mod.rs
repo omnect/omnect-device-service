@@ -129,7 +129,8 @@ impl Twin {
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
-        block_on(async {
+        let handle = tokio::runtime::Runtime::new().context("cannot create runtime")?;
+        handle.block_on(async {
             // has to be called before iothub client authentication
             let update_validation = UpdateValidation::new()?;
             let client = None;
