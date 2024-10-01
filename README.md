@@ -27,11 +27,9 @@ This module serves as interface between omnect cloud and device to support certa
     - [Modem Info](#modem-info)
       - [Feature availability](#feature-availability-4)
       - [Current reported modem info](#current-reported-modem-info)
-      - [Refresh modem info](#refresh-modem-info)
     - [Network status](#network-status)
       - [Feature availability](#feature-availability-5)
       - [Current reported network status](#current-reported-network-status)
-      - [Refresh Network status](#refresh-network-status)
     - [SSH Tunnel handling](#ssh-tunnel-handling)
       - [Feature availability](#feature-availability-6)
       - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
@@ -457,45 +455,10 @@ The module reports the status of any attached modems. For this purpose the modul
 }
 ```
 
-#### Refresh modem info
-
-A direct method to refresh and report current modem info.
-
-**Direct method: refresh_modem_info**
-
-Method Name: `refresh_modem_info`
-
-Payload:
-```
-{
-}
-```
-
-Result:
-```
-{
-  "status": <HTTP-Statusode>,
-  "payload": {}
-}
-```
-In case the method was successful received by the module the return value of the method looks like this:
-
-```
-{
-  "status": 200,
-  "payload": {}
-}
-```
-
-In all other cases there will be an error status:
-```
-{
-  "status": 401,
-  "payload": {}
-}
-```
-
 ### Network status
+
+ToDo
+REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT
 
 #### Feature availability
 
@@ -516,6 +479,7 @@ SUPPRESS_NETWORK_STATUS=true
 
 The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
 
+ToDo
 ```
 "network_status":
 {
@@ -568,44 +532,6 @@ The module reports the status of network adapters. For this purpose the module s
       "name": "vethbd467ae"
     }
   ]
-}
-```
-
-#### Refresh Network status
-
-A direct method to refresh and report current network status.
-
-**Direct method: refresh_network_status**
-
-Method Name: `refresh_network_status`
-
-Payload:
-```
-{
-}
-```
-
-Result:
-```
-{
-  "status": <HTTP-Statusode>,
-  "payload": {}
-}
-```
-In case the method was successful received by the module the return value of the method looks like this:
-
-```
-{
-  "status": 200,
-  "payload": {}
-}
-```
-
-In all other cases there will be an error status:
-```
-{
-  "status": 401,
-  "payload": {}
 }
 ```
 

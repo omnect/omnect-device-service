@@ -3,27 +3,41 @@ use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
+use lazy_static::lazy_static;
 use log::{error, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::{any::Any, env};
-use tokio::sync::mpsc::Sender;
+use std::{any::Any, env, time::Duration};
+use tokio::{
+    sync::mpsc::Sender,
+    time::{interval, Interval},
+};
 
-#[derive(Serialize)]
+lazy_static! {
+    static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
+        const REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT: &str = "60";
+        std::env::var("REFRESH_NETWORK_STATUS_INTERVAL_SECS")
+            .unwrap_or(REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT.to_string())
+            .parse::<u64>()
+            .expect("cannot parse REFRESH_NETWORK_STATUS_INTERVAL_SECS env var")
+    };
+}
+
+#[derive(PartialEq, Serialize)]
 pub struct Address {
     addr: String,
     prefix_len: u64,
     dhcp: bool,
 }
 
-#[derive(Serialize)]
+#[derive(PartialEq, Serialize)]
 pub struct IpConfig {
     addrs: Vec<Address>,
     gateways: Vec<String>,
     dns: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(PartialEq, Serialize)]
 pub struct Interface {
     name: String,
     mac: String,
@@ -66,7 +80,32 @@ impl Feature for NetworkStatus {
     ) -> Result<()> {
         self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
-        self.refresh().await?;
+        self.interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
+        self.report().await?;
+        Ok(())
+    }
+
+    fn refresh_interval(&self) -> Option<Interval> {
+        if 0 < *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
+            Some(interval(Duration::from_secs(
+                *REFRESH_NETWORK_STATUS_INTERVAL_SECS,
+            )))
+        } else {
+            None
+        }
+    }
+
+    async fn refresh(&mut self) -> Result<()> {
+        info!("network status requested");
+
+        self.ensure()?;
+        let interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
+
+        if self.interfaces != interfaces {
+            self.interfaces = interfaces;
+            self.report().await?;
+        }
+
         Ok(())
     }
 }
@@ -80,16 +119,6 @@ impl NetworkStatus {
             interfaces: Self::parse_interfaces(&networkd::networkd_interfaces().await?)?,
             tx_reported_properties: None,
         })
-    }
-
-    pub async fn refresh(&mut self) -> Result<Option<serde_json::Value>> {
-        info!("network status requested");
-
-        self.ensure()?;
-        self.interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
-        self.report().await?;
-
-        Ok(None)
     }
 
     async fn report(&self) -> Result<()> {
@@ -246,6 +275,9 @@ impl NetworkStatus {
                 });
             }
         }
+
+        // we always sort vector by name to make it comparable
+        report.sort_by_key(|k| k.name.clone());
 
         Ok(report)
     }

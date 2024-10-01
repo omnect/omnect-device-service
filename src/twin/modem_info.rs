@@ -2,10 +2,14 @@ use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
+use lazy_static::lazy_static;
 use log::info;
 use serde_json::json;
-use std::{any::Any, env};
-use tokio::sync::mpsc::Sender;
+use std::{any::Any, env, time::Duration};
+use tokio::{
+    sync::mpsc::Sender,
+    time::{interval, Interval},
+};
 
 #[cfg(feature = "modem_info")]
 mod inner {
@@ -145,14 +149,12 @@ mod inner {
             }
         }
 
-        pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
+        pub async fn refresh_modem_info(&self) -> Result<()> {
             info!("modem info status requested");
 
             self.ensure()?;
 
-            self.report_modem_info().await?;
-
-            Ok(None)
+            self.report_modem_info().await
         }
 
         async fn bearer_properties<'a>(
@@ -289,6 +291,7 @@ mod inner {
 #[cfg(not(feature = "modem_info"))]
 mod inner {
     use super::*;
+    use log::warn;
 
     #[derive(Default)]
     pub struct ModemInfo {
@@ -300,13 +303,14 @@ mod inner {
             ModemInfo::default()
         }
 
-        pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
+        pub async fn refresh_modem_info(&self) -> Result<()> {
             info!("modem info status requested");
 
             self.ensure()?;
 
             let Some(tx) = &self.tx_reported_properties else {
-                anyhow::bail!("refresh_modem_info: tx_reported_properties is None")
+                warn!("skip since tx_reported_properties is None");
+                return Ok(());
             };
 
             tx.send(json!({
@@ -315,7 +319,7 @@ mod inner {
             .await
             .context("report_modem_info: report_impl")?;
 
-            Ok(None)
+            Ok(())
         }
     }
 }
@@ -324,6 +328,16 @@ pub use inner::ModemInfo;
 
 const MODEM_INFO_VERSION: u8 = 1;
 const ID: &str = "modem_info";
+
+lazy_static! {
+    static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
+        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "3";
+        std::env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
+            .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
+            .parse::<u64>()
+            .expect("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")
+    };
+}
 
 #[async_trait(?Send)]
 impl Feature for ModemInfo {
@@ -355,8 +369,24 @@ impl Feature for ModemInfo {
 
         self.tx_reported_properties = Some(tx_reported_properties);
 
-        self.refresh_modem_info().await?;
+        self.refresh_modem_info().await
+    }
 
-        Ok(())
+    fn refresh_interval(&self) -> Option<Interval> {
+        if 0 < *REFRESH_MODEM_INFO_INTERVAL_SECS {
+            Some(interval(Duration::from_secs(
+                *REFRESH_MODEM_INFO_INTERVAL_SECS,
+            )))
+        } else {
+            None
+        }
+    }
+
+    async fn refresh(&mut self) -> Result<()> {
+        info!("network status requested");
+
+        self.ensure()?;
+
+        self.refresh_modem_info().await
     }
 }

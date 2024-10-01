@@ -15,7 +15,7 @@ use tokio::{
 
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
-        const REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &str = "60";
+        const REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &str = "180";
         std::env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
             .unwrap_or(REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
@@ -156,6 +156,37 @@ impl Feature for ProvisioningConfig {
 
         self.report().await
     }
+
+    fn refresh_interval(&self) -> Option<Interval> {
+        match &self.method {
+            Method::X509(cert) if cert.est && 0 < *REFRESH_EST_EXPIRY_INTERVAL_SECS => Some(
+                interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
+            ),
+            _ => None,
+        }
+    }
+
+    async fn refresh(&mut self) -> Result<()> {
+        self.ensure()?;
+
+        let expires = match &self.method {
+            Method::X509(X509 { est, expires, .. }) if *est => expires,
+            _ => bail!("refresh: unexpected provisioning method"),
+        };
+
+        let x509 = X509::new(true, &self.hostname)?;
+
+        if &x509.expires != expires {
+            info!("refresh: est expiration date changed {}", &x509.expires);
+
+            self.method = Method::X509(x509);
+            self.report().await?;
+        } else {
+            trace!("refresh: est expiration date didn't change");
+        }
+
+        Ok(())
+    }
 }
 
 impl ProvisioningConfig {
@@ -221,37 +252,6 @@ impl ProvisioningConfig {
         debug!("provisioning_config: new {this:?}");
 
         Ok(this)
-    }
-
-    pub fn refresh_interval(&self) -> Option<Interval> {
-        match &self.method {
-            Method::X509(cert) if cert.est => Some(interval(Duration::from_secs(
-                *REFRESH_EST_EXPIRY_INTERVAL_SECS,
-            ))),
-            _ => None,
-        }
-    }
-
-    pub async fn refresh(&mut self) -> Result<bool> {
-        self.ensure()?;
-
-        let expires = match &self.method {
-            Method::X509(X509 { est, expires, .. }) if *est => expires,
-            _ => bail!("refresh: unexpected provisioning method"),
-        };
-
-        let x509 = X509::new(true, &self.hostname)?;
-
-        if &x509.expires != expires {
-            info!("refresh: est expiration date changed {}", &x509.expires);
-
-            self.method = Method::X509(x509);
-            self.report().await?;
-            Ok(true)
-        } else {
-            trace!("refresh: est expiration date didn't change");
-            Ok(false)
-        }
     }
 
     async fn report(&self) -> Result<()> {

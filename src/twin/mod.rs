@@ -49,7 +49,7 @@ use std::{
     time,
 };
 use strum_macros::EnumCount as EnumCountMacro;
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, time::Interval};
 
 #[enum_dispatch]
 #[derive(EnumCountMacro)]
@@ -95,6 +95,14 @@ trait Feature {
 
     async fn connect_web_service(&self) -> Result<()> {
         Ok(())
+    }
+
+    fn refresh_interval(&self) -> Option<Interval> {
+        None
+    }
+
+    async fn refresh(&mut self) -> Result<()> {
+        unimplemented!();
     }
 }
 
@@ -364,9 +372,6 @@ impl Twin {
                 "user_consent" => self
                     .feature::<DeviceUpdateConsent>()?
                     .user_consent(method.payload),
-                "refresh_modem_info" => self.feature::<ModemInfo>()?.refresh_modem_info().await,
-                // rm
-                "refresh_network_status" => self.feature_mut::<NetworkStatus>()?.refresh().await,
                 "get_ssh_pub_key" => {
                     self.feature::<SshTunnel>()?
                         .get_ssh_pub_key(method.payload)
@@ -405,7 +410,7 @@ impl Twin {
         })
     }
 
-    fn handle_webservice_request(&self, request: WebServiceCommand) -> Result<()> {
+    fn handle_webservice_request(&mut self, request: WebServiceCommand) -> Result<()> {
         block_on(async {
             let req_str = format!("{request:?}");
 
@@ -418,7 +423,13 @@ impl Twin {
                         .map(|_| ()),
                 ),
                 WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await),
-                WebServiceCommand::ReloadNetwork(reply) => (reply, system::reload_network().await),
+                WebServiceCommand::ReloadNetwork(reply) => {
+                    let mut result = system::reload_network().await;
+                    if result.is_ok() {
+                        result = self.feature_mut::<NetworkStatus>()?.refresh().await;
+                    }
+                    (reply, result)
+                }
             };
 
             match &result {
@@ -510,12 +521,11 @@ impl Twin {
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = util::IntervalStream::new(WatchdogManager::init());
-            /*
-                idea: make refresh and refresh_interval a feature trait method. use array of FuturesUnordered to join all timer.use unimplemented!
-                https://users.rust-lang.org/t/how-to-select-a-vec-of-future/89106
-            */
-            let refresh_provisioning = util::IntervalStream::new(twin.feature::<ProvisioningConfig>()?.refresh_interval());
+            let trigger_watchdog = util::IntervalStreamOption::new(WatchdogManager::init());
+            let refresh_features = futures::stream::select_all::select_all(twin.features.iter().filter_map(|(id, f)| {
+                if f.is_enabled(){ f.refresh_interval()
+                    .map(|i| util::IntervalStreamTypeId::new(i, *id))}else{None}
+            }));
         };
 
         systemd::sd_notify_ready();
@@ -526,7 +536,7 @@ impl Twin {
                 // with priority over events in the 2nd select!
                 biased;
 
-                _ = trigger_watchdog.next() => {
+                 _ = trigger_watchdog.next() => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
@@ -578,8 +588,12 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request)?
                         },
-                        _ = refresh_provisioning.next() => {
-                            block_on(twin.feature_mut::<ProvisioningConfig>()?.refresh())?;
+                        id = refresh_features.select_next_some() => {
+                            let feature = twin
+                                .features
+                                .get_mut(&id)
+                                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
+                            block_on(feature.refresh())?;
                         },
                     );
 
