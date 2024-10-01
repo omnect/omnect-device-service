@@ -30,7 +30,10 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
        that's why we have here a retry + timeout workaround.
        the workaround should be removed someday in case we never face the situation again.
     */
+
+    use log::debug;
     for i in [0..3] {
+        debug!("networkd_interfaces: trial{i:?}");
         let result = timeout_at(
             Instant::now() + Duration::from_secs(3),
             zbus::Connection::system().await?.call_method(
@@ -47,6 +50,7 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
             Err(e) => error!("networkd_interfaces: trial{i:?} {e}"),
             Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} {e}"),
             Ok(Ok(result)) => {
+                debug!("networkd_interfaces: succeeded");
                 return serde_json::from_str(result.body().unwrap())
                     .context("cannot parse network description")
             }
