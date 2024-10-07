@@ -1,10 +1,11 @@
 use super::super::systemd::networkd;
+use super::web_service;
 use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
-use log::{error, info, warn};
+use log::{error, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env, time::Duration};
@@ -46,6 +47,7 @@ pub struct Interface {
     //    ipv6: IpConfig,
 }
 
+#[derive(Default)]
 pub struct NetworkStatus {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     interfaces: Vec<Interface>,
@@ -80,8 +82,7 @@ impl Feature for NetworkStatus {
     ) -> Result<()> {
         self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
-        self.interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
-        self.report().await?;
+        self.report(true).await?;
         Ok(())
     }
 
@@ -96,17 +97,8 @@ impl Feature for NetworkStatus {
     }
 
     async fn refresh(&mut self) -> Result<()> {
-        info!("network status requested");
-
         self.ensure()?;
-        let interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
-
-        if self.interfaces != interfaces {
-            self.interfaces = interfaces;
-            self.report().await?;
-        }
-
-        Ok(())
+        self.report(false).await
     }
 }
 
@@ -114,14 +106,24 @@ impl NetworkStatus {
     const NETWORK_STATUS_VERSION: u8 = 3;
     const ID: &'static str = "network_status";
 
-    pub async fn new() -> Result<Self> {
-        Ok(NetworkStatus {
-            interfaces: Self::parse_interfaces(&networkd::networkd_interfaces().await?)?,
-            tx_reported_properties: None,
-        })
-    }
+    async fn report(&mut self, force: bool) -> Result<()> {
+        let interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
 
-    async fn report(&self) -> Result<()> {
+        let interfaces = match self.interfaces.eq(&interfaces) {
+            true if !force => return Ok(()),
+            _ => {
+                self.interfaces = interfaces;
+                json!(self.interfaces)
+            }
+        };
+
+        web_service::publish(
+            web_service::PublishChannel::NetworkStatus,
+            json!({"network-status": interfaces}),
+        )
+        .await
+        .context("publish to web_service")?;
+
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report: skip since tx_reported_properties is None");
             return Ok(());
@@ -129,11 +131,11 @@ impl NetworkStatus {
 
         tx.send(json!({
             "network_status": {
-                "interfaces": json!(self.interfaces)
+                "interfaces": interfaces
             }
         }))
         .await
-        .context("report")
+        .context("report twin")
     }
 
     fn parse_interfaces(json: &serde_json::Value) -> Result<Vec<Interface>> {

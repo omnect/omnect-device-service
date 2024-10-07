@@ -38,11 +38,10 @@ use dotenvy;
 use enum_dispatch::enum_dispatch;
 use futures_executor::block_on;
 use futures_util::StreamExt;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
-use std::time::Duration;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
@@ -151,7 +150,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<NetworkStatus>(),
-                Box::new(NetworkStatus::new().await?) as Box<dyn Feature>,
+                Box::<NetworkStatus>::default() as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<ProvisioningConfig>(),
@@ -279,8 +278,6 @@ impl Twin {
 
     fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<bool> {
         block_on(async {
-            debug!("sleep");
-            std::thread::sleep(Duration::from_secs(60));
             let mut restart_twin = false;
             match auth_status {
                 AuthenticationStatus::Authenticated => {

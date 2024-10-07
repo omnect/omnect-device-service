@@ -30,7 +30,7 @@ enum Source {
     Manual,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 struct X509 {
     est: bool,
     expires: String,
@@ -104,7 +104,7 @@ impl X509 {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Method {
     Sas,
@@ -151,9 +151,7 @@ impl Feature for ProvisioningConfig {
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
         self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties.clone());
-
         self.report().await
     }
 
@@ -335,10 +333,16 @@ mod tests {
             })
         );
 
-        assert_eq!(config.refresh().await.unwrap(), false);
+        let Method::X509(est1) = config.method.clone() else {
+            panic!("no X509 found");
+        };
 
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
-        assert_eq!(config.refresh().await.unwrap(), true);
+        config.refresh().await.unwrap();
+        let Method::X509(est2) = config.method.clone() else {
+            panic!("no X509 found");
+        };
+        assert!(est1 != est2);
     }
 }
