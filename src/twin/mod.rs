@@ -298,6 +298,10 @@ impl Twin {
                     }
                 }
                 AuthenticationStatus::Unauthenticated(reason) => {
+                    if matches!(self.state, TwinState::Authenticated) {
+                        self.state = TwinState::Initialized;
+                    }
+
                     match reason {
                         UnauthenticatedReason::BadCredential
                         | UnauthenticatedReason::CommunicationError => {
@@ -310,13 +314,13 @@ impl Twin {
                             this may occur on devices without RTC or where time is not synced. since we experienced this
                             behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
                             */
-                            self.state = TwinState::Initialized;
 
                             restart_twin = true;
                         }
                         UnauthenticatedReason::RetryExpired
                         | UnauthenticatedReason::ExpiredSasToken
-                        | UnauthenticatedReason::NoNetwork => {
+                        | UnauthenticatedReason::NoNetwork
+                        | UnauthenticatedReason::Unknown => {
                             info!("Failed to connect to iothub: {reason:?}")
                         }
                         UnauthenticatedReason::DeviceDisabled => {
