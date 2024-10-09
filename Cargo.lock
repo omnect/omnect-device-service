@@ -633,7 +633,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.13.5"
-source = "git+https://github.com/janzachmann/azure-iot-sdk.git?branch=main#171303f561c5843884237234fbd4a6b68318ec89"
+source = "git+https://github.com/janzachmann/azure-iot-sdk.git?branch=main#f91f827ad1c9ead48695774b754b8571e22b12c2"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
@@ -690,9 +690,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bindgen"
-version = "0.69.4"
+version = "0.69.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00dc851838a2120612785d195287475a3ac45514741da670b735818822129a0"
+checksum = "271383c67ccabffb7381723dea0672a673f292304fcb45c01cc648c7a8d58088"
 dependencies = [
  "bitflags 2.6.0",
  "cexpr",
@@ -1689,7 +1689,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.7",
  "tokio",
  "tower-service",
  "tracing",
