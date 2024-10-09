@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
-use log::info;
+use log::{debug, info};
 use serde_json::json;
 use std::{any::Any, env, time::Duration};
 use tokio::{
@@ -152,7 +152,7 @@ mod inner {
         }
 
         pub async fn report(&mut self, force: bool) -> Result<()> {
-            info!("modem info status requested");
+            debug!("report (force={force})");
 
             let modem_reports = join_all(
                 self.modem_paths()
@@ -302,7 +302,7 @@ mod inner {
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
-            info!("modem info status requested");
+            debug!("report");
 
             self.ensure()?;
 
@@ -385,7 +385,7 @@ impl Feature for ModemInfo {
     }
 
     async fn refresh(&mut self) -> Result<()> {
-        info!("modem_info requested");
+        info!("refresh");
 
         self.ensure()?;
 

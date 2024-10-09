@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
-use log::{error, warn};
+use log::{debug, error, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env, time::Duration};
@@ -107,6 +107,8 @@ impl NetworkStatus {
     const ID: &'static str = "network_status";
 
     async fn report(&mut self, force: bool) -> Result<()> {
+        debug!("report (force={force})");
+
         let interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
 
         // only report on change
