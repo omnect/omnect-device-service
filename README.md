@@ -459,6 +459,8 @@ The module reports the status of any attached modems. For this purpose the modul
 
 The network status is refreshed in an interval which can be configured by `REFRESH_NETWORK_STATUS_INTERVAL_SECS` environment variable. The default is 60s.
 
+**NOTE**: Currently reporting status of modems is no supported!
+
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:

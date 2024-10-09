@@ -44,7 +44,6 @@ pub struct Interface {
     mac: String,
     online: bool,
     ipv4: IpConfig,
-    //    ipv6: IpConfig,
 }
 
 #[derive(Default)]
