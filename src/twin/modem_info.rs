@@ -332,7 +332,7 @@ const ID: &str = "modem_info";
 
 lazy_static! {
     static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
-        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "3600";
+        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "600";
         std::env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
             .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
