@@ -3,7 +3,7 @@ use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
-use log::{debug, info, trace, warn};
+use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env, path::Path, time::Duration};
@@ -180,7 +180,7 @@ impl Feature for ProvisioningConfig {
             self.method = Method::X509(x509);
             self.report().await?;
         } else {
-            trace!("refresh: est expiration date didn't change");
+            debug!("refresh: est expiration date didn't change");
         }
 
         Ok(())

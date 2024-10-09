@@ -3,7 +3,6 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
-use log::{debug, info};
 use serde_json::json;
 use std::{any::Any, env, time::Duration};
 use tokio::{
@@ -16,7 +15,7 @@ mod inner {
     use super::*;
 
     use futures::future::join_all;
-    use log::warn;
+    use log::{debug, info, warn};
     use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
     use modemmanager::types::ModemCapability;
     use serde::Serialize;
@@ -152,8 +151,6 @@ mod inner {
         }
 
         pub async fn report(&mut self, force: bool) -> Result<()> {
-            debug!("report (force={force})");
-
             let modem_reports = join_all(
                 self.modem_paths()
                     .await?
@@ -167,8 +164,12 @@ mod inner {
 
             // only report on change
             let modem_reports = match self.modem_reports.eq(&modem_reports) {
-                true if !force => return Ok(()),
+                true if !force => {
+                    debug!("modem status didn't change");
+                    return Ok(());
+                }
                 _ => {
+                    info!("modem status changed");
                     self.modem_reports = modem_reports;
                     json!({
                         "modem_info": {
@@ -302,8 +303,6 @@ mod inner {
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
-            debug!("report");
-
             self.ensure()?;
 
             let Some(tx) = &self.tx_reported_properties else {
@@ -368,9 +367,7 @@ impl Feature for ModemInfo {
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
         self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties);
-
         self.report(true).await
     }
 
@@ -385,10 +382,7 @@ impl Feature for ModemInfo {
     }
 
     async fn refresh(&mut self) -> Result<()> {
-        info!("refresh");
-
         self.ensure()?;
-
         self.report(false).await
     }
 }
