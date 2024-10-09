@@ -546,7 +546,7 @@ impl Twin {
                 // with priority over events in the 2nd select!
                 biased;
 
-                 _ = trigger_watchdog.next() => {
+                _ = trigger_watchdog.next() => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {

@@ -109,6 +109,7 @@ impl NetworkStatus {
     async fn report(&mut self, force: bool) -> Result<()> {
         let interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
 
+        // only report on change
         let interfaces = match self.interfaces.eq(&interfaces) {
             true if !force => return Ok(()),
             _ => {

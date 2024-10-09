@@ -16,7 +16,7 @@ mod inner {
     use super::*;
 
     use futures::future::join_all;
-    use log::{debug, warn};
+    use log::warn;
     use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
     use modemmanager::types::ModemCapability;
     use serde::Serialize;
@@ -27,13 +27,13 @@ mod inner {
         Connection,
     };
 
-    #[derive(Serialize)]
+    #[derive(PartialEq, Serialize)]
     struct SimProperties {
         operator: String,
         iccid: String,
     }
 
-    #[derive(Serialize)]
+    #[derive(PartialEq, Serialize)]
     struct ModemReport {
         manufacturer: String,
         model: String,
@@ -47,6 +47,7 @@ mod inner {
 
     pub struct ModemInfo {
         connection: OnceCell<Connection>,
+        modem_reports: Vec<ModemReport>,
         pub(super) tx_reported_properties: Option<Sender<serde_json::Value>>,
     }
 
@@ -145,16 +146,44 @@ mod inner {
         pub fn new() -> Self {
             ModemInfo {
                 connection: OnceCell::new(),
+                modem_reports: vec![],
                 tx_reported_properties: None,
             }
         }
 
-        pub async fn refresh_modem_info(&self) -> Result<()> {
+        pub async fn report(&mut self, force: bool) -> Result<()> {
             info!("modem info status requested");
 
-            self.ensure()?;
+            let modem_reports = join_all(
+                self.modem_paths()
+                    .await?
+                    .iter()
+                    .map(|modem_path| self.modem_status(modem_path)),
+            )
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()
+            .context("failed querying modem status")?;
 
-            self.report_modem_info().await
+            // only report on change
+            let modem_reports = match self.modem_reports.eq(&modem_reports) {
+                true if !force => return Ok(()),
+                _ => {
+                    self.modem_reports = modem_reports;
+                    json!({
+                        "modem_info": {
+                            "modems": self.modem_reports,
+                        }
+                    })
+                }
+            };
+
+            let Some(tx) = &self.tx_reported_properties else {
+                warn!("skip since tx_reported_properties is None");
+                return Ok(());
+            };
+
+            tx.send(modem_reports).await.context("report")
         }
 
         async fn bearer_properties<'a>(
@@ -254,37 +283,6 @@ mod inner {
                 bearers,
             })
         }
-
-        async fn report_modem_info(&self) -> Result<()> {
-            self.ensure()?;
-
-            debug!("report_modem_status");
-
-            let modem_paths = self.modem_paths().await?;
-
-            let modem_reports = join_all(
-                modem_paths
-                    .iter()
-                    .map(|modem_path| self.modem_status(modem_path)),
-            )
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()
-            .context("failed querying modem status")?;
-
-            let Some(tx) = &self.tx_reported_properties else {
-                warn!("skip since tx_reported_properties is None");
-                return Ok(());
-            };
-
-            tx.send(json!({
-                "modem_info": {
-                    "modems": modem_reports,
-                }
-            }))
-            .await
-            .context("report_modem_info: report_impl")
-        }
     }
 }
 
@@ -303,7 +301,7 @@ mod inner {
             ModemInfo::default()
         }
 
-        pub async fn refresh_modem_info(&self) -> Result<()> {
+        pub async fn report(&self, force: bool) -> Result<()> {
             info!("modem info status requested");
 
             self.ensure()?;
@@ -313,11 +311,15 @@ mod inner {
                 return Ok(());
             };
 
-            tx.send(json!({
-                "modem_info": {}
-            }))
-            .await
-            .context("report_modem_info: report_impl")?;
+            if force {
+                tx.send(json!({
+                    "modem_info": {
+                        "modems": [],
+                    }
+                }))
+                .await
+                .context("report")?;
+            }
 
             Ok(())
         }
@@ -331,7 +333,7 @@ const ID: &str = "modem_info";
 
 lazy_static! {
     static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
-        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "3";
+        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "3600";
         std::env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
             .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
@@ -369,7 +371,7 @@ impl Feature for ModemInfo {
 
         self.tx_reported_properties = Some(tx_reported_properties);
 
-        self.refresh_modem_info().await
+        self.report(true).await
     }
 
     fn refresh_interval(&self) -> Option<Interval> {
@@ -383,10 +385,10 @@ impl Feature for ModemInfo {
     }
 
     async fn refresh(&mut self) -> Result<()> {
-        info!("network status requested");
+        info!("modem_info requested");
 
         self.ensure()?;
 
-        self.refresh_modem_info().await
+        self.report(false).await
     }
 }
