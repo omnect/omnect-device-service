@@ -1,5 +1,5 @@
+pub mod networkd;
 pub mod unit;
-pub mod wait_online;
 pub mod watchdog;
 
 use anyhow::{bail, Result};
@@ -38,8 +38,8 @@ pub async fn reboot() -> Result<()> {
        that's why we have here a retry + timeout workaround.
        the workaround should be removed someday in case we never face the situation again.
     */
-    for i in [0..3] {
-        let result = tokio::time::timeout_at(
+    for i in 0..3 {
+        let result = timeout_at(
             Instant::now() + Duration::from_secs(3),
             zbus::Connection::system().await?.call_method(
                 Some("org.freedesktop.login1"),

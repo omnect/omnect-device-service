@@ -27,11 +27,9 @@ This module serves as interface between omnect cloud and device to support certa
     - [Modem Info](#modem-info)
       - [Feature availability](#feature-availability-4)
       - [Current reported modem info](#current-reported-modem-info)
-      - [Refresh modem info](#refresh-modem-info)
     - [Network status](#network-status)
       - [Feature availability](#feature-availability-5)
       - [Current reported network status](#current-reported-network-status)
-      - [Refresh Network status](#refresh-network-status)
     - [SSH Tunnel handling](#ssh-tunnel-handling)
       - [Feature availability](#feature-availability-6)
       - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
@@ -414,7 +412,7 @@ In all other cases there will be an error status:
 
 ### Modem Info
 
-This feature adds the ability to query status information of connected modem.
+This feature adds the ability to report status information of connected modem. The status is refreshed in an interval which can be configured by REFRESH_MODEM_INFO_INTERVAL_SECS environment variable. The default is 10min.
 
 **NOTE**: this is an optional feature and must be explicitly turned on when
 building, i.e., `cargo build --features modem_info,...`.
@@ -457,45 +455,11 @@ The module reports the status of any attached modems. For this purpose the modul
 }
 ```
 
-#### Refresh modem info
-
-A direct method to refresh and report current modem info.
-
-**Direct method: refresh_modem_info**
-
-Method Name: `refresh_modem_info`
-
-Payload:
-```
-{
-}
-```
-
-Result:
-```
-{
-  "status": <HTTP-Statusode>,
-  "payload": {}
-}
-```
-In case the method was successful received by the module the return value of the method looks like this:
-
-```
-{
-  "status": 200,
-  "payload": {}
-}
-```
-
-In all other cases there will be an error status:
-```
-{
-  "status": 401,
-  "payload": {}
-}
-```
-
 ### Network status
+
+The network status is refreshed in an interval which can be configured by `REFRESH_NETWORK_STATUS_INTERVAL_SECS` environment variable. The default is 60s.
+
+**NOTE**: Currently reporting status of modems is no supported!
 
 #### Feature availability
 
@@ -517,95 +481,38 @@ SUPPRESS_NETWORK_STATUS=true
 The module reports the status of network adapters. For this purpose the module sends this reported property to the cloud.
 
 ```
-"network_status":
-{
+"network_status": {
+  "version": 3,
   "interfaces": [
     {
-      "addr_v4": [
-        "172.17.0.1"
-      ],
-      "addr_v6": [
-        "fe80::42:22ff:fe3b:ad66"
-      ],
-      "mac": "02:42:22:3b:ad:66",
-      "name": "docker0"
+      "ipv4": {
+        "addrs": [
+          {
+            "addr": "172.18.18.97",
+            "dhcp": true,
+            "prefix_len": 24
+          }
+        ],
+        "dns": [
+          "172.18.18.1"
+        ],
+        "gateways": []
+      },
+      "mac": "228:95:1:114:47:14",
+      "name": "eth0",
+      "online": true
     },
     {
-      "addr_v4": [
-        "172.25.0.1"
-      ],
-      "addr_v6": [
-        "fe80::42:c3ff:fe87:3c03"
-      ],
-      "mac": "02:42:c3:87:3c:03",
-      "name": "br-04171e27390a"
-    },
-    {
-      "addr_v4": [
-        "192.168.0.84"
-      ],
-      "addr_v6": [
-        "fe80::33d9:9063:897d:4357"
-      ],
-      "mac": "08:00:27:6d:83:36",
-      "name": "enp0s8"
-    },
-    {
-      "addr_v4": [
-        "127.0.0.1"
-      ],
-      "addr_v6": [
-        "::1"
-      ],
-      "mac": "00:00:00:00:00:00",
-      "name": "lo"
-    },
-    {
-      "addr_v6": [
-        "fe80::4c8e:77ff:fec1:10d3"
-      ],
-      "mac": "4e:8e:77:c1:10:d3",
-      "name": "vethbd467ae"
+      "ipv4": {
+        "addrs": [],
+        "dns": [],
+        "gateways": []
+      },
+      "mac": "228:95:1:114:47:15",
+      "name": "wlan0",
+      "online": false
     }
   ]
-}
-```
-
-#### Refresh Network status
-
-A direct method to refresh and report current network status.
-
-**Direct method: refresh_network_status**
-
-Method Name: `refresh_network_status`
-
-Payload:
-```
-{
-}
-```
-
-Result:
-```
-{
-  "status": <HTTP-Statusode>,
-  "payload": {}
-}
-```
-In case the method was successful received by the module the return value of the method looks like this:
-
-```
-{
-  "status": 200,
-  "payload": {}
-}
-```
-
-In all other cases there will be an error status:
-```
-{
-  "status": 401,
-  "payload": {}
 }
 ```
 
