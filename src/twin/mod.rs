@@ -192,6 +192,7 @@ impl Twin {
         client.twin_report(json!({
             "module-version": env!("CARGO_PKG_VERSION"),
             "azure-sdk-version": IotHubClient::sdk_version_string(),
+            "boot-time": system::boot_time()?,
         }))?;
 
         // report feature availability
@@ -226,6 +227,7 @@ impl Twin {
                 "os-version": system::sw_version()?,
                 "azure-sdk-version": IotHubClient::sdk_version_string(),
                 "omnect-device-service-version": env!("CARGO_PKG_VERSION"),
+                "boot-time": system::boot_time()?,
             }),
         )
         .await?;

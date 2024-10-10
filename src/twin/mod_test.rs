@@ -36,7 +36,7 @@ pub mod mod_test {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
             Ok(MockMyIotHub::default())
         }
-        
+
         pub fn observe_connection_state(
             self,
             _tx_connection_status: AuthenticationObserver,
@@ -271,7 +271,8 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "module-version": env!("CARGO_PKG_VERSION"),
-                    "azure-sdk-version": IotHubClient::sdk_version_string()
+                    "azure-sdk-version": IotHubClient::sdk_version_string(),
+                    "boot-time": "2024-10-10T05:27:52.804875461Z",
                 })))
                 .times(2)
                 .returning(|_| Ok(()));
@@ -430,6 +431,7 @@ pub mod mod_test {
                 .with(eq(json!({
                     "module-version": env!("CARGO_PKG_VERSION"),
                     "azure-sdk-version": IotHubClient::sdk_version_string(),
+                    "boot-time": "2024-10-10T05:27:52.804875461Z",
                 })))
                 .times(1)
                 .returning(|_| Ok(()));

@@ -4,8 +4,10 @@ use anyhow::{bail, Context, Result};
 use log::info;
 use serde_json::json;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 static DEV_OMNECT: &str = "/dev/omnect/";
@@ -67,4 +69,29 @@ pub fn sw_version() -> Result<serde_json::Value> {
         "osName": sw_versions[0],
         "swVersion": sw_versions[1],
     }))
+}
+
+pub fn boot_time() -> Result<String> {
+    if cfg!(feature = "mock") {
+        Ok("2024-10-10T05:27:52.804875461Z".to_string())
+    } else {
+        let mut s = String::new();
+        std::fs::File::open("/proc/uptime")?.read_to_string(&mut s)?;
+        let boot_time = s
+            .trim()
+            .split(' ')
+            .take(1)
+            .next()
+            .context("boot_time: get uptime")?;
+        let boot_time = OffsetDateTime::now_utc()
+            - std::time::Duration::from_secs_f64(
+                boot_time
+                    .parse::<f64>()
+                    .context("boot_time: parse uptime")?,
+            );
+
+        Ok(boot_time
+            .format(&Rfc3339)
+            .context("boot_time: format uptime")?)
+    }
 }
