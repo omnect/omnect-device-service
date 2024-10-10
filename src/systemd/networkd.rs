@@ -1,7 +1,11 @@
 use anyhow::{bail, ensure, Context, Result};
 use freedesktop_entry_parser::parse_entry;
+#[cfg(not(feature = "mock"))]
+use log::error;
 use regex::RegexBuilder;
 use std::time::Duration;
+#[cfg(not(feature = "mock"))]
+use tokio::time::{timeout_at, Instant};
 
 macro_rules! service_file_path {
     () => {{
@@ -17,6 +21,56 @@ macro_rules! env_file_path {
         const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/omnect/systemd-networkd-wait-online.env";
         std::env::var("ENV_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
     }};
+}
+
+#[cfg(not(feature = "mock"))]
+pub async fn networkd_interfaces() -> Result<serde_json::Value> {
+    /*
+       we observed situations when the future never completes.
+       that's why we have here a retry + timeout workaround.
+       the workaround should be removed someday in case we never face the situation again.
+    */
+
+    use log::debug;
+    for i in 0..3 {
+        debug!("networkd_interfaces: trial{i:?}");
+        let result = timeout_at(
+            Instant::now() + Duration::from_secs(3),
+            zbus::Connection::system().await?.call_method(
+                Some("org.freedesktop.network1"),
+                "/org/freedesktop/network1",
+                Some("org.freedesktop.network1.Manager"),
+                "Describe",
+                &(),
+            ),
+        )
+        .await;
+
+        match result {
+            Err(e) => error!("networkd_interfaces: trial{i:?} {e}"),
+            Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} {e}"),
+            Ok(Ok(result)) => {
+                debug!("networkd_interfaces: succeeded");
+                return serde_json::from_str(result.body().unwrap())
+                    .context("cannot parse network description")
+            }
+        }
+    }
+
+    bail!("networkd_interfaces: failed")
+}
+
+#[cfg(feature = "mock")]
+pub async fn networkd_interfaces() -> Result<serde_json::Value> {
+    use std::fs::OpenOptions;
+    let json = serde_json::from_reader(
+        OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open("testfiles/positive/systemd-networkd-link-description.json")
+            .unwrap(),
+    )?;
+    Ok(json)
 }
 
 pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
@@ -115,9 +169,8 @@ pub fn set_networkd_wait_online_timeout(timeout: Option<Duration>) -> Result<()>
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
+    use std::fs;
 
     #[test]
     fn networkd_wait_online_timeout_invalid_input() {

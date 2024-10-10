@@ -36,6 +36,7 @@ pub mod mod_test {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
             Ok(MockMyIotHub::default())
         }
+        
         pub fn observe_connection_state(
             self,
             _tx_connection_status: AuthenticationObserver,
@@ -296,18 +297,39 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version":2}})))
+                .with(eq(json!({"network_status":{"version":3}})))
                 .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{
-                    "interfaces": [{
-                        "addr_v4": ["0.0.0.0"],
-                        "mac": "00:11:22:33:44",
-                        "name": "eth0"
-                    }]
-                }})))
+                .with(eq(json!({
+                    "network_status":{
+                        "interfaces": [{
+                            "ipv4": {
+                                "addrs": [{
+                                    "addr": "192.168.0.74",
+                                    "dhcp": true,
+                                    "prefix_len": 24
+                                }],
+                                "dns": ["192.168.0.1"],
+                                "gateways": ["192.168.0.1"]
+                            },
+                            "mac": "80:45:244:53:22:37",
+                            "name": "eth0",
+                            "online": true
+                        },
+                        {
+                            "ipv4": {
+                                "addrs": [],
+                                "dns": [],
+                                "gateways": []
+                            },
+                            "mac": "80:45:244:44:14:81",
+                            "name": "eth1",
+                            "online": false
+                        }]
+                    }
+                })))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -433,18 +455,39 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version": 2}})))
+                .with(eq(json!({"network_status":{"version": 3}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"network_status":{
-                    "interfaces": [{
-                        "addr_v4": ["0.0.0.0"],
-                        "mac": "00:11:22:33:44",
-                        "name": "eth0"
-                    }]
-                }})))
+                .with(eq(json!({
+                    "network_status":{
+                        "interfaces": [{
+                            "ipv4": {
+                                "addrs": [{
+                                    "addr": "192.168.0.74",
+                                    "dhcp": true,
+                                    "prefix_len": 24
+                                }],
+                                "dns": ["192.168.0.1"],
+                                "gateways": ["192.168.0.1"]
+                            },
+                            "mac": "80:45:244:53:22:37",
+                            "name": "eth0",
+                            "online": true
+                        },
+                        {
+                            "ipv4": {
+                                "addrs": [],
+                                "dns": [],
+                                "gateways": []
+                            },
+                            "mac": "80:45:244:44:14:81",
+                            "name": "eth1",
+                            "online": false
+                        }]
+                    }
+                })))
                 .times(1)
                 .returning(|_| Ok(()));
 
