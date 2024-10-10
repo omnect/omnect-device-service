@@ -16,17 +16,21 @@ static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 15;
 
 fn current_root() -> Result<&'static str> {
     let current_root = fs::read_link(DEV_OMNECT.to_owned() + "rootCurrent")
-        .context("getting current root device")?;
+        .context("current_root: getting current root device")?;
 
-    if current_root == fs::read_link(DEV_OMNECT.to_owned() + "rootA").context("getting rootA")? {
+    if current_root
+        == fs::read_link(DEV_OMNECT.to_owned() + "rootA").context("current_root: getting rootA")?
+    {
         return Ok("a");
     }
 
-    if current_root == fs::read_link(DEV_OMNECT.to_owned() + "rootB").context("getting rootB")? {
+    if current_root
+        == fs::read_link(DEV_OMNECT.to_owned() + "rootB").context("current_root: getting rootB")?
+    {
         return Ok("b");
     }
 
-    bail!("device booted from unknown root")
+    bail!("current_root: device booted from unknown root")
 }
 
 fn bootloader_updated() -> bool {
@@ -57,7 +61,7 @@ pub fn sw_version() -> Result<serde_json::Value> {
         "/etc/sw-versions"
     };
 
-    let sw_versions = std::fs::read_to_string(path).context("cannot read sw-versions")?;
+    let sw_versions = std::fs::read_to_string(path).context("versions: cannot read sw-versions")?;
     let sw_versions: Vec<&str> = sw_versions.trim_end().split(' ').collect();
 
     anyhow::ensure!(
