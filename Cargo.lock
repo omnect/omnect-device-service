@@ -633,14 +633,13 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.13.5"
-source = "git+https://github.com/janzachmann/azure-iot-sdk.git?branch=main#687f7a10b6c84a2df56f6879ceda42622af09e7a"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.13.5#3ca6df117080b38da7463f1e001ae32c89810b68"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
  "eis-utils",
  "futures",
  "log",
- "rand",
  "serde_json",
  "tokio",
  "url",
@@ -1689,7 +1688,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",

@@ -15,10 +15,7 @@ actix-server = "2.3"
 actix-web = "4.5"
 anyhow = "1.0"
 async-trait = "0.1"
-#azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.13.4", features = [
-#  "module_client",
-#] }
-azure-iot-sdk = { git = "https://github.com/janzachmann/azure-iot-sdk.git", branch = "main", features = [
+azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.13.5", features = [
   "module_client",
 ] }
 cfg-if = "1.0"
