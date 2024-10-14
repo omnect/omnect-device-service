@@ -7,14 +7,14 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use serde_json::json;
-use std::{any::Any, collections::HashMap, env};
+use std::{any::Any, env, fs::File, io::BufReader};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
 macro_rules! factory_reset_status_path {
     () => {{
         static FACTORY_RESET_STATUS_FILE_PATH_DEFAULT: &'static str =
-            "/run/omnect-device-service/factory-reset-status";
+            "/run/omnect-device-service/omnect-os-initramfs.json";
         std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
             .unwrap_or(FACTORY_RESET_STATUS_FILE_PATH_DEFAULT.to_string())
     }};
@@ -22,7 +22,6 @@ macro_rules! factory_reset_status_path {
 
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
-    settings: HashMap<&'static str, String>,
 }
 
 #[async_trait(?Send)]
@@ -72,22 +71,12 @@ impl Feature for FactoryReset {
 }
 
 impl FactoryReset {
-    const FACTORY_RESET_VERSION: u8 = 1;
+    const FACTORY_RESET_VERSION: u8 = 2;
     const ID: &'static str = "factory_reset";
-    const WPA_SUPPLICANT_PATH_DEFAULT: &'static str = "/etc/wpa_supplicant.conf";
 
     pub fn new() -> Self {
-        let wpa_supplicant_path = if let Ok(path) = std::env::var("WPA_SUPPLICANT_DIR_PATH") {
-            format!("{path}/wpa_supplicant.conf")
-        } else {
-            Self::WPA_SUPPLICANT_PATH_DEFAULT.to_string()
-        };
-
-        let settings = HashMap::from([("wifi", wpa_supplicant_path)]);
-
         FactoryReset {
             tx_reported_properties: None,
-            settings,
         }
     }
 
@@ -99,51 +88,15 @@ impl FactoryReset {
 
         self.ensure()?;
 
-        let restore_paths = match in_json["restore_settings"].as_array() {
-            Some(settings) => {
-                let mut paths = vec![];
-                let mut settings: Vec<&str> =
-                    settings.iter().map(|v| v.as_str().unwrap()).collect();
-
-                // enforce a value exists only once
-                settings.sort();
-                settings.dedup();
-
-                while let Some(s) = settings.pop() {
-                    if self.settings.contains_key(s) {
-                        let path = self.settings.get(s).unwrap();
-
-                        if let Ok(true) = std::path::Path::new(&path).try_exists() {
-                            paths.push(path.clone());
-                        } else {
-                            anyhow::bail!("invalid restore path received: {path}");
-                        }
-                    } else {
-                        anyhow::bail!("unknown restore setting received: {s}");
-                    }
-                }
-
-                paths.join(";")
-            }
-            _ => String::from(""),
-        };
-
-        match &in_json["type"].as_u64() {
-            Some(reset_type) => {
-                bootloader_env::set("factory-reset-restore-list", restore_paths.as_str())?;
-                bootloader_env::set("factory-reset", &reset_type.to_string())?;
-
-                self.report_factory_reset_status("in_progress").await?;
-
-                systemd::reboot().await?;
-
-                Ok(None)
-            }
-            _ => anyhow::bail!("reset type missing or not supported"),
-        }
+        // ToDo ensure mode?
+        bootloader_env::set("factory-reset", &in_json.to_string())?;
+        self.report_factory_reset_status("in_progress").await?;
+        systemd::reboot().await?;
+        Ok(None)
     }
 
     async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
+        // ToDo why is that not the same format as for the cloud?
         web_service::publish(
             web_service::PublishChannel::FactoryResetResult,
             json!({"factory-reset-status": status}),
@@ -170,14 +123,27 @@ impl FactoryReset {
     }
 
     fn factory_reset_status() -> Result<Option<&'static str>> {
-        let Ok(factory_reset_status) = std::fs::read_to_string(factory_reset_status_path!()) else {
-            bail!(
-                "factory reset status file missing: {}",
-                factory_reset_status_path!()
-            );
-        };
+        let omnect_os_initramfs_json: serde_json::Value = serde_json::from_reader(BufReader::new(
+            File::open(factory_reset_status_path!()).context("open omnect-os-initramfs.json")?,
+        ))
+        .context("parsing factory reset status")?;
 
-        match factory_reset_status.trim_end() {
+        let factory_reset = &omnect_os_initramfs_json["factory-reset"];
+        anyhow::ensure!(factory_reset.is_object(), "factory-reset is not an object");
+
+        let mut factory_reset_status = String::from("");
+        let status = &factory_reset["status"];
+        let error = &factory_reset["error"];
+        if !status.is_null() {
+            factory_reset_status = format!(
+                "{}:{}",
+                status.to_string().trim_matches('"'),
+                error.to_string().trim_matches('"')
+            );
+        }
+
+        // ToDo more stati
+        match factory_reset_status.as_str() {
             "0:0" => Ok(Some("succeeded")),
             "1:-" => bail!("unexpected factory reset type"),
             "2:-" => bail!("unexpected restore setting"),
@@ -197,7 +163,7 @@ mod tests {
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
             .to_string()
-            .starts_with("factory reset status file missing"));
+            .starts_with("open omnect-os-initramfs.json"));
 
         std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
