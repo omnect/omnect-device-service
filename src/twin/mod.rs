@@ -227,12 +227,18 @@ impl Twin {
                 "os-version": system::sw_version()?,
                 "azure-sdk-version": IotHubClient::sdk_version_string(),
                 "omnect-device-service-version": env!("CARGO_PKG_VERSION"),
-                "boot-time": system::boot_time()?,
             }),
         )
         .await?;
 
-        web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": false})).await?;
+        web_service::publish(
+            PublishChannel::OnlineStatus,
+            json!({
+                "iothub": false,
+                "boot-time": system::boot_time()?,
+            }),
+        )
+        .await?;
 
         // connect twin channels
         for f in self.features.values() {
