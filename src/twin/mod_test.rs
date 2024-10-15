@@ -36,7 +36,6 @@ pub mod mod_test {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
             Ok(MockMyIotHub::default())
         }
-
         pub fn observe_connection_state(
             self,
             _tx_connection_status: AuthenticationObserver,
