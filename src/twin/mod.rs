@@ -222,7 +222,7 @@ impl Twin {
 
     async fn connect_web_service(&self) -> Result<()> {
         web_service::publish(
-            PublishChannel::Versions,
+            PublishChannel::Info,
             json!({
                 "os-version": system::sw_version()?,
                 "azure-sdk-version": IotHubClient::sdk_version_string(),
