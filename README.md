@@ -702,7 +702,7 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 
 omnect-device-service is capable to publish certain properties to a list of defined endpoints. Currently the following properties are published:
 - online status: connection status to iothub
-- versions: software versions of various components
+- info: software versions of various components and device boot timestamp
 - timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html)
 - factory-reset: if there was a factory-reset in previous boot, the result is published
 
