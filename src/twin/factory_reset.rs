@@ -5,7 +5,7 @@ use crate::web_service;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{info, warn};
+use log::{debug, info, warn};
 use serde_json::json;
 use std::{any::Any, env, fs::File, io::BufReader};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -142,6 +142,7 @@ impl FactoryReset {
             );
         }
 
+        debug!("factory_reset_status: {factory_reset_status}");
         // ToDo more stati
         match factory_reset_status.as_str() {
             "0:0" => Ok(Some("succeeded")),

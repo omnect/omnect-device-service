@@ -1,8 +1,6 @@
 # factory reset
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set factory-reset=[1-4]
 # warning: using a wildcard here; options: use regex or multiple occurrences of the call with different possible input
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set factory-reset-restore-list=*
-omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv unset factory-reset-status
+omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set factory-reset=*
 
 # update validation finalization
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set omnect_os_bootpart=[2-3]
