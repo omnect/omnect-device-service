@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use futures::StreamExt;
 use lazy_static::lazy_static;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use serde_with::skip_serializing_none;
@@ -66,15 +66,18 @@ impl Feature for SystemInfo {
 
     fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
         if self.boot_time.is_none() {
+            debug!("refresh_event: return stream");
             Ok(Some(
                 util::FileCreatedStream::new(&TIMESYNC_FILE, Self::type_id(self))?.boxed(),
             ))
         } else {
+            debug!("refresh_event: ignore since boot_time already present.");
             Ok(None)
         }
     }
 
     async fn refresh(&mut self) -> Result<()> {
+        info!("refresh");
         self.ensure()?;
         self.boot_time = Some(system::boot_time()?);
         self.report().await
