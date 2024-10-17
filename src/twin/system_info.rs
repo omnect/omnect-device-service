@@ -25,7 +25,7 @@ lazy_static! {
 pub struct SystemInfo {
     #[serde(skip_serializing)]
     tx_reported_properties: Option<mpsc::Sender<serde_json::Value>>,
-    os_version: serde_json::Value,
+    os: serde_json::Value,
     azure_sdk_version: String,
     omnect_device_service_version: String,
     boot_time: Option<String>,
@@ -102,7 +102,7 @@ impl SystemInfo {
 
         Ok(SystemInfo {
             tx_reported_properties: None,
-            os_version: system::sw_version()?,
+            os: system::sw_version()?,
             azure_sdk_version: IotHubClient::sdk_version_string(),
             omnect_device_service_version: env!("CARGO_PKG_VERSION").to_string(),
             boot_time,

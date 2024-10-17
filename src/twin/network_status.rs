@@ -1,18 +1,18 @@
 use super::super::systemd::networkd;
+use super::util;
 use super::web_service;
 use super::Feature;
+use crate::twin::TypeIdStream;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
+use futures::StreamExt;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env, time::Duration};
-use tokio::{
-    sync::mpsc::Sender,
-    time::{interval, Interval},
-};
+use tokio::{sync::mpsc::Sender, time::interval};
 
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
@@ -85,14 +85,18 @@ impl Feature for NetworkStatus {
         Ok(())
     }
 
-    fn refresh_interval(&self) -> Option<Interval> {
-        if 0 < *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
-            Some(interval(Duration::from_secs(
-                *REFRESH_NETWORK_STATUS_INTERVAL_SECS,
-            )))
-        } else {
-            None
+    fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
+        if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
+            return Ok(None);
         }
+
+        Ok(Some(
+            util::IntervalStreamTypeId::new(
+                interval(Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS)),
+                Self::type_id(self),
+            )
+            .boxed(),
+        ))
     }
 
     async fn refresh(&mut self) -> Result<()> {

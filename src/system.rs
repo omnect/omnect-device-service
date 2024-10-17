@@ -4,8 +4,8 @@ use anyhow::{bail, Context, Result};
 use log::info;
 use serde_json::json;
 use std::fs;
-use std::io::Read;
 use std::path::Path;
+use std::io::Read;
 use std::time::Duration;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
@@ -61,7 +61,8 @@ pub fn sw_version() -> Result<serde_json::Value> {
         "/etc/sw-versions"
     };
 
-    let sw_versions = std::fs::read_to_string(path).context("versions: cannot read sw-versions")?;
+    let sw_versions =
+        std::fs::read_to_string(path).context("sw_version: cannot read sw-versions")?;
     let sw_versions: Vec<&str> = sw_versions.trim_end().split(' ').collect();
 
     anyhow::ensure!(
@@ -70,8 +71,8 @@ pub fn sw_version() -> Result<serde_json::Value> {
     );
 
     Ok(json!( {
-        "osName": sw_versions[0],
-        "swVersion": sw_versions[1],
+        "name": sw_versions[0],
+        "version": sw_versions[1],
     }))
 }
 
@@ -87,6 +88,7 @@ pub fn boot_time() -> Result<String> {
             .take(1)
             .next()
             .context("boot_time: get uptime")?;
+
         let boot_time = OffsetDateTime::now_utc()
             - std::time::Duration::from_secs_f64(
                 boot_time
