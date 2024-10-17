@@ -74,7 +74,7 @@ impl Feature for SystemInfo {
     fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
         if self.boot_time.is_none() {
             Ok(Some(
-                util::NotifyStream::new(&TIMESYNC_FILE, Self::type_id(self))?.boxed(),
+                util::FileCreatedStream::new(&TIMESYNC_FILE, Self::type_id(self))?.boxed(),
             ))
         } else {
             Ok(None)

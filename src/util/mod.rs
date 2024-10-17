@@ -1,8 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use futures::Stream;
 use log::{debug, error};
 use notify::{Config, PollWatcher, RecursiveMode, Watcher};
 use std::any::TypeId;
+use std::fmt::format;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task::Poll;
@@ -65,15 +66,17 @@ impl Stream for IntervalStreamOption {
 }
 
 #[derive(Debug)]
-pub struct NotifyStream {
+pub struct FileCreatedStream {
     watcher: PollWatcher,
     done: bool,
     rx: mpsc::Receiver<PathBuf>,
     id: TypeId,
 }
 
-impl NotifyStream {
+impl FileCreatedStream {
     pub fn new(path: &Path, id: TypeId) -> Result<Self> {
+        ensure!(path.is_file(), "path is not a file: {path:?}");
+        let parent = path.parent().context(format!("cannot get parent of: {path:?}"))?;
         let done = false;
         let (tx, rx) = mpsc::channel(1);
         let config = Config::default()
@@ -98,8 +101,8 @@ impl NotifyStream {
         .context("create PollWatcher")?;
 
         watcher
-            .watch(path, RecursiveMode::NonRecursive)
-            .context(format!("watch: {path:?}"))?;
+            .watch(parent, RecursiveMode::NonRecursive)
+            .context(format!("watch: {parent:?}"))?;
 
         Ok(Self {
             watcher,
@@ -110,7 +113,7 @@ impl NotifyStream {
     }
 }
 
-impl Stream for NotifyStream {
+impl Stream for FileCreatedStream {
     type Item = TypeId;
 
     fn poll_next(
