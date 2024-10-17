@@ -705,7 +705,7 @@ omnect-device-service is capable to publish certain properties to a list of defi
 - info: software versions of various components and device boot timestamp
 - timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html)
 - factory-reset: if there was a factory-reset in previous boot, the result is published
-- network status: network adapter and its current configuration (LTE modems are currently not included).
+- network status: network adapter and its current configuration (LTE modems are currently not included). The reported structure is equal to [Current reported network status](#current-reported-network-status)
 
 #### Publish status
 
