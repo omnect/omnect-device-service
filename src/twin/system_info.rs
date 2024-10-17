@@ -108,7 +108,7 @@ impl SystemInfo {
             serde_json::to_value(self).context("connect_web_service: cannot serialize")?,
         )
         .await
-        .context("publish to web_service")
+        .context("publish to web_service")?;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report: skip since tx_reported_properties is None");

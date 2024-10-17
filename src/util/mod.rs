@@ -3,7 +3,6 @@ use futures::Stream;
 use log::{debug, error};
 use notify::{Config, PollWatcher, RecursiveMode, Watcher};
 use std::any::TypeId;
-use std::fmt::format;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task::Poll;
