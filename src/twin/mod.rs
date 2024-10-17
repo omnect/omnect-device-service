@@ -522,7 +522,7 @@ impl Twin {
             let client_created = Self::connect_iothub_client(&client_builder);
             let trigger_watchdog = util::IntervalStreamOption::new(WatchdogManager::init());
             let refresh_features = futures::stream::select_all::select_all(
-                twin.features.values_mut().filter_map(|f| f.refresh_event().ok()?),
+                twin.features.values_mut().filter_map(|f| f.refresh_event().unwrap()),
             );
         };
 
