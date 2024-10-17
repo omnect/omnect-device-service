@@ -56,19 +56,12 @@ impl Feature for SystemInfo {
     ) -> Result<()> {
         self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
-        self.report().await?;
-        Ok(())
+        self.report().await
     }
 
     async fn connect_web_service(&self) -> Result<()> {
         self.ensure()?;
-
-        web_service::publish(
-            web_service::PublishChannel::Info,
-            serde_json::to_value(self).context("connect_web_service: cannot serialize")?,
-        )
-        .await
-        .context("publish to web_service")
+        self.report().await
     }
 
     fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
@@ -110,6 +103,13 @@ impl SystemInfo {
     }
 
     async fn report(&self) -> Result<()> {
+        web_service::publish(
+            web_service::PublishChannel::Info,
+            serde_json::to_value(self).context("connect_web_service: cannot serialize")?,
+        )
+        .await
+        .context("publish to web_service")
+
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report: skip since tx_reported_properties is None");
             return Ok(());
