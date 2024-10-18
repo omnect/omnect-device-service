@@ -518,12 +518,18 @@ impl Twin {
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
+        let refresh_events: Result<Vec<Option<TypeIdStream>>> = twin
+            .features
+            .values_mut()
+            .map(|f| f.refresh_event())
+            .collect();
+
+        let refresh_events = refresh_events?.into_iter().flatten();
+
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
             let trigger_watchdog = util::IntervalStreamOption::new(WatchdogManager::init());
-            let refresh_features = futures::stream::select_all::select_all(
-                twin.features.values_mut().filter_map(|f| f.refresh_event().unwrap()),
-            );
+            let refresh_features = futures::stream::select_all::select_all(refresh_events);
         };
 
         systemd::sd_notify_ready();

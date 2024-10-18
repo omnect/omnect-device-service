@@ -16,7 +16,11 @@ use std::{any::Any, env};
 use tokio::sync::mpsc;
 
 lazy_static! {
-    static ref TIMESYNC_FILE: &'static Path = Path::new("/run/systemd/timesync/synchronized");
+    static ref TIMESYNC_FILE: &'static Path = if cfg!(feature = "mock") {
+        Path::new("/tmp/synchronized")
+    } else {
+        Path::new("/run/systemd/timesync/synchronized")
+    };
 }
 
 #[derive(Default, Serialize)]
@@ -63,7 +67,7 @@ impl Feature for SystemInfo {
     }
 
     fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
-        if self.boot_time.is_none() {
+        if !matches!(TIMESYNC_FILE.try_exists(), Ok(true)) {
             debug!("refresh_event: return stream");
             Ok(Some(
                 util::FileCreatedStream::new(&TIMESYNC_FILE, Self::type_id(self))?.boxed(),

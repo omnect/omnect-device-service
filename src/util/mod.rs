@@ -105,7 +105,7 @@ impl FileCreatedStream {
         .context("create PollWatcher")?;
 
         watcher
-            .watch(dir_path, RecursiveMode::Recursive)
+            .watch(dir_path, RecursiveMode::NonRecursive)
             .context(format!("watch: {dir_path:?}"))?;
 
         Ok(Self {
@@ -124,6 +124,7 @@ impl Stream for FileCreatedStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<TypeId>> {
+        debug!("poll_next");
         if !self.done {
             match self.rx.poll_recv(cx) {
                 Poll::Ready(Some(path)) => {
