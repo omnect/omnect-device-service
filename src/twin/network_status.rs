@@ -6,7 +6,6 @@ use crate::twin::TypeIdStream;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use futures::StreamExt;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -85,18 +84,14 @@ impl Feature for NetworkStatus {
         Ok(())
     }
 
-    fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
+    fn refresh_event(&self) -> Option<TypeIdStream> {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
-            return Ok(None);
+            None
+        } else {
+            Some(util::interval_stream_type_id::<NetworkStatus>(interval(
+                Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
+            )))
         }
-
-        Ok(Some(
-            util::IntervalStreamTypeId::new(
-                interval(Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS)),
-                Self::type_id(self),
-            )
-            .boxed(),
-        ))
     }
 
     async fn refresh(&mut self) -> Result<()> {

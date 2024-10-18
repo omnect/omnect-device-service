@@ -4,7 +4,6 @@ use crate::twin::TypeIdStream;
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use futures::StreamExt;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -155,20 +154,18 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
+    fn refresh_event(&self) -> Option<TypeIdStream> {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
-            return Ok(None);
-        }
-
-        match &self.method {
-            Method::X509(cert) if cert.est => Ok(Some(
-                util::IntervalStreamTypeId::new(
-                    interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                    Self::type_id(self),
-                )
-                .boxed(),
-            )),
-            _ => Ok(None),
+            None
+        } else {
+            match &self.method {
+                Method::X509(cert) if cert.est => {
+                    Some(util::interval_stream_type_id::<ProvisioningConfig>(
+                        interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
+                    ))
+                }
+                _ => None,
+            }
         }
     }
 

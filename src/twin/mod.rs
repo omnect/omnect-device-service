@@ -102,8 +102,8 @@ trait Feature {
         Ok(())
     }
 
-    fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
-        Ok(None)
+    fn refresh_event(&self) -> Option<TypeIdStream> {
+        None
     }
 
     async fn refresh(&mut self) -> Result<()> {
@@ -518,18 +518,13 @@ impl Twin {
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
-        let refresh_events: Result<Vec<Option<TypeIdStream>>> = twin
-            .features
-            .values_mut()
-            .map(|f| f.refresh_event())
-            .collect();
-
-        let refresh_events = refresh_events?.into_iter().flatten();
-
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = util::IntervalStreamOption::new(WatchdogManager::init());
-            let refresh_features = futures::stream::select_all::select_all(refresh_events);
+            let trigger_watchdog = util::interval_stream_option(WatchdogManager::init());
+            let refresh_features = futures::stream::select_all::select_all(twin
+                .features
+                .values()
+                .filter_map(|f| f.refresh_event()));
         };
 
         systemd::sd_notify_ready();
@@ -540,7 +535,7 @@ impl Twin {
                 // with priority over events in the 2nd select!
                 biased;
 
-                _ = trigger_watchdog.next() => {
+                Some(_) = trigger_watchdog.next() => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {

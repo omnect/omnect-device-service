@@ -6,7 +6,6 @@ use crate::twin::TypeIdStream;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
-use futures::StreamExt;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
@@ -66,15 +65,13 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn refresh_event(&mut self) -> Result<Option<TypeIdStream>> {
-        if !matches!(TIMESYNC_FILE.try_exists(), Ok(true)) {
-            debug!("refresh_event: return stream");
-            Ok(Some(
-                util::FileCreatedStream::new(&TIMESYNC_FILE, Self::type_id(self))?.boxed(),
+    fn refresh_event(&self) -> Option<TypeIdStream> {
+        if self.boot_time.is_none() {
+            Some(util::file_created_stream_type_id::<SystemInfo>(
+                &TIMESYNC_FILE,
             ))
         } else {
-            debug!("refresh_event: ignore since boot_time already present.");
-            Ok(None)
+            None
         }
     }
 
