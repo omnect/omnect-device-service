@@ -73,39 +73,40 @@ pub struct FileCreatedStream {
 }
 
 impl FileCreatedStream {
-    pub fn new(path: &Path, id: TypeId) -> Result<Self> {
-        //ensure!(path.is_file(), "path is not a file: {path:?}");
-        let parent = path
+    pub fn new(file_path: &Path, id: TypeId) -> Result<Self> {
+        let dir_path = file_path
             .parent()
-            .context(format!("cannot get parent of: {path:?}"))?;
+            .context(format!("cannot get parent of: {file_path:?}"))?;
+        ensure!(dir_path.is_dir(), "directory doesn't exist: {dir_path:?}");
         let done = false;
         let (tx, rx) = mpsc::channel(1);
         let config = Config::default()
             .with_compare_contents(true)
             .with_poll_interval(Duration::from_millis(500));
-        let p = path.to_path_buf();
+        let file_path_inner = file_path.to_path_buf();
+        let dir_path_inner = dir_path.to_path_buf();
 
-        debug!("wait for {path:?} to be created");
+        debug!("wait for {file_path:?} to be created");
 
         let mut watcher = PollWatcher::new(
             move |res| match res {
                 Ok(event) => {
-                    debug!("event: {:?}", event);
-                    if matches!(p.try_exists(), Ok(true)) {
-                        if let Err(e) = tx.blocking_send(p.clone()) {
+                    debug!("event_handler event: {:?}", event);
+                    if matches!(file_path_inner.try_exists(), Ok(true)) {
+                        if let Err(e) = tx.blocking_send(dir_path_inner.to_path_buf()) {
                             error!("event_handler send result: {e}")
                         }
                     }
                 }
-                Err(e) => error!("watch error: {:?}", e),
+                Err(e) => error!("event_handler watch error: {:?}", e),
             },
             config,
         )
         .context("create PollWatcher")?;
 
         watcher
-            .watch(parent, RecursiveMode::Recursive)
-            .context(format!("watch: {parent:?}"))?;
+            .watch(dir_path, RecursiveMode::Recursive)
+            .context(format!("watch: {dir_path:?}"))?;
 
         Ok(Self {
             watcher,

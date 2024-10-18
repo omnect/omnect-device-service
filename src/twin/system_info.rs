@@ -11,7 +11,6 @@ use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use serde_with::skip_serializing_none;
 use std::path::Path;
 use std::{any::Any, env};
 use tokio::sync::mpsc;
@@ -20,7 +19,6 @@ lazy_static! {
     static ref TIMESYNC_FILE: &'static Path = Path::new("/run/systemd/timesync/synchronized");
 }
 
-#[skip_serializing_none]
 #[derive(Default, Serialize)]
 pub struct SystemInfo {
     #[serde(skip_serializing)]
