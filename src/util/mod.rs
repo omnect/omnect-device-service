@@ -74,7 +74,7 @@ pub struct FileCreatedStream {
 
 impl FileCreatedStream {
     pub fn new(path: &Path, id: TypeId) -> Result<Self> {
-        ensure!(path.is_file(), "path is not a file: {path:?}");
+        //ensure!(path.is_file(), "path is not a file: {path:?}");
         let parent = path
             .parent()
             .context(format!("cannot get parent of: {path:?}"))?;
