@@ -43,7 +43,7 @@ impl Feature for SystemInfo {
     }
 
     fn is_enabled(&self) -> bool {
-        true
+        env::var("SUPPRESS_SYSTEM_INFO") != Ok("true".to_string())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -76,7 +76,7 @@ impl Feature for SystemInfo {
     }
 
     async fn refresh(&mut self) -> Result<()> {
-        info!("refresh");
+        info!("refresh: time synced");
         self.ensure()?;
         self.boot_time = Some(system::boot_time()?);
         self.report().await

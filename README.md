@@ -8,35 +8,38 @@ This module serves as interface between omnect cloud and device to support certa
     - [Log level](#log-level)
     - [azure-iot-sdk](#azure-iot-sdk)
   - [Azure twin features](#azure-twin-features)
-    - [Factory reset](#factory-reset)
+    - [System Info](#system-info)
       - [Feature availability](#feature-availability)
+      - [Current reported system info](#current-reported-system-info)
+    - [Factory reset](#factory-reset)
+      - [Feature availability](#feature-availability-1)
       - [Trigger factory reset](#trigger-factory-reset)
       - [Report factory reset status](#report-factory-reset-status)
     - [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
-      - [Feature availability](#feature-availability-1)
+      - [Feature availability](#feature-availability-2)
       - [Configure current desired general consent](#configure-current-desired-general-consent)
       - [Grant user consent](#grant-user-consent)
       - [Current reported user consent status](#current-reported-user-consent-status)
     - [provisioning configuration](#provisioning-configuration)
-      - [Feature availability](#feature-availability-2)
+      - [Feature availability](#feature-availability-3)
       - [Current reported provisioning configuration](#current-reported-provisioning-configuration)
     - [Reboot](#reboot)
-      - [Feature availability](#feature-availability-3)
+      - [Feature availability](#feature-availability-4)
       - [Trigger reboot](#trigger-reboot)
       - [Configure wait-online reboot timeout](#configure-wait-online-reboot-timeout)
     - [Modem Info](#modem-info)
-      - [Feature availability](#feature-availability-4)
+      - [Feature availability](#feature-availability-5)
       - [Current reported modem info](#current-reported-modem-info)
     - [Network status](#network-status)
-      - [Feature availability](#feature-availability-5)
+      - [Feature availability](#feature-availability-6)
       - [Current reported network status](#current-reported-network-status)
     - [SSH Tunnel handling](#ssh-tunnel-handling)
-      - [Feature availability](#feature-availability-6)
+      - [Feature availability](#feature-availability-7)
       - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
       - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
       - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
     - [Wifi commissioning service](#wifi-commissioning-service)
-      - [Feature availability](#feature-availability-7)
+      - [Feature availability](#feature-availability-8)
   - [Local web service](#local-web-service)
     - [Factory reset](#factory-reset-1)
     - [Trigger reboot](#trigger-reboot-1)
@@ -63,6 +66,40 @@ Use `RUST_LOG` environment variable in order to configure log level as described
 Runtime configuration options of the underlying azure-iot-sdk crate can be found [here](https://github.com/omnect/azure-iot-sdk/blob/main/README.md).
 
 ## Azure twin features
+
+### System Info
+
+#### Feature availability
+
+The availability of the feature is reported by the following module twin property:
+```
+"system_info":
+{
+  "version": <ver>
+}
+```
+
+The availability of the feature might be suppressed by creating the following environment variable:
+```
+SUPPRESS_SYSTEM_INFO=true
+```
+
+#### Current reported system info
+
+The module reports some system information. For this purpose the module sends a reported property to the cloud.
+
+```
+"system_info": {
+    "version": <vers>,
+    "azure_sdk_version": "<version>",
+    "omnect_device_service_version": "<version>",
+    "os": {
+        "name": <"omnect-os varian">,
+        "version": "<version>"
+    },
+    "boot_time": <"utc timestamp">
+},
+```
 
 ### Factory reset
 The module itself does not perform a factory reset.
