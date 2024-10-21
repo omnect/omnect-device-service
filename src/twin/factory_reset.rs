@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
 use serde_json::json;
-use std::{any::Any, env, fs::File, io::BufReader};
+use std::{any::Any, collections::HashMap, env, fs::File, fs::read_dir, io::BufReader};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
@@ -20,8 +20,28 @@ macro_rules! factory_reset_status_path {
     }};
 }
 
+macro_rules! factory_reset_config_path {
+    () => {{
+        static FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT: &'static str =
+            "/etc/omnect/factory-reset.json";
+        std::env::var("FACTORY_RESET_CONFIG_FILE_PATH")
+            .unwrap_or(FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT.to_string())
+    }};
+}
+
+macro_rules! factory_reset_custom_config_dir_path {
+    () => {{
+        static FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT: &'static str =
+            "/etc/omnect/factory-reset.d";
+        std::env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+            .unwrap_or(FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT.to_string())
+    }};
+}
+
+
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
+    keys: Vec<String>,
 }
 
 #[async_trait(?Send)]
@@ -51,6 +71,8 @@ impl Feature for FactoryReset {
 
         self.tx_reported_properties = Some(tx_reported_properties);
 
+        self.report_factory_reset_keys().await?;
+
         match Self::factory_reset_status() {
             Ok(Some(status)) => {
                 info!("factory reset status: {status}");
@@ -75,9 +97,47 @@ impl FactoryReset {
     const ID: &'static str = "factory_reset";
 
     pub fn new() -> Self {
+        let keys = Self::factory_reset_keys().unwrap();
         FactoryReset {
             tx_reported_properties: None,
+            keys
         }
+    }
+
+    fn factory_reset_keys() -> Result<Vec<String>>
+    {
+        let key_value_map: HashMap<String, serde_json::Value> = serde_json::from_reader(BufReader::new(
+            File::open(factory_reset_config_path!()).context("open factory-reset.json")?,
+        ))
+        .context("parsing factory reset config")?;
+
+        let mut keys: Vec<String> = key_value_map.into_keys().collect();
+        if ! read_dir(factory_reset_custom_config_dir_path!()).context("read factory-reset.d")?.next().is_none(){
+            keys.push(String::from("applications"))
+        }
+        Ok(keys)
+    }
+
+    async fn report_factory_reset_keys(&self) -> Result<()> {
+        web_service::publish(
+            web_service::PublishChannel::FactoryResetResult,
+            json!({"keys": self.keys}),
+        )
+        .await
+        .context("report_factory_reset_keys: publish")?;
+
+        let Some(tx) = &self.tx_reported_properties else {
+            warn!("report_factory_reset_keys: skip since tx_reported_properties is None");
+            return Ok(());
+        };
+
+        tx.send(json!({
+            "factory_reset": {
+                "keys": self.keys,
+            }
+        }))
+        .await
+        .context("report_factory_reset_status: send")
     }
 
     pub async fn reset_to_factory_settings(
