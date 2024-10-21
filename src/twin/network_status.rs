@@ -123,7 +123,7 @@ impl NetworkStatus {
 
         web_service::publish(
             web_service::PublishChannel::NetworkStatus,
-            json!({"network-status": interfaces}),
+            json!({"network_status": interfaces}),
         )
         .await
         .context("publish to web_service")?;

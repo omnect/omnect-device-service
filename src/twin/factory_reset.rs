@@ -146,7 +146,7 @@ impl FactoryReset {
     async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
         web_service::publish(
             web_service::PublishChannel::FactoryResetStatus,
-            json!({"factory-reset-status": status}),
+            json!({"factory_reset_status": status}),
         )
         .await
         .context("report_factory_reset_status: publish")?;
