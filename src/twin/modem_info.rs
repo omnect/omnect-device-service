@@ -2,17 +2,20 @@ use super::Feature;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::info;
+use lazy_static::lazy_static;
 use serde_json::json;
-use std::{any::Any, env};
-use tokio::sync::mpsc::Sender;
+use std::{any::Any, env, time::Duration};
+use tokio::{
+    sync::mpsc::Sender,
+    time::{interval, Interval},
+};
 
 #[cfg(feature = "modem_info")]
 mod inner {
     use super::*;
 
     use futures::future::join_all;
-    use log::{debug, warn};
+    use log::{debug, info, warn};
     use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
     use modemmanager::types::ModemCapability;
     use serde::Serialize;
@@ -23,13 +26,13 @@ mod inner {
         Connection,
     };
 
-    #[derive(Serialize)]
+    #[derive(PartialEq, Serialize)]
     struct SimProperties {
         operator: String,
         iccid: String,
     }
 
-    #[derive(Serialize)]
+    #[derive(PartialEq, Serialize)]
     struct ModemReport {
         manufacturer: String,
         model: String,
@@ -43,6 +46,7 @@ mod inner {
 
     pub struct ModemInfo {
         connection: OnceCell<Connection>,
+        modem_reports: Vec<ModemReport>,
         pub(super) tx_reported_properties: Option<Sender<serde_json::Value>>,
     }
 
@@ -141,18 +145,46 @@ mod inner {
         pub fn new() -> Self {
             ModemInfo {
                 connection: OnceCell::new(),
+                modem_reports: vec![],
                 tx_reported_properties: None,
             }
         }
 
-        pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
-            info!("modem info status requested");
+        pub async fn report(&mut self, force: bool) -> Result<()> {
+            let modem_reports = join_all(
+                self.modem_paths()
+                    .await?
+                    .iter()
+                    .map(|modem_path| self.modem_status(modem_path)),
+            )
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()
+            .context("failed querying modem status")?;
 
-            self.ensure()?;
+            // only report on change
+            let modem_reports = match self.modem_reports.eq(&modem_reports) {
+                true if !force => {
+                    debug!("modem status didn't change");
+                    return Ok(());
+                }
+                _ => {
+                    info!("modem status changed");
+                    self.modem_reports = modem_reports;
+                    json!({
+                        "modem_info": {
+                            "modems": self.modem_reports,
+                        }
+                    })
+                }
+            };
 
-            self.report_modem_info().await?;
+            let Some(tx) = &self.tx_reported_properties else {
+                warn!("skip since tx_reported_properties is None");
+                return Ok(());
+            };
 
-            Ok(None)
+            tx.send(modem_reports).await.context("report")
         }
 
         async fn bearer_properties<'a>(
@@ -252,43 +284,13 @@ mod inner {
                 bearers,
             })
         }
-
-        async fn report_modem_info(&self) -> Result<()> {
-            self.ensure()?;
-
-            debug!("report_modem_status");
-
-            let modem_paths = self.modem_paths().await?;
-
-            let modem_reports = join_all(
-                modem_paths
-                    .iter()
-                    .map(|modem_path| self.modem_status(modem_path)),
-            )
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>>>()
-            .context("failed querying modem status")?;
-
-            let Some(tx) = &self.tx_reported_properties else {
-                warn!("skip since tx_reported_properties is None");
-                return Ok(());
-            };
-
-            tx.send(json!({
-                "modem_info": {
-                    "modems": modem_reports,
-                }
-            }))
-            .await
-            .context("report_modem_info: report_impl")
-        }
     }
 }
 
 #[cfg(not(feature = "modem_info"))]
 mod inner {
     use super::*;
+    use log::warn;
 
     #[derive(Default)]
     pub struct ModemInfo {
@@ -300,22 +302,25 @@ mod inner {
             ModemInfo::default()
         }
 
-        pub async fn refresh_modem_info(&self) -> Result<Option<serde_json::Value>> {
-            info!("modem info status requested");
-
+        pub async fn report(&self, force: bool) -> Result<()> {
             self.ensure()?;
 
             let Some(tx) = &self.tx_reported_properties else {
-                anyhow::bail!("refresh_modem_info: tx_reported_properties is None")
+                warn!("skip since tx_reported_properties is None");
+                return Ok(());
             };
 
-            tx.send(json!({
-                "modem_info": {}
-            }))
-            .await
-            .context("report_modem_info: report_impl")?;
+            if force {
+                tx.send(json!({
+                    "modem_info": {
+                        "modems": [],
+                    }
+                }))
+                .await
+                .context("report")?;
+            }
 
-            Ok(None)
+            Ok(())
         }
     }
 }
@@ -324,6 +329,16 @@ pub use inner::ModemInfo;
 
 const MODEM_INFO_VERSION: u8 = 1;
 const ID: &str = "modem_info";
+
+lazy_static! {
+    static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
+        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "600";
+        std::env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
+            .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
+            .parse::<u64>()
+            .expect("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")
+    };
+}
 
 #[async_trait(?Send)]
 impl Feature for ModemInfo {
@@ -352,11 +367,22 @@ impl Feature for ModemInfo {
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
         self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties);
+        self.report(true).await
+    }
 
-        self.refresh_modem_info().await?;
+    fn refresh_interval(&self) -> Option<Interval> {
+        if 0 < *REFRESH_MODEM_INFO_INTERVAL_SECS {
+            Some(interval(Duration::from_secs(
+                *REFRESH_MODEM_INFO_INTERVAL_SECS,
+            )))
+        } else {
+            None
+        }
+    }
 
-        Ok(())
+    async fn refresh(&mut self) -> Result<()> {
+        self.ensure()?;
+        self.report(false).await
     }
 }

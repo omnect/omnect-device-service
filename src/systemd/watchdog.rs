@@ -24,6 +24,7 @@ impl WatchdogManager {
             .unwrap();
 
         if let Some(settings) = settings.as_ref() {
+            // return double sample rate
             Some(tokio::time::interval(settings.timeout / 2))
         } else {
             let mut micros = u64::MAX;
@@ -36,6 +37,7 @@ impl WatchdogManager {
                     timeout,
                     now: Instant::now(),
                 });
+                // return double sample rate
                 Some(tokio::time::interval(timeout / 2))
             } else {
                 info!("watchdog is disabled");

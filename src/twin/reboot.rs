@@ -76,13 +76,11 @@ impl Reboot {
 
         match &in_json["timeout_secs"] {
             serde_json::Value::Number(timeout) if timeout.is_u64() => {
-                systemd::wait_online::set_networkd_wait_online_timeout(Some(Duration::from_secs(
+                systemd::networkd::set_networkd_wait_online_timeout(Some(Duration::from_secs(
                     timeout.as_u64().unwrap(),
                 )))?
             }
-            serde_json::Value::Null => {
-                systemd::wait_online::set_networkd_wait_online_timeout(None)?
-            }
+            serde_json::Value::Null => systemd::networkd::set_networkd_wait_online_timeout(None)?,
             value => bail!("invalid value for timeout_secs: {value}"),
         }
 
@@ -94,7 +92,7 @@ impl Reboot {
     async fn report_wait_online_timeout(&self) -> Result<()> {
         self.ensure()?;
 
-        let timeout = systemd::wait_online::networkd_wait_online_timeout()?;
+        let timeout = systemd::networkd::networkd_wait_online_timeout()?;
 
         if let Some(tx) = &self.tx_reported_properties {
             tx.send(json!({
