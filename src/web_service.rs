@@ -25,9 +25,9 @@ pub enum Command {
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
     FactoryResetStatus,
-    SystemInfo,
     NetworkStatus,
     OnlineStatus,
+    SystemInfo,
     Timeouts,
 }
 
