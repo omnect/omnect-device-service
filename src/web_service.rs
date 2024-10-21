@@ -24,6 +24,7 @@ pub enum Command {
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
+    FactoryResetKeys,
     FactoryResetResult,
     NetworkStatus,
     OnlineStatus,
@@ -101,7 +102,7 @@ impl WebService {
         let srv = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(tx_request.clone()))
-                .route("/factory-reset/v1", web::post().to(Self::factory_reset))
+                .route("/factory-reset/v2", web::post().to(Self::factory_reset))
                 .route("/reboot/v1", web::post().to(Self::reboot))
                 .route("/reload-network/v1", web::post().to(Self::reload_network))
                 .route("/republish/v1", web::post().to(Self::republish))

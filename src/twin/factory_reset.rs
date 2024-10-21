@@ -41,7 +41,6 @@ macro_rules! factory_reset_custom_config_dir_path {
 
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
-    keys: Vec<String>,
 }
 
 #[async_trait(?Send)]
@@ -97,10 +96,8 @@ impl FactoryReset {
     const ID: &'static str = "factory_reset";
 
     pub fn new() -> Self {
-        let keys = Self::factory_reset_keys().unwrap();
         FactoryReset {
             tx_reported_properties: None,
-            keys
         }
     }
 
@@ -119,9 +116,11 @@ impl FactoryReset {
     }
 
     async fn report_factory_reset_keys(&self) -> Result<()> {
+        // get keys on each call, since factory_reset.d could have changes
+        let keys = FactoryReset::factory_reset_keys()?;
         web_service::publish(
-            web_service::PublishChannel::FactoryResetResult,
-            json!({"keys": self.keys}),
+            web_service::PublishChannel::FactoryResetKeys,
+            json!({"keys": keys}),
         )
         .await
         .context("report_factory_reset_keys: publish")?;
@@ -133,7 +132,7 @@ impl FactoryReset {
 
         tx.send(json!({
             "factory_reset": {
-                "keys": self.keys,
+                "keys": keys,
             }
         }))
         .await
