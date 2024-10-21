@@ -109,9 +109,13 @@ impl FactoryReset {
         .context("parsing factory reset config")?;
 
         let mut keys: Vec<String> = key_value_map.into_keys().collect();
-        if ! read_dir(factory_reset_custom_config_dir_path!()).context("read factory-reset.d")?.next().is_none(){
+        if read_dir(factory_reset_custom_config_dir_path!()).context("read factory-reset.d")?.next().is_some(){
             keys.push(String::from("applications"))
         }
+
+        #[cfg(feature = "mock")]
+        keys.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+
         Ok(keys)
     }
 
@@ -147,7 +151,23 @@ impl FactoryReset {
 
         self.ensure()?;
 
-        // ToDo ensure mode?
+        match &in_json["mode"].as_u64() {
+            Some(_) => {},
+            _ => anyhow::bail!("reset mode missing or not supported"),
+        }
+        match &in_json["preserve"].as_array() {
+            Some(preserve) => {
+                let keys=FactoryReset::factory_reset_keys()?;
+                for topic in preserve.iter() {
+                    let topic = String::from(topic.to_string().trim_matches('"'));
+                    if ! keys.contains(&topic) {
+                        anyhow::bail!("unknown preserve topic received: {topic}");
+                    }
+                }
+            },
+            None => {},
+        }
+
         bootloader_env::set("factory-reset", &in_json.to_string())?;
         self.report_factory_reset_status("in_progress").await?;
         systemd::reboot().await?;
@@ -219,6 +239,7 @@ mod tests {
 
     #[test]
     fn factory_reset_status_test() {
+        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", "testfiles/positive/factory-rest.json");
         std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
