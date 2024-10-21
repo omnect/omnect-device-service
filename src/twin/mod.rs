@@ -37,7 +37,6 @@ use azure_iot_sdk::client::{
 };
 use dotenvy;
 use enum_dispatch::enum_dispatch;
-use futures::Stream;
 use futures_executor::block_on;
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -48,13 +47,10 @@ use std::{
     any::{Any, TypeId},
     collections::HashMap,
     path::Path,
-    pin::Pin,
     time,
 };
 use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{select, sync::mpsc};
-
-pub type TypeIdStream = Pin<Box<dyn Stream<Item = TypeId> + Send>>;
 
 #[enum_dispatch]
 #[derive(EnumCountMacro)]
@@ -102,7 +98,7 @@ trait Feature {
         Ok(())
     }
 
-    fn refresh_event(&self) -> Option<TypeIdStream> {
+    fn refresh_event(&self) -> Option<util::TypeIdStream> {
         None
     }
 

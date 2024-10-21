@@ -2,7 +2,7 @@ use super::util;
 use super::web_service;
 use super::Feature;
 use crate::system;
-use crate::twin::TypeIdStream;
+use crate::util::TypeIdStream;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
@@ -106,7 +106,7 @@ impl SystemInfo {
 
     async fn report(&self) -> Result<()> {
         web_service::publish(
-            web_service::PublishChannel::Info,
+            web_service::PublishChannel::SystemInfo,
             serde_json::to_value(self).context("connect_web_service: cannot serialize")?,
         )
         .await

@@ -1,6 +1,6 @@
 use super::util;
 use super::Feature;
-use crate::twin::TypeIdStream;
+use crate::util::TypeIdStream;
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;

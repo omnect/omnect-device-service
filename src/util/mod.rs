@@ -9,6 +9,8 @@ use tokio::{
     time::{Instant, Interval},
 };
 
+pub type TypeIdStream = Pin<Box<dyn Stream<Item = TypeId> + Send>>;
+
 pub fn interval_stream_option(interval: Option<Interval>) -> impl Stream {
     match interval {
         None => futures_util::stream::empty::<Instant>().boxed(),
