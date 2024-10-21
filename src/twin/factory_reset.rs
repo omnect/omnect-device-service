@@ -151,21 +151,18 @@ impl FactoryReset {
 
         self.ensure()?;
 
-        match &in_json["mode"].as_u64() {
-            Some(_) => {},
-            _ => anyhow::bail!("reset mode missing or not supported"),
+        if in_json["mode"].as_u64().is_none() {
+            anyhow::bail!("reset mode missing or not supported");
         }
-        match &in_json["preserve"].as_array() {
-            Some(preserve) => {
-                let keys=FactoryReset::factory_reset_keys()?;
-                for topic in preserve.iter() {
-                    let topic = String::from(topic.to_string().trim_matches('"'));
-                    if ! keys.contains(&topic) {
-                        anyhow::bail!("unknown preserve topic received: {topic}");
-                    }
+        let preserve = in_json["preserve"].as_array();
+        if  preserve.is_some() {
+            let keys=FactoryReset::factory_reset_keys()?;
+            for topic in preserve.unwrap().iter() {
+                let topic = String::from(topic.to_string().trim_matches('"'));
+                if ! keys.contains(&topic) {
+                    anyhow::bail!("unknown preserve topic received: {topic}");
                 }
-            },
-            None => {},
+            }
         }
 
         bootloader_env::set("factory-reset", &in_json.to_string())?;
