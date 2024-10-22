@@ -1,4 +1,6 @@
+use super::util;
 use super::Feature;
+use crate::util::TypeIdStream;
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -8,10 +10,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::{any::Any, env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
-use tokio::{
-    sync::mpsc::Sender,
-    time::{interval, Interval},
-};
+use tokio::{sync::mpsc::Sender, time::interval};
 
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
@@ -155,12 +154,18 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn refresh_interval(&self) -> Option<Interval> {
-        match &self.method {
-            Method::X509(cert) if cert.est && 0 < *REFRESH_EST_EXPIRY_INTERVAL_SECS => Some(
-                interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-            ),
-            _ => None,
+    fn refresh_event(&self) -> Option<TypeIdStream> {
+        if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
+            None
+        } else {
+            match &self.method {
+                Method::X509(cert) if cert.est => {
+                    Some(util::interval_stream_type_id::<ProvisioningConfig>(
+                        interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
+                    ))
+                }
+                _ => None,
+            }
         }
     }
 

@@ -1,14 +1,13 @@
+use super::util;
 use super::Feature;
+use crate::util::TypeIdStream;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
 use std::{any::Any, env, time::Duration};
-use tokio::{
-    sync::mpsc::Sender,
-    time::{interval, Interval},
-};
+use tokio::{sync::mpsc::Sender, time::interval};
 
 #[cfg(feature = "modem_info")]
 mod inner {
@@ -371,13 +370,13 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn refresh_interval(&self) -> Option<Interval> {
-        if 0 < *REFRESH_MODEM_INFO_INTERVAL_SECS {
-            Some(interval(Duration::from_secs(
-                *REFRESH_MODEM_INFO_INTERVAL_SECS,
-            )))
-        } else {
+    fn refresh_event(&self) -> Option<TypeIdStream> {
+        if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             None
+        } else {
+            Some(util::interval_stream_type_id::<ModemInfo>(interval(
+                Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
+            )))
         }
     }
 

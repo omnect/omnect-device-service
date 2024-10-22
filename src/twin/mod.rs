@@ -8,6 +8,7 @@ mod network_status;
 mod provisioning_config;
 mod reboot;
 mod ssh_tunnel;
+mod system_info;
 mod wifi_commissioning;
 
 cfg_if::cfg_if! {
@@ -22,7 +23,7 @@ cfg_if::cfg_if! {
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
     network_status::NetworkStatus, provisioning_config::ProvisioningConfig, reboot::Reboot,
-    ssh_tunnel::SshTunnel, wifi_commissioning::WifiCommissioning,
+    ssh_tunnel::SshTunnel, system_info::SystemInfo, wifi_commissioning::WifiCommissioning,
 };
 use crate::web_service::{self, Command as WebServiceCommand, PublishChannel, WebService};
 use crate::{system, util};
@@ -49,7 +50,7 @@ use std::{
     time,
 };
 use strum_macros::EnumCount as EnumCountMacro;
-use tokio::{select, sync::mpsc, time::Interval};
+use tokio::{select, sync::mpsc};
 
 #[enum_dispatch]
 #[derive(EnumCountMacro)]
@@ -97,7 +98,7 @@ trait Feature {
         Ok(())
     }
 
-    fn refresh_interval(&self) -> Option<Interval> {
+    fn refresh_event(&self) -> Option<util::TypeIdStream> {
         None
     }
 
@@ -165,6 +166,10 @@ impl Twin {
                 Box::new(SshTunnel::new()) as Box<dyn Feature>,
             ),
             (
+                TypeId::of::<SystemInfo>(),
+                Box::new(SystemInfo::new()?) as Box<dyn Feature>,
+            ),
+            (
                 TypeId::of::<WifiCommissioning>(),
                 Box::<WifiCommissioning>::default() as Box<dyn Feature>,
             ),
@@ -187,12 +192,6 @@ impl Twin {
 
     async fn connect_twin(&mut self) -> Result<()> {
         let client = self.client.as_ref().context("client not present")?;
-
-        // report sdk versions
-        client.twin_report(json!({
-            "module-version": env!("CARGO_PKG_VERSION"),
-            "azure-sdk-version": IotHubClient::sdk_version_string(),
-        }))?;
 
         // report feature availability
         for f in self.features.values() {
@@ -220,16 +219,6 @@ impl Twin {
     }
 
     async fn connect_web_service(&self) -> Result<()> {
-        web_service::publish(
-            PublishChannel::Versions,
-            json!({
-                "os-version": system::sw_version()?,
-                "azure-sdk-version": IotHubClient::sdk_version_string(),
-                "omnect-device-service-version": env!("CARGO_PKG_VERSION"),
-            }),
-        )
-        .await?;
-
         web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": false})).await?;
 
         // connect twin channels
@@ -527,15 +516,11 @@ impl Twin {
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = util::IntervalStreamOption::new(WatchdogManager::init());
-            let refresh_features = futures::stream::select_all::select_all(twin.features.iter().filter_map(|(id, f)| {
-                if f.is_enabled() {
-                    f.refresh_interval()
-                        .map(|i| util::IntervalStreamTypeId::new(i, *id))
-                } else {
-                    None
-                }
-            }));
+            let trigger_watchdog = util::interval_stream_option(WatchdogManager::init());
+            let refresh_features = futures::stream::select_all::select_all(twin
+                .features
+                .values()
+                .filter_map(|f| f.refresh_event()));
         };
 
         systemd::sd_notify_ready();
@@ -546,7 +531,7 @@ impl Twin {
                 // with priority over events in the 2nd select!
                 biased;
 
-                _ = trigger_watchdog.next() => {
+                Some(_) = trigger_watchdog.next() => {
                     WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
@@ -568,7 +553,7 @@ impl Twin {
                     }
                 },
                 Some(status) = rx_connection_status.recv() => {
-                    if twin.handle_connection_status(status)?{
+                    if twin.handle_connection_status(status)? {
                         twin.reset_client_with_delay(Some(time::Duration::from_secs(1)));
                         client_created.set(Self::connect_iothub_client(&client_builder));
                     };

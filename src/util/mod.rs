@@ -1,51 +1,52 @@
 use futures::Stream;
+use futures::StreamExt;
 use std::any::TypeId;
+use std::path::Path;
 use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::time::{Instant, Interval};
+use std::time::Duration;
+use tokio::{
+    sync::mpsc,
+    time::{Instant, Interval},
+};
 
-#[derive(Debug)]
-pub struct IntervalStreamTypeId {
-    inner: Interval,
-    id: TypeId,
+pub type TypeIdStream = Pin<Box<dyn Stream<Item = TypeId> + Send>>;
+
+pub fn interval_stream_option(interval: Option<Interval>) -> impl Stream {
+    match interval {
+        None => futures_util::stream::empty::<Instant>().boxed(),
+        Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
+    }
 }
 
-impl IntervalStreamTypeId {
-    pub fn new(interval: Interval, id: TypeId) -> Self {
-        Self {
-            inner: interval,
-            id,
+pub fn interval_stream_type_id<T>(
+    interval: Interval,
+) -> Pin<Box<dyn futures_util::Stream<Item = TypeId> + std::marker::Send>>
+where
+    T: 'static,
+{
+    tokio_stream::wrappers::IntervalStream::new(interval)
+        .map(|_| TypeId::of::<T>())
+        .boxed()
+}
+
+pub fn file_created_stream_type_id<T>(
+    file_path: &Path,
+) -> Pin<Box<dyn futures_util::Stream<Item = TypeId> + std::marker::Send>>
+where
+    T: 'static,
+{
+    let (tx, rx) = mpsc::channel(2);
+    let file_path_inner = file_path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || loop {
+        if matches!(file_path_inner.try_exists(), Ok(true)) {
+            tx.blocking_send(()).unwrap();
+            return;
         }
-    }
-}
+        std::thread::sleep(Duration::from_millis(500));
+    });
 
-impl Stream for IntervalStreamTypeId {
-    type Item = TypeId;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<TypeId>> {
-        self.inner.poll_tick(cx).map(|_| Some(self.id))
-    }
-}
-
-#[derive(Debug)]
-pub struct IntervalStreamOption {
-    inner: Option<Interval>,
-}
-
-impl IntervalStreamOption {
-    pub fn new(interval: Option<Interval>) -> Self {
-        Self { inner: interval }
-    }
-}
-
-impl Stream for IntervalStreamOption {
-    type Item = Instant;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Instant>> {
-        if let Some(i) = self.inner.as_mut() {
-            i.poll_tick(cx).map(Some)
-        } else {
-            Poll::Pending
-        }
-    }
+    tokio_stream::wrappers::ReceiverStream::new(rx)
+        .map(|_| TypeId::of::<T>())
+        .boxed()
 }
