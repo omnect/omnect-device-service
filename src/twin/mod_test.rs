@@ -280,7 +280,7 @@ pub mod mod_test {
                 .with(eq(json!({"system_info":{
                     "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
                     "azure_sdk_version": s,
-                    "boot_time": "2024-10-10T05:27:52.804875461Z",
+                    "boot_time": null,
                     "os": {
                         "name": "OMNECT-gateway-devel",
                         "version": "4.0.17.123456"
@@ -448,7 +448,7 @@ pub mod mod_test {
             .with(eq(json!({"system_info":{
                 "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
                 "azure_sdk_version": s,
-                "boot_time": "2024-10-10T05:27:52.804875461Z",
+                "boot_time": null,
                 "os": {
                     "name": "OMNECT-gateway-devel",
                     "version": "4.0.17.123456"
