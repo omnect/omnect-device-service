@@ -107,7 +107,7 @@ impl Reboot {
         web_service::publish(
             web_service::PublishChannel::Timeouts,
             json!({
-                "wait-online-timeout": timeout
+                "wait_online_timeout": timeout
             }),
         )
         .await

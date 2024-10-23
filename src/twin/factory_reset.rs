@@ -174,8 +174,8 @@ impl FactoryReset {
     async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
         // ToDo why is that not the same format as for the cloud?
         web_service::publish(
-            web_service::PublishChannel::FactoryResetResult,
-            json!({"factory-reset-status": status}),
+            web_service::PublishChannel::FactoryResetStatus,
+            json!({"factory_reset_status": status}),
         )
         .await
         .context("report_factory_reset_status: publish")?;

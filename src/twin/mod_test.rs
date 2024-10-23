@@ -208,7 +208,10 @@ pub mod mod_test {
             let ctx = MockMyIotHub::builder_context();
             ctx.expect().times(1).returning(|| MyIotHubBuilder {});
             let ctx = MockMyIotHub::sdk_version_string_context();
-            ctx.expect().returning(|| "".to_string());
+            ctx.expect().returning(|| {
+                use azure_iot_sdk::client::IotHubClient as Client;
+                Client::sdk_version_string()
+            });
 
             let (tx_connection_status, _rx_connection_status) = mpsc::channel(100);
             let (tx_twin_desired, _rx_twin_desired) = mpsc::channel(100);
@@ -284,10 +287,20 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .with(eq(json!({
-                    "module-version": env!("CARGO_PKG_VERSION"),
-                    "azure-sdk-version": IotHubClient::sdk_version_string()
-                })))
+                .with(eq(json!({"system_info":{"version":1,}})))
+                .times(2)
+                .returning(|_| Ok(()));
+            let s = IotHubClient::sdk_version_string();
+            mock.expect_twin_report()
+                .with(eq(json!({"system_info":{
+                    "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
+                    "azure_sdk_version": s,
+                    "boot_time": null,
+                    "os": {
+                        "name": "OMNECT-gateway-devel",
+                        "version": "4.0.17.123456"
+                    }
+                }})))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -449,12 +462,22 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .with(eq(json!({
-                    "module-version": env!("CARGO_PKG_VERSION"),
-                    "azure-sdk-version": IotHubClient::sdk_version_string(),
-                })))
-                .times(1)
-                .returning(|_| Ok(()));
+            .with(eq(json!({"system_info":{"version":1,}})))
+            .times(1)
+            .returning(|_| Ok(()));
+        let s = IotHubClient::sdk_version_string();
+        mock.expect_twin_report()
+            .with(eq(json!({"system_info":{
+                "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
+                "azure_sdk_version": s,
+                "boot_time": null,
+                "os": {
+                    "name": "OMNECT-gateway-devel",
+                    "version": "4.0.17.123456"
+                }
+            }})))
+            .times(1)
+            .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({ "factory_reset": null })))
@@ -580,6 +603,7 @@ pub mod mod_test {
     async fn wifi_commissioning_feature_test() {
         let test_files = vec!["testfiles/wifi_commissioning/os-release"];
         let env_vars = vec![
+            ("SUPPRESS_SYSTEM_INFO", "true"),
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
@@ -662,6 +686,7 @@ pub mod mod_test {
             "testfiles/negative/history_consent.json",
         ];
         let env_vars = vec![
+            ("SUPPRESS_SYSTEM_INFO", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
@@ -695,7 +720,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -788,7 +813,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -844,7 +869,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
         };
 
@@ -880,7 +905,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
         };
 
@@ -1005,7 +1030,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -1081,6 +1106,7 @@ pub mod mod_test {
             "testfiles/positive/wpa_supplicant.conf",
         ];
         let env_vars = vec![
+            ("SUPPRESS_SYSTEM_INFO", "true"),
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_SSH_TUNNEL", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
@@ -1161,6 +1187,7 @@ pub mod mod_test {
             "testfiles/positive/b7afb216-5f7a-4755-a300-9374f8a0e9ff",
         ];
         let env_vars = vec![
+            ("SUPPRESS_SYSTEM_INFO", "true"),
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
@@ -1255,6 +1282,7 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
             "testfiles/positive/cert.pub",
         ];
         let env_vars = vec![
+            ("SUPPRESS_SYSTEM_INFO", "true"),
             ("SUPPRESS_DEVICE_UPDATE_USER_CONSENT", "true"),
             ("SUPPRESS_FACTORY_RESET", "true"),
             ("SUPPRESS_NETWORK_STATUS", "true"),
