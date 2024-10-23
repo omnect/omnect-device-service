@@ -3,3 +3,4 @@ build_env.sh
 temp.data
 .vscode
 *.bb
+/temp

@@ -274,7 +274,7 @@ impl NetworkStatus {
                     online: online.eq("online"),
                     mac: mac
                         .iter()
-                        .map(|v| v.to_string())
+                        .map(|v| format!("{:02x}", v).to_string())
                         .collect::<Vec<String>>()
                         .join(":"),
                     ipv4,

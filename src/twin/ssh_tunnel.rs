@@ -337,7 +337,7 @@ impl SshTunnel {
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
             .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
-            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))
+            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: failed setting up tunnel to bastion host with: {e}"))
     }
 
     #[cfg(feature = "mock")]
