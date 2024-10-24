@@ -146,7 +146,7 @@ Result:
 
 The supported reset `mode` and the documentation in general can be found in the [meta-omnect layer](https://github.com/omnect/meta-omnect#factory-reset).
 
-The **optional** `preserve` array can be used to define system resp. user settings that must be restored after wiping device storage. Supported are keys from [here](https://github.com/omnect/meta-omnect/blob/main/recipes-omnect/omnect-device-service/omnect-device-service/factory-reset.json) and the key "applications" if there is a [custom configuration file](https://github.com/omnect/meta-omnect#factory-resetTODO) in `/etc/omnect/factory-reset.d/`.
+The **optional** `preserve` array can be used to define system resp. user settings that must be restored after wiping device storage. Supported are keys from [here](https://github.com/omnect/meta-omnect/blob/main/recipes-omnect/omnect-device-service/omnect-device-service/factory-reset.json) and the key "applications" if there is a [custom configuration file](https://github.com/omnect/meta-omnect/tree/main?tab=main#custom-factory-reset-configuration) in `/etc/omnect/factory-reset.d/`.
 
 In case the method was successful received by the module the return value of the method looks like this:
 
