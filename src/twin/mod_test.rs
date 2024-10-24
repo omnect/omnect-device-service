@@ -342,7 +342,7 @@ pub mod mod_test {
                                 "dns": ["192.168.0.1"],
                                 "gateways": ["192.168.0.1"]
                             },
-                            "mac": "80:45:244:53:22:37",
+                            "mac": "50:2d:f4:35:16:25",
                             "name": "eth0",
                             "online": true
                         },
@@ -352,7 +352,7 @@ pub mod mod_test {
                                 "dns": [],
                                 "gateways": []
                             },
-                            "mac": "80:45:244:44:14:81",
+                            "mac": "50:2d:f4:2c:0e:51",
                             "name": "eth1",
                             "online": false
                         }]
@@ -517,7 +517,7 @@ pub mod mod_test {
                                 "dns": ["192.168.0.1"],
                                 "gateways": ["192.168.0.1"]
                             },
-                            "mac": "80:45:244:53:22:37",
+                            "mac": "50:2d:f4:35:16:25",
                             "name": "eth0",
                             "online": true
                         },
@@ -527,7 +527,7 @@ pub mod mod_test {
                                 "dns": [],
                                 "gateways": []
                             },
-                            "mac": "80:45:244:44:14:81",
+                            "mac": "50:2d:f4:2c:0e:51",
                             "name": "eth1",
                             "online": false
                         }]
