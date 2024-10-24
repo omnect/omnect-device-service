@@ -102,6 +102,14 @@ pub mod mod_test {
             path
         }
 
+        pub fn mkdir(&self, dir: &str) -> PathBuf {
+            let destdir = String::from(dir);
+            let destdir = destdir.split('/').last().unwrap();
+            let path = PathBuf::from(format!("{}/{}", self.dirpath, destdir));
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        }
+
         pub fn copy_file(&self, file: &str) -> PathBuf {
             let destfile = String::from(file);
             let destfile = destfile.split('/').last().unwrap();
@@ -152,6 +160,7 @@ pub mod mod_test {
 
             // copy test files and dirs
             test_env.copy_file("testfiles/positive/systemd-networkd-wait-online.service");
+            test_env.copy_file("testfiles/positive/factory-reset.json");
             test_env.copy_file("testfiles/positive/factory-reset-status_succeeded");
             test_env.copy_file("testfiles/positive/config.toml.est");
             test_env.copy_file("testfiles/positive/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer");
@@ -162,6 +171,8 @@ pub mod mod_test {
             test_dirs.iter().for_each(|dir| {
                 test_env.copy_directory(dir);
             });
+
+            test_env.mkdir("empty-dir");
 
             // set env vars
             env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
@@ -175,10 +186,12 @@ pub mod mod_test {
                     test_env.dirpath()
                 ),
             );
+            env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", format!("{}/factory-reset.json", test_env.dirpath()));
             env::set_var(
                 "FACTORY_RESET_STATUS_FILE_PATH",
                 format!("{}/factory-reset-status_succeeded", test_env.dirpath()),
             );
+            env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", format!("{}/empty-dir", test_env.dirpath()));
             env::set_var("CONNECTION_STRING", "my-constr");
             env::set_var(
                 "IDENTITY_CONFIG_FILE_PATH",
@@ -254,7 +267,9 @@ pub mod mod_test {
             env::remove_var("CONSENT_DIR_PATH");
             env::remove_var("WPA_SUPPLICANT_DIR_PATH");
             env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
+            env::remove_var("FACTORY_RESET_CONFIG_FILE_PATH");
             env::remove_var("FACTORY_RESET_STATUS_FILE_PATH");
+            env::remove_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH");
             env::remove_var("IDENTITY_CONFIG_FILE_PATH");
             env::remove_var("EST_CERT_FILE_PATH");
             env_vars.iter().for_each(|e| env::remove_var(e.0));
@@ -290,7 +305,7 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"factory_reset":{"version":1}})))
+                .with(eq(json!({"factory_reset":{"version":2}})))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -396,6 +411,13 @@ pub mod mod_test {
 
                     let re = Regex::new(re.as_str()).unwrap();
                     re.is_match(reported)})
+                .times(2)
+                .returning(|_| Ok(()));
+
+                mock.expect_twin_report()
+                .with(eq(
+                    json!({"factory_reset":{"keys":["certificates", "firewall", "network"]}}),
+                ))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -698,7 +720,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -791,7 +813,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -847,7 +869,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
         };
 
@@ -883,7 +905,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
         };
 
@@ -1008,7 +1030,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 11)
+                .times(TwinFeature::COUNT + 12)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -1040,34 +1062,34 @@ pub mod mod_test {
                 block_on(async {
                     factory_reset
                         .reset_to_factory_settings(json!({
-                            "restore_settings": ["wifi"]
+                            "preserve": ["applications"]
                         }))
                         .await
                 })
                 .unwrap_err()
                 .to_string(),
-                "reset type missing or not supported"
+                "reset mode missing or not supported"
             );
 
             assert_eq!(
                 block_on(async {
                     factory_reset
                         .reset_to_factory_settings(json!({
-                            "type": 1,
-                            "restore_settings": ["unknown"]
+                            "mode": 1,
+                            "preserve": ["unknown"]
                         }))
                         .await
                 })
                 .unwrap_err()
                 .to_string(),
-                "unknown restore setting received: unknown"
+                "unknown preserve topic received: unknown"
             );
 
             assert!(block_on(async {
                 factory_reset
                     .reset_to_factory_settings(json!({
-                        "type": 1,
-                        "restore_settings": ["wifi"]
+                        "mode": 1,
+                        "preserve": ["network", "firewall", "certificates"]
                     }))
                     .await
             })
@@ -1094,7 +1116,7 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
+                .times(TwinFeature::COUNT + 4)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -1145,8 +1167,8 @@ pub mod mod_test {
                 block_on(async {
                     factory_reset
                         .reset_to_factory_settings(json!({
-                            "type": 1,
-                            "restore_settings": ["wifi"]
+                            "mode": 1,
+                            "preserve": ["network"]
                         }))
                         .await
                 })

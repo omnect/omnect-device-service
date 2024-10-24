@@ -1,1 +1,6 @@
-wrong:format
+{
+    "factory-reset": {
+        "status": "wrong",
+        "error": "format"
+    }
+}

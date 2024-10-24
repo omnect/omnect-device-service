@@ -1,1 +1,6 @@
-2:-
+{
+    "factory-reset": {
+        "status": "2",
+        "error": "-"
+    }
+}
