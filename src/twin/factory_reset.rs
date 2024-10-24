@@ -114,7 +114,7 @@ impl FactoryReset {
         }
 
         #[cfg(feature = "mock")]
-        keys.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        keys.sort_by_key(|a| a.to_lowercase());
 
         Ok(keys)
     }
