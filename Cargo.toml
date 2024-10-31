@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "https://github.com/omnect/omnect-device-service.git"
-version = "0.26.0"
+version = "0.26.1"
 
 [dependencies]
 actix-server = "2.3"
@@ -30,7 +30,7 @@ glob = "0.3"
 lazy_static = "1.4"
 log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
-modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.3.1", default_features = false, optional = true }
+modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.3.3", default_features = false, optional = true }
 nix = { version = "0.29", features = ["time"] }
 notify = "6.0"
 notify-debouncer-mini = "0.4"
@@ -44,14 +44,14 @@ signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 strum = "0.26"
 strum_macros = "0.26"
-systemd-zbus = "0.1"
+systemd-zbus = "0.3"
 time = { version = "=0.3", features = ["formatting"] }
 tokio = "1"
 tokio-stream = "0.1"
 toml = "0.8"
 uuid = "1.4"
 x509-parser = "=0.16"
-zbus = { version = "3", default-features = false, features = ["tokio"] }
+zbus = { version = "4.4", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 assert-json-diff = "2.0"

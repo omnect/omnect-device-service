@@ -39,22 +39,34 @@ pub async fn reboot() -> Result<()> {
        the workaround should be removed someday in case we never face the situation again.
     */
     for i in 0..3 {
-        let result = timeout_at(
+        let con_result = timeout_at(
             Instant::now() + Duration::from_secs(3),
-            zbus::Connection::system().await?.call_method(
-                Some("org.freedesktop.login1"),
-                "/org/freedesktop/login1",
-                Some("org.freedesktop.login1.Manager"),
-                "Reboot",
-                &(true),
-            ),
+            zbus::Connection::system(),
         )
         .await;
 
-        match result {
-            Err(e) => error!("reboot: trial{i:?} {e}"),
-            Ok(Err(e)) => error!("reboot: trial{i:?} {e}"),
-            _ => return Ok(()),
+        match con_result {
+            Err(e) => error!("reboot: trial{i:?} system(): {e}"),
+            Ok(Err(e)) => error!("reboot: trial{i:?} system(): {e}"),
+            Ok(Ok(con)) => {
+                let call_result = timeout_at(
+                    Instant::now() + Duration::from_secs(3),
+                    con.call_method(
+                        Some("org.freedesktop.login1"),
+                        "/org/freedesktop/login1",
+                        Some("org.freedesktop.login1.Manager"),
+                        "Reboot",
+                        &(true),
+                    ),
+                )
+                .await;
+
+                match call_result {
+                    Err(e) => error!("reboot: trial{i:?} call_method: {e}"),
+                    Ok(Err(e)) => error!("reboot: trial{i:?} call_method: {e}"),
+                    _ => return Ok(()),
+                }
+            }
         }
     }
 
