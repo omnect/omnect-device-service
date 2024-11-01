@@ -82,17 +82,17 @@ impl Feature for NetworkStatus {
         Ok(())
     }
 
-    fn refresh_event(&self) -> Option<feature::StreamResult> {
+    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
-            None
+            Ok(None)
         } else {
-            Some(feature::interval_stream::<NetworkStatus>(interval(
+            Ok(Some(feature::interval_stream::<NetworkStatus>(interval(
                 Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
-            )))
+            ))))
         }
     }
 
-    async fn refresh(&mut self, payload: &feature::EventData) -> Result<()> {
+    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
         info!("refresh");
         self.ensure()?;
         self.report(false).await

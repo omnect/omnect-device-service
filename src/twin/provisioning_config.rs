@@ -152,22 +152,22 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn refresh_event(&self) -> Option<feature::StreamResult> {
+    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
-            None
+            Ok(None)
         } else {
             match &self.method {
                 Method::X509(cert) if cert.est => {
-                    Some(feature::interval_stream::<ProvisioningConfig>(interval(
-                        Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS),
+                    Ok(Some(feature::interval_stream::<ProvisioningConfig>(
+                        interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
                     )))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
     }
 
-    async fn refresh(&mut self, payload: &feature::EventData) -> Result<()> {
+    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
         let expires = match &self.method {
