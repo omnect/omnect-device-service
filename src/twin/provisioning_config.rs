@@ -1,6 +1,4 @@
-use super::util;
-use super::Feature;
-use crate::util::TypeIdStream;
+use super::{feature, Feature};
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -154,22 +152,22 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn refresh_event(&self) -> Option<TypeIdStream> {
+    fn refresh_event(&self) -> Option<feature::StreamResult> {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             None
         } else {
             match &self.method {
                 Method::X509(cert) if cert.est => {
-                    Some(util::interval_stream_type_id::<ProvisioningConfig>(
-                        interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                    ))
+                    Some(feature::interval_stream::<ProvisioningConfig>(interval(
+                        Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS),
+                    )))
                 }
                 _ => None,
             }
         }
     }
 
-    async fn refresh(&mut self) -> Result<()> {
+    async fn refresh(&mut self, payload: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
         let expires = match &self.method {
