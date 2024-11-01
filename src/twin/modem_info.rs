@@ -1,6 +1,4 @@
-use super::util;
-use super::Feature;
-use crate::util::TypeIdStream;
+use super::{feature, Feature};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -376,17 +374,17 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn refresh_event(&self) -> Option<TypeIdStream> {
+    fn refresh_event(&self) -> Option<feature::StreamResult> {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             None
         } else {
-            Some(util::interval_stream_type_id::<ModemInfo>(interval(
+            Some(feature::interval_stream::<ModemInfo>(interval(
                 Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
             )))
         }
     }
 
-    async fn refresh(&mut self) -> Result<()> {
+    async fn refresh(&mut self, payload: &feature::EventData) -> Result<()> {
         self.ensure()?;
         self.report(false).await
     }

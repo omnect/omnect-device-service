@@ -1,5 +1,6 @@
 mod consent;
 mod factory_reset;
+mod feature;
 #[cfg(test)]
 #[path = "mod_test.rs"]
 mod mod_test;
@@ -20,23 +21,28 @@ cfg_if::cfg_if! {
     }
 }
 
+use crate::system;
 use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
-    network_status::NetworkStatus, provisioning_config::ProvisioningConfig, reboot::Reboot,
-    ssh_tunnel::SshTunnel, system_info::SystemInfo, wifi_commissioning::WifiCommissioning,
+    consent::DeviceUpdateConsent,
+    factory_reset::FactoryReset,
+    feature::{EventData, Feature},
+    modem_info::ModemInfo,
+    network_status::NetworkStatus,
+    provisioning_config::ProvisioningConfig,
+    reboot::Reboot,
+    ssh_tunnel::SshTunnel,
+    system_info::SystemInfo,
+    wifi_commissioning::WifiCommissioning,
 };
 use crate::web_service::{self, Command as WebServiceCommand, PublishChannel, WebService};
-use crate::{system, util};
 use crate::{systemd, systemd::watchdog::WatchdogManager};
 use crate::{update_validation, update_validation::UpdateValidation};
 
 use anyhow::{anyhow, bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::{
     AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState, UnauthenticatedReason,
 };
 use dotenvy;
-use enum_dispatch::enum_dispatch;
 use futures_executor::block_on;
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -49,63 +55,7 @@ use std::{
     path::Path,
     time,
 };
-use strum_macros::EnumCount as EnumCountMacro;
 use tokio::{select, sync::mpsc};
-
-#[enum_dispatch]
-#[derive(EnumCountMacro)]
-enum TwinFeature {
-    FactoryReset,
-    DeviceUpdateConsent,
-    ModemInfo,
-    NetworkStatus,
-    ProvisioningConfig,
-    SshTunnel,
-}
-
-#[async_trait(?Send)]
-#[enum_dispatch(TwinFeature)]
-trait Feature {
-    fn name(&self) -> String;
-
-    fn version(&self) -> u8;
-
-    fn is_enabled(&self) -> bool;
-
-    fn as_any(&self) -> &dyn Any;
-
-    fn ensure(&self) -> Result<()> {
-        if !self.is_enabled() {
-            bail!("feature disabled: {}", self.name());
-        }
-
-        Ok(())
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        unimplemented!();
-    }
-
-    async fn connect_twin(
-        &mut self,
-        _tx_reported_properties: mpsc::Sender<serde_json::Value>,
-        _tx_outgoing_message: mpsc::Sender<IotMessage>,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    async fn connect_web_service(&self) -> Result<()> {
-        Ok(())
-    }
-
-    fn refresh_event(&self) -> Option<util::TypeIdStream> {
-        None
-    }
-
-    async fn refresh(&mut self) -> Result<()> {
-        unimplemented!();
-    }
-}
 
 #[derive(PartialEq)]
 enum TwinState {
@@ -423,7 +373,10 @@ impl Twin {
                 WebServiceCommand::ReloadNetwork(reply) => {
                     let mut result = system::reload_network().await;
                     if result.is_ok() {
-                        result = self.feature_mut::<NetworkStatus>()?.refresh().await;
+                        result = self
+                            .feature_mut::<NetworkStatus>()?
+                            .refresh(&EventData::Manual)
+                            .await;
                     }
                     (reply, result)
                 }
@@ -516,7 +469,7 @@ impl Twin {
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = util::interval_stream_option(WatchdogManager::init());
+            let trigger_watchdog = feature::interval_stream_option(WatchdogManager::init());
             let refresh_features = futures::stream::select_all::select_all(twin
                 .features
                 .values()
@@ -583,12 +536,12 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request)?
                         },
-                        id = refresh_features.select_next_some() => {
+                        data = refresh_features.select_next_some() => {
                             let feature = twin
                                 .features
-                                .get_mut(&id)
+                                .get_mut(&data.feature_id)
                                 .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
-                            block_on(feature.refresh())?;
+                            block_on(feature.refresh(&data.data))?;
                         },
                     );
 
