@@ -473,7 +473,7 @@ impl Twin {
             let refresh_features = futures::stream::select_all::select_all(twin
                 .features
                 .values()
-                .filter_map(|f| f.refresh_event()));
+                .filter_map(|f| f.refresh_event().unwrap()));
         };
 
         systemd::sd_notify_ready();

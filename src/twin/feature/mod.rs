@@ -1,8 +1,11 @@
+use anyhow::ensure;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use futures::Stream;
 use futures::StreamExt;
+use log::{debug, error, info, warn};
+use notify::{recommended_watcher, RecursiveMode, Watcher};
 use std::any::{Any, TypeId};
 use std::path::Path;
 use std::path::PathBuf;
@@ -45,15 +48,16 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn refresh_event(&self) -> Option<StreamResult> {
-        None
+    fn refresh_event(&self) -> Result<Option<StreamResult>> {
+        Ok(None)
     }
 
-    async fn refresh(&mut self, _payload: &EventData) -> Result<()> {
+    async fn refresh(&mut self, _reason: &EventData) -> Result<()> {
         unimplemented!();
     }
 }
 
+#[derive(Debug)]
 pub enum EventData {
     FileCreated(PathBuf),
     FileModified(PathBuf),
@@ -75,9 +79,7 @@ pub fn interval_stream_option(interval: Option<Interval>) -> impl Stream {
     }
 }
 
-pub fn interval_stream<T>(
-    interval: Interval,
-) -> Pin<Box<dyn futures_util::Stream<Item = Event> + std::marker::Send>>
+pub fn interval_stream<T>(interval: Interval) -> StreamResult
 where
     T: 'static,
 {
@@ -89,19 +91,19 @@ where
         .boxed()
 }
 
-pub fn file_created_stream<T>(
-    file_path: &Path,
-) -> Pin<Box<dyn futures_util::Stream<Item = Event> + std::marker::Send>>
+pub fn file_created_stream<T>(paths: Vec<&Path>) -> StreamResult
 where
     T: 'static,
 {
     let (tx, rx) = mpsc::channel(2);
-    let file_path_inner = file_path.to_path_buf();
+    let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
 
     tokio::task::spawn_blocking(move || loop {
-        if matches!(file_path_inner.try_exists(), Ok(true)) {
-            tx.blocking_send(file_path_inner).unwrap();
-            return;
+        for p in &inner_paths {
+            if matches!(p.try_exists(), Ok(true)) {
+                tx.blocking_send(p.clone()).unwrap();
+                return;
+            }
         }
         std::thread::sleep(Duration::from_millis(500));
     });
@@ -112,4 +114,37 @@ where
             data: EventData::FileCreated(p),
         })
         .boxed()
+}
+
+pub fn file_modified_stream<T>(paths: Vec<&Path>) -> Result<StreamResult>
+where
+    T: 'static,
+{
+    let (tx, rx) = mpsc::channel(2);
+    let mut watcher =
+        notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
+            //Ok(ev) if ev.kind == notify::EventKind::Modify(notify::event::ModifyKind::Any) => {
+            Ok(ev) => {
+                debug!("notify-event: {ev:#?}");
+                for path in ev.paths {
+                    tx.blocking_send(path).unwrap();
+                }
+            }
+            Err(errors) => errors
+                .paths
+                .iter()
+                .for_each(|e| error!("notify-error: {e:?}")),
+        })?;
+
+    for p in paths {
+        ensure!(p.is_file(), "{p:?} is not a regular existing file");
+        watcher.watch(p, RecursiveMode::NonRecursive)?;
+    }
+
+    Ok(tokio_stream::wrappers::ReceiverStream::new(rx)
+        .map(|p| Event {
+            feature_id: TypeId::of::<T>(),
+            data: EventData::FileModified(p),
+        })
+        .boxed())
 }

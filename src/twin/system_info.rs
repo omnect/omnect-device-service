@@ -1,6 +1,5 @@
-use super::feature;
 use super::web_service;
-use super::Feature;
+use super::{feature, Feature};
 use crate::system;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -64,15 +63,17 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn refresh_event(&self) -> Option<feature::StreamResult> {
+    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
         if self.boot_time.is_none() {
-            Some(feature::file_created_stream::<SystemInfo>(&TIMESYNC_FILE))
+            Ok(Some(feature::file_created_stream::<SystemInfo>(vec![
+                &TIMESYNC_FILE,
+            ])))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    async fn refresh(&mut self, payload: &feature::EventData) -> Result<()> {
+    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
         info!("refresh: time synced");
         self.ensure()?;
         self.boot_time = Some(system::boot_time()?);

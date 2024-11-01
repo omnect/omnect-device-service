@@ -374,17 +374,17 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn refresh_event(&self) -> Option<feature::StreamResult> {
+    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
-            None
+            Ok(None)
         } else {
-            Some(feature::interval_stream::<ModemInfo>(interval(
+            Ok(Some(feature::interval_stream::<ModemInfo>(interval(
                 Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
-            )))
+            ))))
         }
     }
 
-    async fn refresh(&mut self, payload: &feature::EventData) -> Result<()> {
+    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
         self.ensure()?;
         self.report(false).await
     }
