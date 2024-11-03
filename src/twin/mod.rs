@@ -49,12 +49,7 @@ use log::{error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    path::Path,
-    time,
-};
+use std::{any::TypeId, collections::HashMap, path::Path, time};
 use tokio::{select, sync::mpsc};
 
 #[derive(PartialEq)]
@@ -375,7 +370,7 @@ impl Twin {
                     if result.is_ok() {
                         result = self
                             .feature_mut::<NetworkStatus>()?
-                            .refresh(&EventData::Manual)
+                            .handle_event(&EventData::Manual)
                             .await;
                     }
                     (reply, result)
@@ -469,11 +464,14 @@ impl Twin {
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = feature::interval_stream_option(WatchdogManager::init());
+            let trigger_watchdog = match WatchdogManager::init(){
+                None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
+                Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
+            };
             let refresh_features = futures::stream::select_all::select_all(twin
                 .features
-                .values()
-                .filter_map(|f| f.refresh_event().unwrap()));
+                .values_mut()
+                .filter_map(|f| f.event_stream().unwrap()));
         };
 
         systemd::sd_notify_ready();
@@ -536,12 +534,12 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_webservice_request(request)?
                         },
-                        data = refresh_features.select_next_some() => {
+                        event = refresh_features.select_next_some() => {
                             let feature = twin
                                 .features
-                                .get_mut(&data.feature_id)
+                                .get_mut(&event.feature_id)
                                 .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
-                            block_on(feature.refresh(&data.data))?;
+                            block_on(feature.handle_event(&event.data))?;
                         },
                     );
 

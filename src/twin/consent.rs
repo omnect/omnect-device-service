@@ -3,7 +3,8 @@ use crate::consent_path;
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, error, info, warn};
+use log::{info, warn};
+use notify_debouncer_full::{notify::*, Debouncer, NoCache};
 use serde_json::json;
 use std::{
     any::Any,
@@ -37,6 +38,7 @@ macro_rules! history_consent_path {
 #[derive(Default)]
 pub struct DeviceUpdateConsent {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
+    watcher: Option<Debouncer<INotifyWatcher, NoCache>>,
 }
 
 #[async_trait(?Send)]
@@ -57,6 +59,10 @@ impl Feature for DeviceUpdateConsent {
         self
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
@@ -71,23 +77,25 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(&history_consent_path!()).await
     }
 
-    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
-        Ok(Some(
-            feature::file_modified_stream::<DeviceUpdateConsent>(vec![
-                request_consent_path!().as_path(),
-                history_consent_path!().as_path(),
-            ])
-            .context("refresh_event: cannot create file_modified_stream")?,
-        ))
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+        let (watcher, stream) = feature::file_modified_stream::<DeviceUpdateConsent>(vec![
+            request_consent_path!().as_path(),
+            history_consent_path!().as_path(),
+        ])
+        .context("refresh_event: cannot create file_modified_stream")?;
+        self.watcher = Some(watcher);
+        Ok(Some(stream))
     }
 
-    async fn refresh(&mut self, reason: &feature::EventData) -> Result<()> {
-        info!("refresh: time synced");
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        match reason {
-            feature::EventData::FileModified(p) => self.report_user_consent(p).await,
-            _ => bail!("unexpected reason: {reason:?}"),
+        match event {
+            feature::EventData::FileModified(p) => {
+                info!("handle_event: report {p:?}");
+                self.report_user_consent(p).await
+            }
+            _ => bail!("unexpected event: {event:?}"),
         }
     }
 }
@@ -147,7 +155,7 @@ impl DeviceUpdateConsent {
         desired_consents: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
         self.ensure()?;
-        
+
         if let Some(desired_consents) = desired_consents {
             let mut new_consents = desired_consents
                 .iter()
@@ -260,13 +268,16 @@ mod tests {
     fn update_and_report_general_consent_test() {
         let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let usr_consent = DeviceUpdateConsent {
-            file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
+            watcher: None,
         };
 
-        assert!(block_on(async { usr_consent.update_general_consent(None).await }).is_ok());
+        assert!(futures_executor::block_on(async {
+            usr_consent.update_general_consent(None).await
+        })
+        .is_ok());
 
-        let err = block_on(async {
+        let err = futures_executor::block_on(async {
             usr_consent
                 .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
                 .await
@@ -277,7 +288,7 @@ mod tests {
             .to_string()
             .starts_with("update_general_consent: parse desired_consents")));
 
-        let err = block_on(async {
+        let err = futures_executor::block_on(async {
             usr_consent
                 .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
                 .await
