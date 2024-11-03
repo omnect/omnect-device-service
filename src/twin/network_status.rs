@@ -1,7 +1,7 @@
 use super::super::systemd::networkd;
 use super::web_service;
 use super::{feature, Feature};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
@@ -82,7 +82,7 @@ impl Feature for NetworkStatus {
         Ok(())
     }
 
-    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
@@ -92,10 +92,15 @@ impl Feature for NetworkStatus {
         }
     }
 
-    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
-        info!("refresh");
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
-        self.report(false).await
+
+        match event {
+            feature::EventData::Interval(_) | feature::EventData::Manual => {
+                self.report(false).await
+            }
+            _ => bail!("unexpected event: {event:?}"),
+        }
     }
 }
 

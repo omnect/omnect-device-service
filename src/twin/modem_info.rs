@@ -1,5 +1,5 @@
 use super::{feature, Feature};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
@@ -374,7 +374,7 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
@@ -384,8 +384,14 @@ impl Feature for ModemInfo {
         }
     }
 
-    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
-        self.report(false).await
+
+        match event {
+            feature::EventData::Interval(_) | feature::EventData::Manual => {
+                self.report(false).await
+            }
+            _ => bail!("unexpected event: {event:?}"),
+        }
     }
 }

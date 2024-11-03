@@ -152,7 +152,7 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn refresh_event(&self) -> Result<Option<feature::StreamResult>> {
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
@@ -167,26 +167,31 @@ impl Feature for ProvisioningConfig {
         }
     }
 
-    async fn refresh(&mut self, _reason: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        let expires = match &self.method {
-            Method::X509(X509 { est, expires, .. }) if *est => expires,
-            _ => bail!("refresh: unexpected provisioning method"),
-        };
+        match event {
+            feature::EventData::Interval(_) | feature::EventData::Manual => {
+                let expires = match &self.method {
+                    Method::X509(X509 { est, expires, .. }) if *est => expires,
+                    _ => bail!("refresh: unexpected provisioning method"),
+                };
 
-        let x509 = X509::new(true, &self.hostname)?;
+                let x509 = X509::new(true, &self.hostname)?;
 
-        if &x509.expires != expires {
-            info!("refresh: est expiration date changed {}", &x509.expires);
+                if &x509.expires != expires {
+                    info!("refresh: est expiration date changed {}", &x509.expires);
 
-            self.method = Method::X509(x509);
-            self.report().await?;
-        } else {
-            debug!("refresh: est expiration date didn't change");
+                    self.method = Method::X509(x509);
+                    self.report().await?;
+                } else {
+                    debug!("refresh: est expiration date didn't change");
+                }
+
+                Ok(())
+            }
+            _ => bail!("unexpected event: {event:?}"),
         }
-
-        Ok(())
     }
 }
 
@@ -342,7 +347,10 @@ mod tests {
 
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
-        config.refresh().await.unwrap();
+        config
+            .handle_event(&feature::EventData::Manual)
+            .await
+            .unwrap();
         let Method::X509(est2) = config.method.clone() else {
             panic!("no X509 found");
         };
