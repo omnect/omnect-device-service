@@ -76,14 +76,13 @@ impl Feature for SystemInfo {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        match event {
-            feature::EventData::Interval(_) | feature::EventData::Manual => {
-                info!("handle_event: time synced");
-                self.boot_time = Some(system::boot_time()?);
-                self.report().await
-            }
-            _ => bail!("unexpected event: {event:?}"),
-        }
+        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+            bail!("unexpected event: {event:?}")
+        };
+
+        info!("handle_event: time synced");
+        self.boot_time = Some(system::boot_time()?);
+        self.report().await
     }
 }
 

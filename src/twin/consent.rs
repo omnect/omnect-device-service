@@ -90,13 +90,12 @@ impl Feature for DeviceUpdateConsent {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        match event {
-            feature::EventData::FileModified(p) => {
-                info!("handle_event: report {p:?}");
-                self.report_user_consent(p).await
-            }
-            _ => bail!("unexpected event: {event:?}"),
-        }
+        let feature::EventData::FileModified(p) = event else {
+            bail!("unexpected event: {event:?}")
+        };
+
+        info!("handle_event: report {p:?}");
+        self.report_user_consent(p).await
     }
 }
 
