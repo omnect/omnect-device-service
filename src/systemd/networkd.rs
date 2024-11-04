@@ -30,29 +30,45 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
        that's why we have here a retry + timeout workaround.
        the workaround should be removed someday in case we never face the situation again.
     */
-
     use log::debug;
+
     for i in 0..3 {
-        debug!("networkd_interfaces: trial{i:?}");
-        let result = timeout_at(
+        let con_result = timeout_at(
             Instant::now() + Duration::from_secs(3),
-            zbus::Connection::system().await?.call_method(
-                Some("org.freedesktop.network1"),
-                "/org/freedesktop/network1",
-                Some("org.freedesktop.network1.Manager"),
-                "Describe",
-                &(),
-            ),
+            zbus::Connection::system(),
         )
         .await;
 
-        match result {
-            Err(e) => error!("networkd_interfaces: trial{i:?} {e}"),
-            Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} {e}"),
-            Ok(Ok(result)) => {
-                debug!("networkd_interfaces: succeeded");
-                return serde_json::from_str(result.body().unwrap())
-                    .context("cannot parse network description")
+        match con_result {
+            Err(e) => error!("networkd_interfaces: trial{i:?} system(): {e}"),
+            Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} system(): {e}"),
+            Ok(Ok(con)) => {
+                let call_result = timeout_at(
+                    Instant::now() + Duration::from_secs(3),
+                    con.call_method(
+                        Some("org.freedesktop.network1"),
+                        "/org/freedesktop/network1",
+                        Some("org.freedesktop.network1.Manager"),
+                        "Describe",
+                        &(),
+                    ),
+                )
+                .await;
+
+                match call_result {
+                    Err(e) => error!("networkd_interfaces: trial{i:?} call_method: {e}"),
+                    Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} call_method: {e}"),
+                    Ok(Ok(result)) => {
+                        debug!("networkd_interfaces: succeeded");
+                        return serde_json::from_str(
+                            result
+                                .body()
+                                .deserialize()
+                                .context("networkd_interfaces: trial{i:?} deserialize body")?,
+                        )
+                        .context("networkd_interfaces: cannot parse network description");
+                    }
+                }
             }
         }
     }
