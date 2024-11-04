@@ -1,16 +1,11 @@
-use crate::{systemd, systemd::unit::UnitAction};
-
 use anyhow::{bail, Context, Result};
 use log::info;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 static DEV_OMNECT: &str = "/dev/omnect/";
-static NETWORK_SERVICE: &str = "systemd-networkd.service";
-static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 15;
 
 fn current_root() -> Result<&'static str> {
     let current_root = fs::read_link(DEV_OMNECT.to_owned() + "rootCurrent")
@@ -41,15 +36,6 @@ pub fn infos() -> Result<()> {
     info!("bootloader was updated: {}", bootloader_updated());
     info!("device booted from root {}.", current_root()?);
     Ok(())
-}
-
-pub async fn reload_network() -> Result<()> {
-    systemd::unit::unit_action(
-        NETWORK_SERVICE,
-        UnitAction::Reload,
-        Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
-    )
-    .await
 }
 
 pub fn sw_version() -> Result<serde_json::Value> {

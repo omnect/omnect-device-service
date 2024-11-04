@@ -18,16 +18,28 @@ use tokio::{
     time::{Instant, Interval},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 pub enum Command {
     FactoryReset(FactoryResetCommand),
+    Reboot,
+    ReloadNetwork,
 }
 
 impl Command {
-    pub fn FromDirectMethod(direct_method: DirectMethod) -> Result<Command> {
+    pub fn feature_id(self) -> TypeId {
+        use Command::*;
+
+        match self {
+            FactoryReset(_) => TypeId::of::<super::FactoryReset>(),
+            Reboot => TypeId::of::<super::Reboot>(),
+            ReloadNetwork => TypeId::of::<super::Network>(),
+        }
+    }
+    pub fn from_direct_method(direct_method: &DirectMethod) -> Result<Command> {
         match direct_method.name.as_str() {
             "factory_reset" => Ok(Command::FactoryReset(
-                serde_json::from_value(direct_method.payload).context("context")?,
+                serde_json::from_value(direct_method.payload.clone())
+                    .context("cannot parse FactoryResetCommand from direct method payload")?,
             )),
 
             /*         "user_consent" => self
@@ -104,7 +116,11 @@ pub(crate) trait Feature {
         unimplemented!();
     }
 
-    async fn command(&self, cmd: Command) -> Result<Option<serde_json::Value>> {
+    fn register_command(&self) -> &'static str {
+        unimplemented!();
+    }
+
+    async fn command(&self, _cmd: &Command) -> Result<Option<serde_json::Value>> {
         unimplemented!();
     }
 }

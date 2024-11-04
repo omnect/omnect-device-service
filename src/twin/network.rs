@@ -1,6 +1,7 @@
 use super::super::systemd::networkd;
 use super::web_service;
 use super::{feature, Feature};
+use super::{systemd, systemd::unit::UnitAction};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -20,6 +21,9 @@ lazy_static! {
             .expect("cannot parse REFRESH_NETWORK_STATUS_INTERVAL_SECS env var")
     };
 }
+
+static NETWORK_SERVICE: &str = "systemd-networkd.service";
+static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 15;
 
 #[derive(PartialEq, Serialize)]
 pub struct Address {
@@ -44,13 +48,13 @@ pub struct Interface {
 }
 
 #[derive(Default)]
-pub struct NetworkStatus {
+pub struct Network {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     interfaces: Vec<Interface>,
 }
 
 #[async_trait(?Send)]
-impl Feature for NetworkStatus {
+impl Feature for Network {
     fn name(&self) -> String {
         Self::ID.to_string()
     }
@@ -86,7 +90,7 @@ impl Feature for NetworkStatus {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(feature::interval_stream::<NetworkStatus>(interval(
+            Ok(Some(feature::interval_stream::<Network>(interval(
                 Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
             ))))
         }
@@ -101,9 +105,27 @@ impl Feature for NetworkStatus {
 
         self.report(false).await
     }
+
+    async fn command(&self, cmd: &feature::Command) -> Result<Option<serde_json::Value>> {
+        info!("Reload network requested: {cmd:?}");
+        let feature::Command::ReloadNetwork = cmd else {
+            bail!("unexpected command")
+        };
+
+        self.ensure()?;
+
+        systemd::unit::unit_action(
+            NETWORK_SERVICE,
+            UnitAction::Reload,
+            Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
+        )
+        .await?;
+
+        Ok(None)
+    }
 }
 
-impl NetworkStatus {
+impl Network {
     const NETWORK_STATUS_VERSION: u8 = 3;
     const ID: &'static str = "network_status";
 
@@ -307,6 +329,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(NetworkStatus::parse_interfaces(&json).unwrap().len(), 2)
+        assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 2)
     }
 }

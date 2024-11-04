@@ -1,3 +1,4 @@
+use crate::twin::{self, feature};
 use actix_server::ServerHandle;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use anyhow::{Context, Result};
@@ -9,17 +10,14 @@ use serde_json::json;
 use std::{str::FromStr, sync::OnceLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-type Reply = oneshot::Sender<bool>;
-
 static PUBLISH_CHANNEL_MAP: OnceLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     OnceLock::new();
 static PUBLISH_ENDPOINTS: OnceLock<Mutex<Vec<PublishEndpoint>>> = OnceLock::new();
 
 #[derive(Debug)]
-pub enum Command {
-    FactoryReset(Reply),
-    Reboot(Reply),
-    ReloadNetwork(Reply),
+pub struct Request {
+    pub(crate) command: feature::Command,
+    pub(crate) reply: oneshot::Sender<Result<Option<serde_json::Value>>>,
 }
 
 #[derive(Debug, strum_macros::Display)]
@@ -66,7 +64,7 @@ pub struct WebService {
 }
 
 impl WebService {
-    pub async fn run(tx_request: mpsc::Sender<Command>) -> Result<Option<Self>> {
+    pub async fn run(tx_request: mpsc::Sender<Request>) -> Result<Option<Self>> {
         // we only start web service feature if WEBSERVICE_ENABLED env var is explicitly set
         if !(*WEBSERVICE_ENABLED) {
             info!("WebService is disabled");
@@ -158,34 +156,46 @@ impl WebService {
         self.srv_handle.stop(false).await;
     }
 
-    async fn factory_reset(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn factory_reset(tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
         debug!("WebService factory_reset");
 
         let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Command::FactoryReset(tx_reply);
+        let cmd = Request {
+            command: feature::Command::FactoryReset(twin::factory_reset::FactoryResetCommand {
+                mode: twin::factory_reset::FactoryResetMode::Mode1,
+                preserve: vec![],
+            }),
+            reply: tx_reply,
+        };
 
-        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
+        Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn reboot(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn reboot(tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
         debug!("WebService reboot");
 
         let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Command::Reboot(tx_reply);
+        let cmd = Request {
+            command: feature::Command::Reboot,
+            reply: tx_reply,
+        };
 
-        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
+        Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn reload_network(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn reload_network(tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
         debug!("WebService reload_network");
 
         let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Command::ReloadNetwork(tx_reply);
+        let cmd = Request {
+            command: feature::Command::ReloadNetwork,
+            reply: tx_reply,
+        };
 
-        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
+        Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn republish(_tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn republish(_tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
         debug!("WebService republish");
 
         for (channel, value) in PUBLISH_CHANNEL_MAP
@@ -224,7 +234,7 @@ impl WebService {
         HttpResponse::Ok().finish()
     }
 
-    async fn status(_tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn status(_tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
         debug!("WebService status");
 
         let pubs = PUBLISH_CHANNEL_MAP
@@ -240,16 +250,17 @@ impl WebService {
         HttpResponse::Ok().body(pubs)
     }
 
-    async fn exec_cmd(
-        tx_request: &mpsc::Sender<Command>,
-        rx_reply: tokio::sync::oneshot::Receiver<bool>,
-        cmd: Command,
+    async fn exec_request(
+        tx_request: &mpsc::Sender<Request>,
+        rx_reply: tokio::sync::oneshot::Receiver<Result<Option<serde_json::Value>>>,
+        request: Request,
     ) -> impl Responder {
-        tx_request.send(cmd).await.unwrap();
+        tx_request.send(request).await.unwrap();
 
+        // ToDo: log and return results
         match rx_reply.await {
-            Ok(true) => HttpResponse::Ok().finish(),
-            Ok(false) => {
+            Ok(Ok(_)) => HttpResponse::Ok().finish(),
+            Ok(Err(_)) => {
                 HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
             }
             Err(_) => {
@@ -327,7 +338,7 @@ mod tests {
 
     #[actix_web::test]
     async fn reboot_ok() {
-        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Command>(100);
+        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Request>(100);
 
         let app = test::init_service(
             App::new()
@@ -337,7 +348,7 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let Command::Reboot(reply) = rx_web_service.recv().await.unwrap() {
+            if let Request::Reboot(reply) = rx_web_service.recv().await.unwrap() {
                 reply.send(true).unwrap();
                 return;
             }
@@ -352,7 +363,7 @@ mod tests {
 
     #[actix_web::test]
     async fn reboot_fail() {
-        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Command>(100);
+        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Request>(100);
 
         let app = test::init_service(
             App::new()
@@ -362,7 +373,7 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let Command::Reboot(reply) = rx_web_service.recv().await.unwrap() {
+            if let Request::Reboot(reply) = rx_web_service.recv().await.unwrap() {
                 reply.send(false).unwrap();
                 return;
             }

@@ -1,11 +1,11 @@
 mod consent;
-mod factory_reset;
-mod feature;
+pub(crate) mod factory_reset;
+pub(crate) mod feature;
 #[cfg(test)]
 #[path = "mod_test.rs"]
 mod mod_test;
 mod modem_info;
-mod network_status;
+mod network;
 mod provisioning_config;
 mod reboot;
 mod ssh_tunnel;
@@ -21,28 +21,22 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::system;
 use crate::twin::{
-    consent::DeviceUpdateConsent,
-    factory_reset::FactoryReset,
-    feature::{EventData, Feature},
-    modem_info::ModemInfo,
-    network_status::NetworkStatus,
-    provisioning_config::ProvisioningConfig,
-    reboot::Reboot,
-    ssh_tunnel::SshTunnel,
-    system_info::SystemInfo,
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, feature::Feature,
+    modem_info::ModemInfo, network::Network, provisioning_config::ProvisioningConfig,
+    reboot::Reboot, ssh_tunnel::SshTunnel, system_info::SystemInfo,
     wifi_commissioning::WifiCommissioning,
 };
-use crate::web_service::{self, Command as WebServiceCommand, PublishChannel, WebService};
+use crate::web_service::{self, PublishChannel, Request as WebServiceCommand, WebService};
 use crate::{systemd, systemd::watchdog::WatchdogManager};
 use crate::{update_validation, update_validation::UpdateValidation};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use azure_iot_sdk::client::{
-    AuthenticationStatus, DirectMethod, IotMessage, TwinUpdateState, UnauthenticatedReason,
+    AuthenticationStatus, IotMessage, TwinUpdateState, UnauthenticatedReason,
 };
 use dotenvy;
+use factory_reset::FactoryResetCommand;
 use futures_executor::block_on;
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -50,7 +44,10 @@ use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
 use std::{any::TypeId, collections::HashMap, path::Path, time};
-use tokio::{select, sync::mpsc};
+use tokio::{
+    select,
+    sync::{mpsc, oneshot},
+};
 
 #[derive(PartialEq)]
 enum TwinState {
@@ -95,8 +92,8 @@ impl Twin {
                 Box::new(ModemInfo::new()) as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<NetworkStatus>(),
-                Box::<NetworkStatus>::default() as Box<dyn Feature>,
+                TypeId::of::<Network>(),
+                Box::<Network>::default() as Box<dyn Feature>,
             ),
             (
                 TypeId::of::<ProvisioningConfig>(),
@@ -300,75 +297,30 @@ impl Twin {
         })
     }
 
-    fn handle_direct_method(&mut self, method: DirectMethod) -> Result<()> {
+    fn handle_command(
+        &self,
+        cmd: feature::Command,
+        reply: oneshot::Sender<Result<Option<serde_json::Value>>>,
+    ) -> Result<()> {
         block_on(async {
-            let cmd = feature::Command::FromDirectMethod(method)?;
-            let result: std::result::Result<Option<serde_json::Value>, anyhow::Error> =
-                self.feature::<FactoryReset>()?.command(cmd).await;
+            let result = self.feature::<FactoryReset>()?.command(&cmd).await;
 
             match &result {
-                Ok(result) => info!("{cmd:?} succeeded with result: {result:?}"),
-                Err(e) => error!("{cmd:?} returned error: {e}"),
+                Ok(inner_result) => {
+                    info!("handle_command: {cmd:?} succeeded with result: {inner_result:?}")
+                }
+                Err(e) => error!("handle_command: {cmd:?} returned error: {e}"),
             }
 
-            if method.responder.send(result).is_err() {
-                error!("handle_direct_method: {cmd:?} receiver dropped");
+            if reply.send(result).is_err() {
+                error!("handle_command: {cmd:?} receiver dropped");
             }
 
             Ok(())
         })
-        /*         block_on(async {
-            let name = method.name.clone();
-            let payload = method.payload.clone();
-
-            let result = match method.name.as_str() {
-                "factory_reset" => {
-                    self.feature::<FactoryReset>()?
-                        .reset_to_factory_settings(method.payload)
-                        .await
-                }
-                "user_consent" => self
-                    .feature::<DeviceUpdateConsent>()?
-                    .user_consent(method.payload),
-                "get_ssh_pub_key" => {
-                    self.feature::<SshTunnel>()?
-                        .get_ssh_pub_key(method.payload)
-                        .await
-                }
-                "open_ssh_tunnel" => {
-                    self.feature::<SshTunnel>()?
-                        .open_ssh_tunnel(method.payload)
-                        .await
-                }
-                "close_ssh_tunnel" => {
-                    self.feature::<SshTunnel>()?
-                        .close_ssh_tunnel(method.payload)
-                        .await
-                }
-                "reboot" => self.feature::<Reboot>()?.reboot().await,
-                "set_wait_online_timeout" => {
-                    self.feature::<Reboot>()?
-                        .set_wait_online_timeout(method.payload)
-                        .await
-                }
-                _ => Err(anyhow!("direct method unknown")),
-            };
-
-            match &result {
-                Ok(Some(result)) => info!("{name}({payload}) succeeded with result: {result}"),
-                Ok(None) => info!("{name}({payload}) succeeded"),
-                Err(e) => error!("{name}({payload}) returned error: {e}"),
-            }
-
-            if method.responder.send(result).is_err() {
-                error!("handle_direct_method: {name}({payload}) receiver dropped");
-            }
-
-            Ok(())
-        }) */
     }
 
-    fn handle_webservice_request(&mut self, request: WebServiceCommand) -> Result<()> {
+    /*     fn handle_webservice_request(&mut self, request: WebServiceCommand) -> Result<()> {
         block_on(async {
             let req_str = format!("{request:?}");
 
@@ -404,7 +356,7 @@ impl Twin {
 
             result
         })
-    }
+    } */
 
     fn shutdown(
         &mut self,
@@ -538,8 +490,8 @@ impl Twin {
                                 .context("couldn't report properties since client not present")?
                                 .twin_report(reported)?
                         },
-                        Some(direct_methods) = rx_direct_method.recv() => {
-                            twin.handle_direct_method(direct_methods)?
+                        Some(direct_method) = rx_direct_method.recv() => {
+                            twin.handle_command(feature::Command::from_direct_method(&direct_method)?,  direct_method.responder)?
                         },
                         Some(message) = rx_outgoing_message.recv() => {
                             twin.client
@@ -548,7 +500,7 @@ impl Twin {
                                 .send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_webservice_request(request)?
+                            twin.handle_command(request.command,  request.reply)?
                         },
                         event = refresh_features.select_next_some() => {
                             let feature = twin

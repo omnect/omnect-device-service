@@ -624,7 +624,7 @@ pub mod mod_test {
         let test = |test_attr: &'_ mut TestConfig| {
             assert!(test_attr.twin.feature::<FactoryReset>().is_err());
             assert!(test_attr.twin.feature::<DeviceUpdateConsent>().is_err());
-            assert!(test_attr.twin.feature::<NetworkStatus>().is_err());
+            assert!(test_attr.twin.feature::<Network>().is_err());
             assert!(test_attr.twin.feature::<Reboot>().is_err());
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
