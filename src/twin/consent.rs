@@ -263,6 +263,7 @@ impl DeviceUpdateConsent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_executor::block_on;
 
     #[test]
     fn update_and_report_general_consent_test() {
@@ -272,12 +273,9 @@ mod tests {
             watcher: None,
         };
 
-        assert!(futures_executor::block_on(async {
-            usr_consent.update_general_consent(None).await
-        })
-        .is_ok());
+        assert!(block_on(async { usr_consent.update_general_consent(None).await }).is_ok());
 
-        let err = futures_executor::block_on(async {
+        let err = block_on(async {
             usr_consent
                 .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
                 .await
@@ -288,7 +286,7 @@ mod tests {
             .to_string()
             .starts_with("update_general_consent: parse desired_consents")));
 
-        let err = futures_executor::block_on(async {
+        let err = block_on(async {
             usr_consent
                 .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
                 .await
