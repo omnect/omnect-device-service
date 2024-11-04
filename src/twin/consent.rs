@@ -37,8 +37,8 @@ macro_rules! history_consent_path {
 
 #[derive(Default)]
 pub struct DeviceUpdateConsent {
+    file_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
     tx_reported_properties: Option<Sender<serde_json::Value>>,
-    watcher: Option<Debouncer<INotifyWatcher, NoCache>>,
 }
 
 #[async_trait(?Send)]
@@ -78,12 +78,12 @@ impl Feature for DeviceUpdateConsent {
     }
 
     fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
-        let (watcher, stream) = feature::file_modified_stream::<DeviceUpdateConsent>(vec![
+        let (file_observer, stream) = feature::file_modified_stream::<DeviceUpdateConsent>(vec![
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),
         ])
         .context("refresh_event: cannot create file_modified_stream")?;
-        self.watcher = Some(watcher);
+        self.file_observer = Some(file_observer);
         Ok(Some(stream))
     }
 
@@ -269,8 +269,8 @@ mod tests {
     fn update_and_report_general_consent_test() {
         let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let usr_consent = DeviceUpdateConsent {
+            file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
-            watcher: None,
         };
 
         assert!(block_on(async { usr_consent.update_general_consent(None).await }).is_ok());
