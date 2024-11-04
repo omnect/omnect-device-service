@@ -302,6 +302,22 @@ impl Twin {
 
     fn handle_direct_method(&mut self, method: DirectMethod) -> Result<()> {
         block_on(async {
+            let cmd = feature::Command::FromDirectMethod(method)?;
+            let result: std::result::Result<Option<serde_json::Value>, anyhow::Error> =
+                self.feature::<FactoryReset>()?.command(cmd).await;
+
+            match &result {
+                Ok(result) => info!("{cmd:?} succeeded with result: {result:?}"),
+                Err(e) => error!("{cmd:?} returned error: {e}"),
+            }
+
+            if method.responder.send(result).is_err() {
+                error!("handle_direct_method: {cmd:?} receiver dropped");
+            }
+
+            Ok(())
+        })
+        /*         block_on(async {
             let name = method.name.clone();
             let payload = method.payload.clone();
 
@@ -349,7 +365,7 @@ impl Twin {
             }
 
             Ok(())
-        })
+        }) */
     }
 
     fn handle_webservice_request(&mut self, request: WebServiceCommand) -> Result<()> {

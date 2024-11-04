@@ -1,6 +1,8 @@
-use anyhow::ensure;
+use super::factory_reset::FactoryResetCommand;
 use anyhow::{bail, Result};
+use anyhow::{ensure, Context};
 use async_trait::async_trait;
+use azure_iot_sdk::client::DirectMethod;
 use azure_iot_sdk::client::IotMessage;
 use futures::Stream;
 use futures::StreamExt;
@@ -15,6 +17,50 @@ use tokio::{
     sync::mpsc,
     time::{Instant, Interval},
 };
+
+#[derive(Debug)]
+pub enum Command {
+    FactoryReset(FactoryResetCommand),
+}
+
+impl Command {
+    pub fn FromDirectMethod(direct_method: DirectMethod) -> Result<Command> {
+        match direct_method.name.as_str() {
+            "factory_reset" => Ok(Command::FactoryReset(
+                serde_json::from_value(direct_method.payload).context("context")?,
+            )),
+
+            /*         "user_consent" => self
+                .feature::<DeviceUpdateConsent>()?
+                .user_consent(method.payload),
+            "get_ssh_pub_key" => {
+                self.feature::<SshTunnel>()?
+                    .get_ssh_pub_key(method.payload)
+                    .await
+            }
+            "open_ssh_tunnel" => {
+                self.feature::<SshTunnel>()?
+                    .open_ssh_tunnel(method.payload)
+                    .await
+            }
+            "close_ssh_tunnel" => {
+                self.feature::<SshTunnel>()?
+                    .close_ssh_tunnel(method.payload)
+                    .await
+            }
+            "reboot" => self.feature::<Reboot>()?.reboot().await,
+            "set_wait_online_timeout" => {
+                self.feature::<Reboot>()?
+                    .set_wait_online_timeout(method.payload)
+                    .await */
+            _ => bail!(
+                "cannot parse direct method {} with payload {}",
+                direct_method.name,
+                direct_method.payload
+            ),
+        }
+    }
+}
 
 #[async_trait(?Send)]
 pub(crate) trait Feature {
@@ -55,6 +101,10 @@ pub(crate) trait Feature {
     }
 
     async fn handle_event(&mut self, _event: &EventData) -> Result<()> {
+        unimplemented!();
+    }
+
+    async fn command(&self, cmd: Command) -> Result<Option<serde_json::Value>> {
         unimplemented!();
     }
 }
