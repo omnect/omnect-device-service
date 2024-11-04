@@ -173,6 +173,7 @@ impl Twin {
         Ok(())
     }
 
+    // ToDo: get rid of
     fn feature<T>(&self) -> Result<&T>
     where
         T: Feature + 'static,
@@ -184,23 +185,6 @@ impl Twin {
             .as_any()
             .downcast_ref::<T>()
             .ok_or_else(|| anyhow::anyhow!("failed to cast to feature ref"))?;
-
-        feature.ensure()?;
-
-        Ok(feature)
-    }
-
-    fn feature_mut<T>(&mut self) -> Result<&mut T>
-    where
-        T: Feature + 'static,
-    {
-        let feature = self
-            .features
-            .get_mut(&TypeId::of::<T>())
-            .ok_or_else(|| anyhow::anyhow!("failed to get feature mut"))?
-            .as_any_mut()
-            .downcast_mut::<T>()
-            .ok_or_else(|| anyhow::anyhow!("failed to cast to feature mut"))?;
 
         feature.ensure()?;
 
@@ -298,12 +282,28 @@ impl Twin {
     }
 
     fn handle_command(
-        &self,
+        &mut self,
         cmd: feature::Command,
         reply: oneshot::Sender<Result<Option<serde_json::Value>>>,
     ) -> Result<()> {
         block_on(async {
-            let result = self.feature::<FactoryReset>()?.command(&cmd).await;
+            let feature = self
+                .features
+                .get_mut(&cmd.feature_id())
+                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
+            let result = feature.command(&cmd).await;
+
+            // ToDo
+            /*
+                WebServiceCommand::ReloadNetwork(reply) => {
+                    let mut result = system::reload_network().await;
+                    if result.is_ok() {
+                        result = self
+                            .feature_mut::<NetworkStatus>()?
+                            .handle_event(&EventData::Manual)
+                            .await;
+
+             */
 
             match &result {
                 Ok(inner_result) => {
@@ -319,44 +319,6 @@ impl Twin {
             Ok(())
         })
     }
-
-    /*     fn handle_webservice_request(&mut self, request: WebServiceCommand) -> Result<()> {
-        block_on(async {
-            let req_str = format!("{request:?}");
-
-            let (tx_result, result) = match request {
-                WebServiceCommand::FactoryReset(reply) => (
-                    reply,
-                    self.feature::<FactoryReset>()?
-                        .reset_to_factory_settings(json!({"type": 1}))
-                        .await
-                        .map(|_| ()),
-                ),
-                WebServiceCommand::Reboot(reply) => (reply, systemd::reboot().await),
-                WebServiceCommand::ReloadNetwork(reply) => {
-                    let mut result = system::reload_network().await;
-                    if result.is_ok() {
-                        result = self
-                            .feature_mut::<NetworkStatus>()?
-                            .handle_event(&EventData::Manual)
-                            .await;
-                    }
-                    (reply, result)
-                }
-            };
-
-            match &result {
-                Ok(()) => info!("handle_webservice_request: {req_str} succeeded"),
-                Err(e) => error!("handle_webservice_request: {req_str} failed with: {e}"),
-            }
-
-            if tx_result.send(result.is_ok()).is_err() {
-                error!("handle_webservice_request: receiver dropped");
-            }
-
-            result
-        })
-    } */
 
     fn shutdown(
         &mut self,

@@ -26,7 +26,7 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn feature_id(self) -> TypeId {
+    pub fn feature_id(&self) -> TypeId {
         use Command::*;
 
         match self {
