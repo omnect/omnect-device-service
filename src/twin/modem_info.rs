@@ -387,11 +387,10 @@ impl Feature for ModemInfo {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        match event {
-            feature::EventData::Interval(_) | feature::EventData::Manual => {
-                self.report(false).await
-            }
-            _ => bail!("unexpected event: {event:?}"),
-        }
+        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+            bail!("unexpected event: {event:?}")
+        };
+
+        self.report(false).await
     }
 }

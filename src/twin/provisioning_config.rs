@@ -170,28 +170,27 @@ impl Feature for ProvisioningConfig {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        match event {
-            feature::EventData::Interval(_) | feature::EventData::Manual => {
-                let expires = match &self.method {
-                    Method::X509(X509 { est, expires, .. }) if *est => expires,
-                    _ => bail!("refresh: unexpected provisioning method"),
-                };
+        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+            bail!("unexpected event: {event:?}")
+        };
 
-                let x509 = X509::new(true, &self.hostname)?;
+        let expires = match &self.method {
+            Method::X509(X509 { est, expires, .. }) if *est => expires,
+            _ => bail!("refresh: unexpected provisioning method"),
+        };
 
-                if &x509.expires != expires {
-                    info!("refresh: est expiration date changed {}", &x509.expires);
+        let x509 = X509::new(true, &self.hostname)?;
 
-                    self.method = Method::X509(x509);
-                    self.report().await?;
-                } else {
-                    debug!("refresh: est expiration date didn't change");
-                }
+        if &x509.expires != expires {
+            info!("refresh: est expiration date changed {}", &x509.expires);
 
-                Ok(())
-            }
-            _ => bail!("unexpected event: {event:?}"),
+            self.method = Method::X509(x509);
+            self.report().await?;
+        } else {
+            debug!("refresh: est expiration date didn't change");
         }
+
+        Ok(())
     }
 }
 
