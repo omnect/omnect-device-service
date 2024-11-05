@@ -10,7 +10,7 @@ use azure_iot_sdk::client::DirectMethod;
 use azure_iot_sdk::client::IotMessage;
 use futures::Stream;
 use futures::StreamExt;
-use log::{debug, error};
+use log::{debug, error, warn};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
 use std::any::TypeId;
 use std::path::Path;
@@ -89,6 +89,8 @@ impl Command {
     }
 
     pub fn from_desired_property(update: TwinUpdate) -> Result<Option<Command>> {
+        debug!("desired property: {update:?}");
+
         match update.state {
             TwinUpdateState::Partial => {
                 if let Some(gc) = update.value.get("general_consent") {
@@ -108,7 +110,7 @@ impl Command {
                             ))?,
                         )));
                 }
-                error!("from_desired_property: 'desired: general_consent' missing while TwinUpdateState::Complete");
+                warn!("from_desired_property: 'desired: general_consent' missing while TwinUpdateState::Complete");
             }
         }
         Ok(None)
@@ -217,8 +219,8 @@ where
         move |res: DebounceEventResult| match res {
             Ok(debounced_events) => {
                 for de in debounced_events {
-                    debug!("notify-event: {de:#?}");
                     if let EventKind::Modify(_) = de.event.kind {
+                        debug!("notify-event: {de:?}");
                         for p in &de.paths {
                             let _ = tx.blocking_send(p.clone());
                         }

@@ -72,7 +72,7 @@ impl Feature for SystemInfo {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        let feature::EventData::Interval(_) = event else {
+        let feature::EventData::FileCreated(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 
