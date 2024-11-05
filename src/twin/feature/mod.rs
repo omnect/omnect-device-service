@@ -1,5 +1,6 @@
-use super::consent::DesiredGeneralConsentCommand;
+use super::consent::{DesiredGeneralConsentCommand, UserConsentCommand};
 use super::factory_reset::FactoryResetCommand;
+use super::reboot::SetWaitOnlineTimeoutCommand;
 use super::ssh_tunnel::{CloseSshTunnelCommand, GetSshPubKeyCommand, OpenSshTunnelCommand};
 use super::{TwinUpdate, TwinUpdateState};
 use anyhow::{bail, Result};
@@ -30,6 +31,8 @@ pub enum Command {
     OpenSshTunnel(OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
+    SetWaitOnlineTimeout(SetWaitOnlineTimeoutCommand),
+    UserConsent(UserConsentCommand),
 }
 
 impl Command {
@@ -44,6 +47,8 @@ impl Command {
             OpenSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
             Reboot => TypeId::of::<super::Reboot>(),
             ReloadNetwork => TypeId::of::<super::Network>(),
+            SetWaitOnlineTimeout(_) => TypeId::of::<super::Reboot>(),
+            UserConsent(_) => TypeId::of::<super::DeviceUpdateConsent>(),
         }
     }
 
@@ -53,10 +58,10 @@ impl Command {
                 serde_json::from_value(direct_method.payload.clone())
                     .context("cannot parse FactoryResetCommand from direct method payload")?,
             )),
-
-            /*         "user_consent" => self
-                .feature::<DeviceUpdateConsent>()?
-                .user_consent(method.payload),*/
+            "user_consent" => Ok(Command::UserConsent(
+                serde_json::from_value(direct_method.payload.clone())
+                    .context("cannot parse UserConsentCommand from direct method payload")?,
+            )),
             "get_ssh_pub_key" => Ok(Command::GetSshPubKey(
                 serde_json::from_value(direct_method.payload.clone())
                     .context("cannot parse GetSshPubKeyCommand from direct method payload")?,
@@ -65,15 +70,16 @@ impl Command {
                 serde_json::from_value(direct_method.payload.clone())
                     .context("cannot parse OpenSshTunnelCommand from direct method payload")?,
             )),
-            "close_ssh_tunnel" =>Ok(Command::CloseSshTunnel(
+            "close_ssh_tunnel" => Ok(Command::CloseSshTunnel(
                 serde_json::from_value(direct_method.payload.clone())
                     .context("cannot parse CloseSshTunnelCommand from direct method payload")?,
-            )),/*
-            "reboot" => self.feature::<Reboot>()?.reboot().await,
-            "set_wait_online_timeout" => {
-                self.feature::<Reboot>()?
-                    .set_wait_online_timeout(method.payload)
-                    .await */
+            )),
+            "reboot" => Ok(Command::Reboot),
+            "set_wait_online_timeout" => Ok(Command::SetWaitOnlineTimeout(
+                serde_json::from_value(direct_method.payload.clone()).context(
+                    "cannot parse SetWaitOnlineTimeoutCommand from direct method payload",
+                )?,
+            )),
             _ => bail!(
                 "cannot parse direct method {} with payload {}",
                 direct_method.name,
@@ -86,13 +92,11 @@ impl Command {
         match update.state {
             TwinUpdateState::Partial => {
                 if let Some(gc) = update.value.get("general_consent") {
-                    Ok(Some(Command::DesiredGeneralConsent(
+                    return  Ok(Some(Command::DesiredGeneralConsent(
                         serde_json::from_value(gc.clone()).context(format!(
                             "from_desired_property: cannot parse DesiredGeneralConsentCommand: {gc:#?}"
                         ))?,
-                    )))
-                } else {
-                    Ok(None)
+                    )));
                 }
             }
             TwinUpdateState::Complete => {
@@ -105,20 +109,17 @@ impl Command {
                         )));
                 }
                 error!("from_desired_property: 'desired: general_consent' missing while TwinUpdateState::Complete");
-                Ok(None)
             }
         }
+        Ok(None)
     }
 }
 
 #[async_trait(?Send)]
 pub(crate) trait Feature {
     fn name(&self) -> String;
-
     fn version(&self) -> u8;
-
     fn is_enabled(&self) -> bool;
-
     fn ensure(&self) -> Result<()> {
         if !self.is_enabled() {
             bail!("feature disabled: {}", self.name());
@@ -144,10 +145,6 @@ pub(crate) trait Feature {
     }
 
     async fn handle_event(&mut self, _event: &EventData) -> Result<()> {
-        unimplemented!();
-    }
-
-    fn register_command(&self) -> &'static str {
         unimplemented!();
     }
 

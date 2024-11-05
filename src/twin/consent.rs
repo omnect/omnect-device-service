@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
-use serde::{Deserialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::{
     env,
@@ -33,6 +33,11 @@ macro_rules! history_consent_path {
     () => {{
         PathBuf::from(&format!(r"{}/history_consent.json", consent_path!()))
     }};
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UserConsentCommand {
+    user_consents: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,16 +101,13 @@ impl Feature for DeviceUpdateConsent {
     }
 
     async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
-        info!("factory reset requested: {cmd:?}");
-        let feature::Command::DesiredGeneralConsent(cmd) = cmd else {
-            bail!("unexpected command")
-        };
-
         self.ensure()?;
 
-        self.update_general_consent(cmd).await?;
-
-        Ok(None)
+        match cmd {
+            feature::Command::DesiredGeneralConsent(cmd) => self.update_general_consent(cmd).await,
+            feature::Command::UserConsent(cmd) => self.user_consent(cmd),
+            _ => bail!("unexpected command"),
+        }
     }
 }
 
@@ -113,12 +115,12 @@ impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
 
-    pub fn user_consent(&self, in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-        info!("user consent requested: {in_json}");
+    fn user_consent(&self, cmd: UserConsentCommand) -> Result<Option<serde_json::Value>> {
+        info!("user consent requested: {cmd:?}");
 
-        self.ensure()?;
-
-        match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
+        match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
+            cmd.user_consents,
+        ) {
             Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
                 let (component, version) = map.iter().next().unwrap();
                 ensure!(
@@ -162,7 +164,7 @@ impl DeviceUpdateConsent {
     pub async fn update_general_consent(
         &self,
         desired_consents: DesiredGeneralConsentCommand,
-    ) -> Result<()> {
+    ) -> Result<Option<serde_json::Value>> {
         self.ensure()?;
 
         if let Some(mut new_consents) = desired_consents.general_consent {
@@ -194,7 +196,7 @@ impl DeviceUpdateConsent {
             // check if consents changed (current desired vs. saved)
             if new_consents.eq(&saved_consents) {
                 info!("desired general_consent didn't change");
-                return Ok(());
+                return Ok(None);
             }
 
             current_config["general_consent"] = serde_json::Value::from(new_consents);
@@ -212,11 +214,11 @@ impl DeviceUpdateConsent {
 
             self.report_general_consent()
                 .await
-                .context("update_general_consent: report_general_consent")
+                .context("update_general_consent: report_general_consent")?
         } else {
             info!("no general consent defined in desired properties.");
-            Ok(())
         }
+        Ok(None)
     }
 
     async fn report_general_consent(&self) -> Result<()> {

@@ -102,23 +102,15 @@ impl Feature for FactoryReset {
 
     async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
         info!("factory reset requested: {cmd:?}");
+
         let feature::Command::FactoryReset(cmd) = cmd else {
             bail!("unexpected command")
         };
 
         self.ensure()?;
 
-        let keys = FactoryReset::factory_reset_keys()?;
-        for topic in &cmd.preserve {
-            let topic = String::from(topic.to_string().trim_matches('"'));
-            if !keys.contains(&topic) {
-                anyhow::bail!("unknown preserve topic received: {topic}");
-            }
-        }
+        self.reset_to_factory_settings(cmd).await?;
 
-        bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
-        self.report_factory_reset_status("in_progress").await?;
-        systemd::reboot().await?;
         Ok(None)
     }
 }
@@ -177,6 +169,24 @@ impl FactoryReset {
         }))
         .await
         .context("report_factory_reset_status: send")
+    }
+
+    async fn reset_to_factory_settings(
+        &self,
+        cmd: FactoryResetCommand,
+    ) -> Result<Option<serde_json::Value>> {
+        let keys = FactoryReset::factory_reset_keys()?;
+        for topic in &cmd.preserve {
+            let topic = String::from(topic.to_string().trim_matches('"'));
+            if !keys.contains(&topic) {
+                anyhow::bail!("unknown preserve topic received: {topic}");
+            }
+        }
+
+        bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
+        self.report_factory_reset_status("in_progress").await?;
+        systemd::reboot().await?;
+        Ok(None)
     }
 
     async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
