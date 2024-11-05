@@ -106,7 +106,7 @@ impl Feature for Network {
         self.report(false).await
     }
 
-    async fn command(&self, cmd: &feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
         info!("Reload network requested: {cmd:?}");
         let feature::Command::ReloadNetwork = cmd else {
             bail!("unexpected command")
@@ -120,6 +120,8 @@ impl Feature for Network {
             Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
         )
         .await?;
+
+        self.report(false).await?;
 
         Ok(None)
     }

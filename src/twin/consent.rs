@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     any::Any,
@@ -33,6 +34,11 @@ macro_rules! history_consent_path {
     () => {{
         PathBuf::from(&format!(r"{}/history_consent.json", consent_path!()))
     }};
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DesiredGeneralConsentCommand {
+    general_consent: Option<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -97,6 +103,19 @@ impl Feature for DeviceUpdateConsent {
         info!("handle_event: report {p:?}");
         self.report_user_consent(p).await
     }
+
+    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+        info!("factory reset requested: {cmd:?}");
+        let feature::Command::DesiredGeneralConsent(cmd) = cmd else {
+            bail!("unexpected command")
+        };
+
+        self.ensure()?;
+
+        self.update_general_consent(cmd).await?;
+
+        Ok(None)
+    }
 }
 
 impl DeviceUpdateConsent {
@@ -151,24 +170,16 @@ impl DeviceUpdateConsent {
 
     pub async fn update_general_consent(
         &self,
-        desired_consents: Option<&Vec<serde_json::Value>>,
+        desired_consents: DesiredGeneralConsentCommand,
     ) -> Result<()> {
         self.ensure()?;
 
-        if let Some(desired_consents) = desired_consents {
-            let mut new_consents = desired_consents
-                .iter()
-                .map(|e| match (e.is_string(), e.as_str()) {
-                    (true, Some(s)) => Ok(s.to_string().to_lowercase()),
-                    _ => Err(anyhow!("cannot parse string from new_consents json.")
-                        .context("update_general_consent: parse desired_consents")),
-                })
-                .collect::<Result<Vec<String>>>()?;
-
+        if let Some(mut new_consents) = desired_consents.general_consent {
             // enforce entries only exists once
             new_consents.sort_by_key(|name| name.to_string());
             new_consents.dedup();
 
+            // ToDo use serialize
             let mut current_config: serde_json::Value = serde_json::from_reader(
                 OpenOptions::new()
                     .read(true)

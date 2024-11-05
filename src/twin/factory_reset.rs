@@ -40,7 +40,7 @@ macro_rules! factory_reset_custom_config_dir_path {
     }};
 }
 
-#[derive(Debug, Deserialize, Serialize, Eq, PartialEq,Hash)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum FactoryResetMode {
     Mode1 = 1,
     Mode2 = 2,
@@ -48,7 +48,7 @@ pub(crate) enum FactoryResetMode {
     Mode4 = 4,
 }
 
-#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct FactoryResetCommand {
     pub mode: FactoryResetMode,
     pub preserve: Vec<String>,
@@ -105,11 +105,7 @@ impl Feature for FactoryReset {
         Ok(())
     }
 
-/*     fn register_command(&self) -> &'static str {
-        feature::Command::FactoryReset::id()
-    } */
-
-    async fn command(&self, cmd: &feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
         info!("factory reset requested: {cmd:?}");
         let feature::Command::FactoryReset(cmd) = cmd else {
             bail!("unexpected command")

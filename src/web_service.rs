@@ -161,6 +161,7 @@ impl WebService {
 
         let (tx_reply, rx_reply) = oneshot::channel();
         let cmd = Request {
+            // ToDo
             command: feature::Command::FactoryReset(twin::factory_reset::FactoryResetCommand {
                 mode: twin::factory_reset::FactoryResetMode::Mode1,
                 preserve: vec![],

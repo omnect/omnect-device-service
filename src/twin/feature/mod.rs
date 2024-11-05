@@ -1,4 +1,6 @@
+use super::consent::DesiredGeneralConsentCommand;
 use super::factory_reset::FactoryResetCommand;
+use super::{TwinUpdate, TwinUpdateState};
 use anyhow::{bail, Result};
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
@@ -18,8 +20,9 @@ use tokio::{
     time::{Instant, Interval},
 };
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug)]
 pub enum Command {
+    DesiredGeneralConsent(DesiredGeneralConsentCommand),
     FactoryReset(FactoryResetCommand),
     Reboot,
     ReloadNetwork,
@@ -30,11 +33,13 @@ impl Command {
         use Command::*;
 
         match self {
+            DesiredGeneralConsent(_) => TypeId::of::<super::DeviceUpdateConsent>(),
             FactoryReset(_) => TypeId::of::<super::FactoryReset>(),
             Reboot => TypeId::of::<super::Reboot>(),
             ReloadNetwork => TypeId::of::<super::Network>(),
         }
     }
+
     pub fn from_direct_method(direct_method: &DirectMethod) -> Result<Command> {
         match direct_method.name.as_str() {
             "factory_reset" => Ok(Command::FactoryReset(
@@ -70,6 +75,34 @@ impl Command {
                 direct_method.name,
                 direct_method.payload
             ),
+        }
+    }
+
+    pub fn from_desired_property(update: TwinUpdate) -> Result<Option<Command>> {
+        match update.state {
+            TwinUpdateState::Partial => {
+                if let Some(gc) = update.value.get("general_consent") {
+                    Ok(Some(Command::DesiredGeneralConsent(
+                        serde_json::from_value(gc.clone()).context(format!(
+                            "from_desired_property: cannot parse DesiredGeneralConsentCommand: {gc:#?}"
+                        ))?,
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
+            TwinUpdateState::Complete => {
+                let gc = &update.value["desired"]["general_consent"];
+                if !gc.is_null() {
+                    return Ok(Some(Command::DesiredGeneralConsent(
+                            serde_json::from_value(gc.clone()).context(format!(
+                                "from_desired_property: cannot parse DesiredGeneralConsentCommand: {gc:#?}"
+                            ))?,
+                        )));
+                }
+                error!("from_desired_property: 'desired: general_consent' missing while TwinUpdateState::Complete");
+                Ok(None)
+            }
         }
     }
 }
@@ -120,7 +153,7 @@ pub(crate) trait Feature {
         unimplemented!();
     }
 
-    async fn command(&self, _cmd: &Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, _cmd: Command) -> Result<Option<serde_json::Value>> {
         unimplemented!();
     }
 }

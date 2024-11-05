@@ -33,7 +33,7 @@ use crate::{update_validation, update_validation::UpdateValidation};
 
 use anyhow::{bail, Context, Result};
 use azure_iot_sdk::client::{
-    AuthenticationStatus, IotMessage, TwinUpdateState, UnauthenticatedReason,
+    AuthenticationStatus, IotMessage, TwinUpdate, TwinUpdateState, UnauthenticatedReason,
 };
 use dotenvy;
 use factory_reset::FactoryResetCommand;
@@ -255,65 +255,32 @@ impl Twin {
         })
     }
 
-    fn handle_desired(&self, state: TwinUpdateState, desired: serde_json::Value) -> Result<()> {
-        block_on(async {
-            info!("desired: {state:#?}, {desired}");
-
-            match state {
-                TwinUpdateState::Partial => {
-                    if let Some(gc) = desired.get("general_consent") {
-                        self.feature::<DeviceUpdateConsent>()?
-                            .update_general_consent(gc.as_array())
-                            .await?;
-                    }
-                }
-                TwinUpdateState::Complete => {
-                    if desired.get("desired").is_none() {
-                        bail!("handle_desired: 'desired' missing while TwinUpdateState::Complete")
-                    }
-
-                    self.feature::<DeviceUpdateConsent>()?
-                        .update_general_consent(desired["desired"]["general_consent"].as_array())
-                        .await?;
-                }
-            }
-            Ok(())
-        })
-    }
-
     fn handle_command(
         &mut self,
         cmd: feature::Command,
-        reply: oneshot::Sender<Result<Option<serde_json::Value>>>,
+        reply: Option<oneshot::Sender<Result<Option<serde_json::Value>>>>,
     ) -> Result<()> {
         block_on(async {
-            let feature = self
+            let cmd_string = format!("{cmd:?}");
+
+            let result = self
                 .features
                 .get_mut(&cmd.feature_id())
-                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
-            let result = feature.command(&cmd).await;
-
-            // ToDo
-            /*
-                WebServiceCommand::ReloadNetwork(reply) => {
-                    let mut result = system::reload_network().await;
-                    if result.is_ok() {
-                        result = self
-                            .feature_mut::<NetworkStatus>()?
-                            .handle_event(&EventData::Manual)
-                            .await;
-
-             */
+                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?
+                .command(cmd)
+                .await;
 
             match &result {
                 Ok(inner_result) => {
-                    info!("handle_command: {cmd:?} succeeded with result: {inner_result:?}")
+                    info!("handle_command: {cmd_string} succeeded with result: {inner_result:?}")
                 }
-                Err(e) => error!("handle_command: {cmd:?} returned error: {e}"),
+                Err(e) => error!("handle_command: {cmd_string} returned error: {e}"),
             }
 
-            if reply.send(result).is_err() {
-                error!("handle_command: {cmd:?} receiver dropped");
+            if let Some(reply) = reply {
+                if reply.send(result).is_err() {
+                    error!("handle_command: {cmd_string} receiver dropped");
+                }
             }
 
             Ok(())
@@ -443,8 +410,12 @@ impl Twin {
                     select! (
                         // random access order in 2nd select! macro
                         Some(update_desired) = rx_twin_desired.recv() => {
-                            twin.handle_desired(update_desired.state, update_desired.value)
-                                .unwrap_or_else(|e| error!("handle desired properties: {e:#}"));
+                            if let Some(cmd) = feature::Command::from_desired_property(update_desired)? {
+                                twin.handle_command(
+                                    cmd,
+                                    None,
+                                )?
+                            }
                         },
                         Some(reported) = rx_reported_properties.recv() => {
                             twin.client
@@ -453,7 +424,10 @@ impl Twin {
                                 .twin_report(reported)?
                         },
                         Some(direct_method) = rx_direct_method.recv() => {
-                            twin.handle_command(feature::Command::from_direct_method(&direct_method)?,  direct_method.responder)?
+                            twin.handle_command(
+                                feature::Command::from_direct_method(&direct_method)?,
+                                Some(direct_method.responder),
+                            )?
                         },
                         Some(message) = rx_outgoing_message.recv() => {
                             twin.client
@@ -462,7 +436,10 @@ impl Twin {
                                 .send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_command(request.command,  request.reply)?
+                            twin.handle_command(
+                                request.command,
+                                Some(request.reply)
+                            )?
                         },
                         event = refresh_features.select_next_some() => {
                             let feature = twin
