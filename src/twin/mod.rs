@@ -21,6 +21,7 @@ cfg_if::cfg_if! {
     }
 }
 
+use crate::system;
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, feature::Feature,
     modem_info::ModemInfo, network::Network, provisioning_config::ProvisioningConfig,
