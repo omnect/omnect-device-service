@@ -86,7 +86,7 @@ impl Reboot {
         self.ensure()?;
 
         systemd::networkd::set_networkd_wait_online_timeout(
-            cmd.timeout_secs.map(|t| Duration::from_secs(t)),
+            cmd.timeout_secs.map(Duration::from_secs),
         )?;
 
         self.report_wait_online_timeout().await?;
