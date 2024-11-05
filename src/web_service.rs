@@ -1,7 +1,8 @@
-use crate::twin::{self, feature};
+use crate::twin::feature;
 use actix_server::ServerHandle;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpServer};
 use anyhow::{Context, Result};
+use futures_util::StreamExt as _;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use reqwest::{header, Client, RequestBuilder};
@@ -156,23 +157,36 @@ impl WebService {
         self.srv_handle.stop(false).await;
     }
 
-    async fn factory_reset(tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
+    async fn factory_reset(
+        mut body: web::Payload,
+        tx_request: web::Data<mpsc::Sender<Request>>,
+    ) -> HttpResponse {
         debug!("WebService factory_reset");
 
+        let mut bytes = web::BytesMut::new();
+        while let Some(item) = body.next().await {
+            let Ok(item) = item else {
+                error!("couldn't read body stream");
+                return HttpResponse::build(actix_web::http::StatusCode::BAD_REQUEST).finish();
+            };
+
+            bytes.extend_from_slice(&item);
+        }
+
+        let Ok(command) = serde_json::from_slice(&bytes) else {
+            error!("couldn't parse FactoryResetCommand from body");
+            return HttpResponse::build(actix_web::http::StatusCode::BAD_REQUEST).finish();
+        };
         let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Request {
-            // ToDo
-            command: feature::Command::FactoryReset(twin::factory_reset::FactoryResetCommand {
-                mode: twin::factory_reset::FactoryResetMode::Mode1,
-                preserve: vec![],
-            }),
+        let req = Request {
+            command: feature::Command::FactoryReset(command),
             reply: tx_reply,
         };
 
-        Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
+        Self::exec_request(tx_request.as_ref(), rx_reply, req).await
     }
 
-    async fn reboot(tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
+    async fn reboot(tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService reboot");
 
         let (tx_reply, rx_reply) = oneshot::channel();
@@ -184,7 +198,7 @@ impl WebService {
         Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn reload_network(tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
+    async fn reload_network(tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService reload_network");
 
         let (tx_reply, rx_reply) = oneshot::channel();
@@ -196,7 +210,7 @@ impl WebService {
         Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn republish(_tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
+    async fn republish(_tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService republish");
 
         for (channel, value) in PUBLISH_CHANNEL_MAP
@@ -235,7 +249,7 @@ impl WebService {
         HttpResponse::Ok().finish()
     }
 
-    async fn status(_tx_request: web::Data<mpsc::Sender<Request>>) -> impl Responder {
+    async fn status(_tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService status");
 
         let pubs = PUBLISH_CHANNEL_MAP
@@ -255,7 +269,7 @@ impl WebService {
         tx_request: &mpsc::Sender<Request>,
         rx_reply: tokio::sync::oneshot::Receiver<Result<Option<serde_json::Value>>>,
         request: Request,
-    ) -> impl Responder {
+    ) -> HttpResponse {
         tx_request.send(request).await.unwrap();
 
         // ToDo: log and return results
@@ -349,8 +363,8 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let Request::Reboot(reply) = rx_web_service.recv().await.unwrap() {
-                reply.send(true).unwrap();
+            if let req = rx_web_service.recv().await.unwrap() {
+                req.reply.send(Ok(None)).unwrap();
                 return;
             }
 
@@ -374,8 +388,8 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let Request::Reboot(reply) = rx_web_service.recv().await.unwrap() {
-                reply.send(false).unwrap();
+            if let req = rx_web_service.recv().await.unwrap() {
+                req.reply.send(Ok(None)).unwrap();
                 return;
             }
 

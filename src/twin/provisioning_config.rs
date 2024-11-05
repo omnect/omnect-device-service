@@ -267,6 +267,8 @@ impl ProvisioningConfig {
 
 #[cfg(test)]
 mod tests {
+    use tokio::time::Instant;
+
     use super::*;
 
     #[test]
@@ -339,7 +341,7 @@ mod tests {
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .handle_event(&feature::EventData::Manual)
+            .handle_event(&feature::EventData::Interval(Instant::now()))
             .await
             .unwrap();
         let Method::X509(est2) = config.method.clone() else {
