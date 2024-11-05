@@ -8,7 +8,6 @@ use notify_debouncer_full::{notify::*, Debouncer, NoCache};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    any::Any,
     env,
     fs::OpenOptions,
     path::{Path, PathBuf},
@@ -59,14 +58,6 @@ impl Feature for DeviceUpdateConsent {
 
     fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_DEVICE_UPDATE_USER_CONSENT") != Ok("true".to_string())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 
     async fn connect_twin(

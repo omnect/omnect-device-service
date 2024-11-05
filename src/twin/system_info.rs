@@ -9,7 +9,7 @@ use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::path::Path;
-use std::{any::Any, env};
+use std::{ env};
 use tokio::sync::mpsc;
 
 lazy_static! {
@@ -42,10 +42,6 @@ impl Feature for SystemInfo {
 
     fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_SYSTEM_INFO") != Ok("true".to_string())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     async fn connect_twin(

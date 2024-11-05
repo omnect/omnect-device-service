@@ -9,7 +9,7 @@ use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{any::Any, collections::HashMap, env, fs::read_dir, fs::File, io::BufReader};
+use std::{collections::HashMap, env, fs::read_dir, fs::File, io::BufReader};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
@@ -70,10 +70,6 @@ impl Feature for FactoryReset {
 
     fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     async fn connect_twin(

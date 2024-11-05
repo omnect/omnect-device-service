@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
-use std::{any::Any, env, time::Duration};
+use std::{ env, time::Duration};
 use tokio::{sync::mpsc::Sender, time::interval};
 
 #[cfg(feature = "modem_info")]
@@ -358,10 +358,6 @@ impl Feature for ModemInfo {
             Ok(features) => features.split_whitespace().any(|feature| feature == "3g"),
             _ => false,
         }
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     async fn connect_twin(

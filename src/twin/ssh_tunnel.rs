@@ -5,7 +5,6 @@ use azure_iot_sdk::client::IotMessage;
 use log::{error, info, warn};
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
-use std::any::Any;
 use std::env;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
@@ -127,10 +126,6 @@ impl Feature for SshTunnel {
 
     fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_SSH_TUNNEL") != Ok("true".to_string())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     async fn connect_twin(
@@ -337,7 +332,11 @@ impl SshTunnel {
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
             .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
-            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: failed setting up tunnel to bastion host with: {e}"))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "open_ssh_tunnel: failed setting up tunnel to bastion host with: {e}"
+                )
+            })
     }
 
     #[cfg(feature = "mock")]

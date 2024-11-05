@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::{any::Any, env, path::Path, time::Duration};
+use std::{ env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
 use tokio::{sync::mpsc::Sender, time::interval};
 
@@ -132,14 +132,6 @@ impl Feature for ProvisioningConfig {
 
     fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_PROVISIONING_CONFIG") != Ok("true".to_string())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 
     async fn connect_twin(

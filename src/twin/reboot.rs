@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info};
 use serde_json::json;
-use std::{any::Any, env, time::Duration};
+use std::{ env, time::Duration};
 use tokio::sync::mpsc::Sender;
 
 #[derive(Default)]
@@ -27,10 +27,6 @@ impl Feature for Reboot {
 
     fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_REBOOT") != Ok("true".to_string())
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     async fn connect_twin(

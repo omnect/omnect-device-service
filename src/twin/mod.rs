@@ -21,7 +21,6 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::system;
 use crate::twin::{
     consent::DeviceUpdateConsent, factory_reset::FactoryReset, feature::Feature,
     modem_info::ModemInfo, network::Network, provisioning_config::ProvisioningConfig,
@@ -37,7 +36,6 @@ use azure_iot_sdk::client::{
     AuthenticationStatus, IotMessage, TwinUpdate, TwinUpdateState, UnauthenticatedReason,
 };
 use dotenvy;
-use factory_reset::FactoryResetCommand;
 use futures_executor::block_on;
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -172,24 +170,6 @@ impl Twin {
         }
 
         Ok(())
-    }
-
-    // ToDo: get rid of
-    fn feature<T>(&self) -> Result<&T>
-    where
-        T: Feature + 'static,
-    {
-        let feature = self
-            .features
-            .get(&TypeId::of::<T>())
-            .ok_or_else(|| anyhow::anyhow!("failed to get feature"))?
-            .as_any()
-            .downcast_ref::<T>()
-            .ok_or_else(|| anyhow::anyhow!("failed to cast to feature ref"))?;
-
-        feature.ensure()?;
-
-        Ok(feature)
     }
 
     fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<bool> {

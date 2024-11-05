@@ -115,18 +115,12 @@ pub(crate) trait Feature {
 
     fn is_enabled(&self) -> bool;
 
-    fn as_any(&self) -> &dyn Any;
-
     fn ensure(&self) -> Result<()> {
         if !self.is_enabled() {
             bail!("feature disabled: {}", self.name());
         }
 
         Ok(())
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        unimplemented!();
     }
 
     async fn connect_twin(
