@@ -3,7 +3,6 @@ pub mod system;
 pub mod systemd;
 pub mod twin;
 pub mod update_validation;
-pub mod util;
 pub mod web_service;
 
 use azure_iot_sdk::client::*;

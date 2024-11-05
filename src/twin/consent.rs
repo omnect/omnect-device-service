@@ -1,19 +1,16 @@
-use super::Feature;
+use super::{feature, Feature};
 use crate::consent_path;
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use futures_executor::block_on;
-use log::{debug, error, info};
-use notify::{INotifyWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult, DebouncedEventKind, Debouncer};
+use log::{info, warn};
+use notify_debouncer_full::{notify::*, Debouncer, NoCache};
 use serde_json::json;
 use std::{
     any::Any,
     env,
     fs::OpenOptions,
     path::{Path, PathBuf},
-    time::Duration,
 };
 use tokio::sync::mpsc::Sender;
 
@@ -40,7 +37,7 @@ macro_rules! history_consent_path {
 
 #[derive(Default)]
 pub struct DeviceUpdateConsent {
-    file_observer: Option<Debouncer<INotifyWatcher>>,
+    file_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
@@ -62,6 +59,10 @@ impl Feature for DeviceUpdateConsent {
         self
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
@@ -71,18 +72,36 @@ impl Feature for DeviceUpdateConsent {
 
         self.tx_reported_properties = Some(tx_reported_properties.clone());
 
-        Self::report_general_consent(&tx_reported_properties).await?;
-        Self::report_user_consent(&tx_reported_properties, &request_consent_path!()).await?;
-        Self::report_user_consent(&tx_reported_properties, &history_consent_path!()).await?;
+        self.report_general_consent().await?;
+        self.report_user_consent(&request_consent_path!()).await?;
+        self.report_user_consent(&history_consent_path!()).await
+    }
 
-        self.observe_consent()
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+        let (file_observer, stream) = feature::file_modified_stream::<DeviceUpdateConsent>(vec![
+            request_consent_path!().as_path(),
+            history_consent_path!().as_path(),
+        ])
+        .context("refresh_event: cannot create file_modified_stream")?;
+        self.file_observer = Some(file_observer);
+        Ok(Some(stream))
+    }
+
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
+        self.ensure()?;
+
+        let feature::EventData::FileModified(p) = event else {
+            bail!("unexpected event: {event:?}")
+        };
+
+        info!("handle_event: report {p:?}");
+        self.report_user_consent(p).await
     }
 }
 
 impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
-    const FILE_WATCHER_DELAY_SECS: u64 = 1;
 
     pub fn user_consent(&self, in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
         info!("user consent requested: {in_json}");
@@ -130,63 +149,11 @@ impl DeviceUpdateConsent {
         }
     }
 
-    fn observe_consent(&mut self) -> Result<()> {
-        let Some(tx) = &self.tx_reported_properties else {
-            anyhow::bail!("observe_consent: tx_reported_properties is None")
-        };
-
-        let tx = tx.clone();
-
-        let mut debouncer = new_debouncer(
-            Duration::from_secs(Self::FILE_WATCHER_DELAY_SECS),
-            move |res: DebounceEventResult| match res {
-                Ok(events) => events.iter().for_each(|ev| {
-                    debug!("observe_consent: event: {ev:#?}");
-
-                    if ev.kind == DebouncedEventKind::Any {
-                        block_on(async { Self::report_user_consent(&tx, &ev.path).await })
-                            .unwrap_or_else(|e| {
-                                error!("observe_consent: twin report user consent: {e:#}")
-                            });
-                    }
-                }),
-                Err(errors) => errors
-                    .paths
-                    .iter()
-                    .for_each(|e| error!("observe_consent: {e:?}")),
-            },
-        )?;
-
-        debouncer
-            .watcher()
-            .watch(
-                request_consent_path!().as_path(),
-                RecursiveMode::NonRecursive,
-            )
-            .context("debouncer request_consent_path")?;
-
-        debouncer
-            .watcher()
-            .watch(
-                history_consent_path!().as_path(),
-                RecursiveMode::NonRecursive,
-            )
-            .context("debouncer history_consent_path")?;
-
-        self.file_observer = Some(debouncer);
-
-        Ok(())
-    }
-
     pub async fn update_general_consent(
         &self,
         desired_consents: Option<&Vec<serde_json::Value>>,
     ) -> Result<()> {
         self.ensure()?;
-
-        let Some(tx) = &self.tx_reported_properties else {
-            anyhow::bail!("update_general_consent: tx_reported_properties is None")
-        };
 
         if let Some(desired_consents) = desired_consents {
             let mut new_consents = desired_consents
@@ -241,7 +208,7 @@ impl DeviceUpdateConsent {
             )
             .context("update_general_consent: serde_json::to_writer_pretty")?;
 
-            Self::report_general_consent(tx)
+            self.report_general_consent()
                 .await
                 .context("update_general_consent: report_general_consent")
         } else {
@@ -250,11 +217,8 @@ impl DeviceUpdateConsent {
         }
     }
 
-    async fn report_general_consent(
-        tx_reported_properties: &Sender<serde_json::Value>,
-    ) -> Result<()> {
-        Self::report_consent(
-            tx_reported_properties,
+    async fn report_general_consent(&self) -> Result<()> {
+        self.report_consent(
             serde_json::from_reader(
                 OpenOptions::new()
                     .read(true)
@@ -268,12 +232,8 @@ impl DeviceUpdateConsent {
         .context("report_general_consent: report_consent")
     }
 
-    async fn report_user_consent(
-        tx_reported_properties: &Sender<serde_json::Value>,
-        report_consent_file: &Path,
-    ) -> Result<()> {
-        Self::report_consent(
-            tx_reported_properties,
+    async fn report_user_consent(&self, report_consent_file: &Path) -> Result<()> {
+        self.report_consent(
             serde_json::from_reader(
                 OpenOptions::new()
                     .read(true)
@@ -287,12 +247,13 @@ impl DeviceUpdateConsent {
         .context("report_user_consent: report_consent")
     }
 
-    async fn report_consent(
-        tx_reported_properties: &Sender<serde_json::Value>,
-        value: serde_json::Value,
-    ) -> Result<()> {
-        tx_reported_properties
-            .send(json!({ "device_update_consent": value }))
+    async fn report_consent(&self, value: serde_json::Value) -> Result<()> {
+        let Some(tx) = &self.tx_reported_properties else {
+            warn!("report_consent: skip since tx_reported_properties is None");
+            return Ok(());
+        };
+
+        tx.send(json!({ "device_update_consent": value }))
             .await
             .context("report_consent: report_impl")
     }
@@ -301,6 +262,7 @@ impl DeviceUpdateConsent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_executor::block_on;
 
     #[test]
     fn update_and_report_general_consent_test() {

@@ -1,6 +1,4 @@
-use super::util;
-use super::Feature;
-use crate::util::TypeIdStream;
+use super::{feature, Feature};
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -154,23 +152,27 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn refresh_event(&self) -> Option<TypeIdStream> {
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
-            None
+            Ok(None)
         } else {
             match &self.method {
                 Method::X509(cert) if cert.est => {
-                    Some(util::interval_stream_type_id::<ProvisioningConfig>(
+                    Ok(Some(feature::interval_stream::<ProvisioningConfig>(
                         interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                    ))
+                    )))
                 }
-                _ => None,
+                _ => Ok(None),
             }
         }
     }
 
-    async fn refresh(&mut self) -> Result<()> {
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
+
+        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+            bail!("unexpected event: {event:?}")
+        };
 
         let expires = match &self.method {
             Method::X509(X509 { est, expires, .. }) if *est => expires,
@@ -344,7 +346,10 @@ mod tests {
 
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
-        config.refresh().await.unwrap();
+        config
+            .handle_event(&feature::EventData::Manual)
+            .await
+            .unwrap();
         let Method::X509(est2) = config.method.clone() else {
             panic!("no X509 found");
         };

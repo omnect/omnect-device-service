@@ -17,7 +17,6 @@ pub mod mod_test {
     use serde_json::json;
     use std::fs::{copy, create_dir_all, remove_dir_all};
     use std::{env, fs::OpenOptions, path::PathBuf, process::Command, time::Duration};
-    use strum::EnumCount;
 
     lazy_static! {
         static ref LOG: () = if cfg!(debug_assertions) {
@@ -186,12 +185,18 @@ pub mod mod_test {
                     test_env.dirpath()
                 ),
             );
-            env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", format!("{}/factory-reset.json", test_env.dirpath()));
+            env::set_var(
+                "FACTORY_RESET_CONFIG_FILE_PATH",
+                format!("{}/factory-reset.json", test_env.dirpath()),
+            );
             env::set_var(
                 "FACTORY_RESET_STATUS_FILE_PATH",
                 format!("{}/factory-reset-status_succeeded", test_env.dirpath()),
             );
-            env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", format!("{}/empty-dir", test_env.dirpath()));
+            env::set_var(
+                "FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH",
+                format!("{}/empty-dir", test_env.dirpath()),
+            );
             env::set_var("CONNECTION_STRING", "my-constr");
             env::set_var(
                 "IDENTITY_CONFIG_FILE_PATH",
@@ -414,7 +419,7 @@ pub mod mod_test {
                 .times(2)
                 .returning(|_| Ok(()));
 
-                mock.expect_twin_report()
+            mock.expect_twin_report()
                 .with(eq(
                     json!({"factory_reset":{"keys":["certificates", "firewall", "network"]}}),
                 ))
@@ -462,22 +467,22 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-            .with(eq(json!({"system_info":{"version":1,}})))
-            .times(1)
-            .returning(|_| Ok(()));
-        let s = IotHubClient::sdk_version_string();
-        mock.expect_twin_report()
-            .with(eq(json!({"system_info":{
-                "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
-                "azure_sdk_version": s,
-                "boot_time": null,
-                "os": {
-                    "name": "OMNECT-gateway-devel",
-                    "version": "4.0.17.123456"
-                }
-            }})))
-            .times(1)
-            .returning(|_| Ok(()));
+                .with(eq(json!({"system_info":{"version":1,}})))
+                .times(1)
+                .returning(|_| Ok(()));
+            let s = IotHubClient::sdk_version_string();
+            mock.expect_twin_report()
+                .with(eq(json!({"system_info":{
+                    "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
+                    "azure_sdk_version": s,
+                    "boot_time": null,
+                    "os": {
+                        "name": "OMNECT-gateway-devel",
+                        "version": "4.0.17.123456"
+                    }
+                }})))
+                .times(1)
+                .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({ "factory_reset": null })))
@@ -613,9 +618,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 3)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(9).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
@@ -719,9 +722,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 12)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(18).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -812,9 +813,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 12)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(18).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -833,6 +832,14 @@ pub mod mod_test {
         let test = |test_attr: &mut TestConfig| {
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
+            let mut ev_stream = test_attr
+                .twin
+                .feature_mut::<DeviceUpdateConsent>()
+                .unwrap()
+                .event_stream()
+                .unwrap()
+                .unwrap();
+
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -849,6 +856,18 @@ pub mod mod_test {
                 }),
             )
             .unwrap();
+
+            let ev = block_on(async { ev_stream.next().await }).unwrap();
+
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .feature_mut::<DeviceUpdateConsent>()
+                    .unwrap()
+                    .handle_event(&ev.data)
+                    .await
+            })
+            .is_ok());
 
             std::thread::sleep(Duration::from_secs(2));
         };
@@ -868,9 +887,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 12)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(18).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -904,9 +921,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 12)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(18).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -1029,9 +1044,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 12)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(18).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .withf(|val| {
@@ -1115,9 +1128,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report()
-                .times(TwinFeature::COUNT + 4)
-                .returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .withf(|val| {

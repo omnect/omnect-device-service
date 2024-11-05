@@ -1,9 +1,7 @@
-use super::util;
 use super::web_service;
-use super::Feature;
+use super::{feature, Feature};
 use crate::system;
-use crate::util::TypeIdStream;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use lazy_static::lazy_static;
@@ -65,19 +63,24 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn refresh_event(&self) -> Option<TypeIdStream> {
+    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
         if self.boot_time.is_none() {
-            Some(util::file_created_stream_type_id::<SystemInfo>(
+            Ok(Some(feature::file_created_stream::<SystemInfo>(vec![
                 &TIMESYNC_FILE,
-            ))
+            ])))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    async fn refresh(&mut self) -> Result<()> {
-        info!("refresh: time synced");
+    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
+
+        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+            bail!("unexpected event: {event:?}")
+        };
+
+        info!("handle_event: time synced");
         self.boot_time = Some(system::boot_time()?);
         self.report().await
     }
