@@ -1,5 +1,5 @@
-use super::Feature;
-use anyhow::{Context, Result};
+use super::{feature, Feature};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{error, info, warn};
@@ -48,7 +48,7 @@ macro_rules! control_socket_path {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct BastionConfig {
     host: String,
     port: u16,
@@ -82,14 +82,14 @@ where
         .to_string())
 }
 
-#[derive(Deserialize)]
-struct GetSshPubKeyArgs {
+#[derive(Debug, Deserialize)]
+pub(crate) struct GetSshPubKeyCommand {
     #[serde(deserialize_with = "validate_uuid")]
     tunnel_id: String,
 }
 
-#[derive(Deserialize)]
-struct OpenSshTunnelArgs {
+#[derive(Debug, Deserialize)]
+pub(crate) struct OpenSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
     tunnel_id: String,
     certificate: String,
@@ -97,16 +97,10 @@ struct OpenSshTunnelArgs {
     bastion_config: BastionConfig,
 }
 
-#[derive(Deserialize)]
-struct CloseSshTunnelArgs {
+#[derive(Debug, Deserialize)]
+pub(crate) struct CloseSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
     tunnel_id: String,
-}
-
-macro_rules! unpack_args {
-    ($func:literal, $args:expr) => {
-        serde_json::from_value($args).map_err(|e| anyhow::anyhow!("{}: {e}", $func))
-    };
 }
 
 pub struct SshTunnel {
@@ -139,6 +133,17 @@ impl Feature for SshTunnel {
 
         Ok(())
     }
+
+    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+        self.ensure()?;
+
+        match cmd {
+            feature::Command::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
+            feature::Command::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,
+            feature::Command::OpenSshTunnel(cmd) => self.open_ssh_tunnel(cmd).await,
+            _ => bail!("unexpected command"),
+        }
+    }
 }
 
 impl SshTunnel {
@@ -152,15 +157,11 @@ impl SshTunnel {
         }
     }
 
-    pub async fn get_ssh_pub_key(
+    async fn get_ssh_pub_key(
         &self,
-        args: serde_json::Value,
+        args: GetSshPubKeyCommand,
     ) -> Result<Option<serde_json::Value>> {
         info!("ssh pub key requested");
-
-        self.ensure()?;
-
-        let args: GetSshPubKeyArgs = unpack_args!("get_ssh_pub_key", args)?;
 
         let (priv_key_path, pub_key_path) = (
             priv_key_path!(args.tunnel_id),
@@ -230,15 +231,11 @@ impl SshTunnel {
         Ok(str::from_utf8(&output.stdout)?.to_string())
     }
 
-    pub async fn open_ssh_tunnel(
+    async fn open_ssh_tunnel(
         &self,
-        args: serde_json::Value,
+        args: OpenSshTunnelCommand,
     ) -> Result<Option<serde_json::Value>> {
         info!("open ssh tunnel requested");
-
-        self.ensure()?;
-
-        let args: OpenSshTunnelArgs = unpack_args!("open_ssh_tunnel", args)?;
 
         let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
@@ -415,15 +412,11 @@ impl SshTunnel {
         }
     }
 
-    pub async fn close_ssh_tunnel(
+    async fn close_ssh_tunnel(
         &self,
-        args: serde_json::Value,
+        args: CloseSshTunnelCommand,
     ) -> Result<Option<serde_json::Value>> {
         info!("close ssh tunnel requested");
-
-        self.ensure()?;
-
-        let args: CloseSshTunnelArgs = unpack_args!("close_ssh_tunnel", args)?;
 
         let control_socket_path = control_socket_path!(&args.tunnel_id);
 
@@ -574,7 +567,7 @@ mod tests {
         let uuid = "c0c7d30c-511a-4fed-80b2-b4cccc74228e";
         let uuid_message = format!("{{\"tunnel_id\": \"{uuid}\"}}");
 
-        let args = serde_json::from_str::<GetSshPubKeyArgs>(&uuid_message).unwrap();
+        let args = serde_json::from_str::<GetSshPubKeyCommand>(&uuid_message).unwrap();
 
         assert_eq!(args.tunnel_id, uuid);
     }
@@ -585,7 +578,7 @@ mod tests {
         let uuid = "!@#$S";
         let uuid_message = format!("{{\"tunnel_id\": \"{uuid}\"}}");
 
-        let _args = serde_json::from_str::<GetSshPubKeyArgs>(&uuid_message).unwrap();
+        let _args = serde_json::from_str::<GetSshPubKeyCommand>(&uuid_message).unwrap();
     }
 
     #[test]

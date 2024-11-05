@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
-use std::{ env, time::Duration};
+use std::{env, time::Duration};
 use tokio::{sync::mpsc::Sender, time::interval};
 
 #[cfg(feature = "modem_info")]
@@ -383,7 +383,7 @@ impl Feature for ModemInfo {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+        let feature::EventData::Interval(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 

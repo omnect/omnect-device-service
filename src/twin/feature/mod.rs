@@ -1,5 +1,6 @@
 use super::consent::DesiredGeneralConsentCommand;
 use super::factory_reset::FactoryResetCommand;
+use super::ssh_tunnel::{CloseSshTunnelCommand, GetSshPubKeyCommand, OpenSshTunnelCommand};
 use super::{TwinUpdate, TwinUpdateState};
 use anyhow::{bail, Result};
 use anyhow::{ensure, Context};
@@ -10,7 +11,7 @@ use futures::Stream;
 use futures::StreamExt;
 use log::{debug, error};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -22,8 +23,11 @@ use tokio::{
 
 #[derive(Debug)]
 pub enum Command {
+    CloseSshTunnel(CloseSshTunnelCommand),
     DesiredGeneralConsent(DesiredGeneralConsentCommand),
     FactoryReset(FactoryResetCommand),
+    GetSshPubKey(GetSshPubKeyCommand),
+    OpenSshTunnel(OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
 }
@@ -33,8 +37,11 @@ impl Command {
         use Command::*;
 
         match self {
+            CloseSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<super::DeviceUpdateConsent>(),
             FactoryReset(_) => TypeId::of::<super::FactoryReset>(),
+            GetSshPubKey(_) => TypeId::of::<super::SshTunnel>(),
+            OpenSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
             Reboot => TypeId::of::<super::Reboot>(),
             ReloadNetwork => TypeId::of::<super::Network>(),
         }
@@ -49,22 +56,19 @@ impl Command {
 
             /*         "user_consent" => self
                 .feature::<DeviceUpdateConsent>()?
-                .user_consent(method.payload),
-            "get_ssh_pub_key" => {
-                self.feature::<SshTunnel>()?
-                    .get_ssh_pub_key(method.payload)
-                    .await
-            }
-            "open_ssh_tunnel" => {
-                self.feature::<SshTunnel>()?
-                    .open_ssh_tunnel(method.payload)
-                    .await
-            }
-            "close_ssh_tunnel" => {
-                self.feature::<SshTunnel>()?
-                    .close_ssh_tunnel(method.payload)
-                    .await
-            }
+                .user_consent(method.payload),*/
+            "get_ssh_pub_key" => Ok(Command::GetSshPubKey(
+                serde_json::from_value(direct_method.payload.clone())
+                    .context("cannot parse GetSshPubKeyCommand from direct method payload")?,
+            )),
+            "open_ssh_tunnel" => Ok(Command::OpenSshTunnel(
+                serde_json::from_value(direct_method.payload.clone())
+                    .context("cannot parse OpenSshTunnelCommand from direct method payload")?,
+            )),
+            "close_ssh_tunnel" =>Ok(Command::CloseSshTunnel(
+                serde_json::from_value(direct_method.payload.clone())
+                    .context("cannot parse CloseSshTunnelCommand from direct method payload")?,
+            )),/*
             "reboot" => self.feature::<Reboot>()?.reboot().await,
             "set_wait_online_timeout" => {
                 self.feature::<Reboot>()?
@@ -157,7 +161,6 @@ pub enum EventData {
     FileCreated(PathBuf),
     FileModified(PathBuf),
     Interval(Instant),
-    Manual,
 }
 
 pub struct Event {

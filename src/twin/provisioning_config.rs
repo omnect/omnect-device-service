@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::{ env, path::Path, time::Duration};
+use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
 use tokio::{sync::mpsc::Sender, time::interval};
 
@@ -162,7 +162,7 @@ impl Feature for ProvisioningConfig {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+        let feature::EventData::Interval(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 

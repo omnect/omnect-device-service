@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use serde_json::json;
 use std::{
     env,
@@ -35,7 +35,7 @@ macro_rules! history_consent_path {
     }};
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct DesiredGeneralConsentCommand {
     general_consent: Option<Vec<String>>,
 }

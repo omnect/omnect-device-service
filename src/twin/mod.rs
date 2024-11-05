@@ -31,7 +31,7 @@ use crate::web_service::{self, PublishChannel, Request as WebServiceCommand, Web
 use crate::{systemd, systemd::watchdog::WatchdogManager};
 use crate::{update_validation, update_validation::UpdateValidation};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use azure_iot_sdk::client::{
     AuthenticationStatus, IotMessage, TwinUpdate, TwinUpdateState, UnauthenticatedReason,
 };

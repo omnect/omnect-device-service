@@ -1,7 +1,6 @@
 use super::super::bootloader_env;
 use super::super::systemd;
-use super::feature;
-use super::Feature;
+use super::{feature, Feature};
 use crate::web_service;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;

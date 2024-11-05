@@ -91,7 +91,7 @@ impl Feature for Network {
     async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
         self.ensure()?;
 
-        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
+        let feature::EventData::Interval(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 
