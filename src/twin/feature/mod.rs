@@ -3,8 +3,7 @@ use super::factory_reset::FactoryResetCommand;
 use super::reboot::SetWaitOnlineTimeoutCommand;
 use super::ssh_tunnel::{CloseSshTunnelCommand, GetSshPubKeyCommand, OpenSshTunnelCommand};
 use super::{TwinUpdate, TwinUpdateState};
-use anyhow::{bail, Result};
-use anyhow::{ensure, Context};
+use anyhow::{bail, Result,ensure};
 use async_trait::async_trait;
 use azure_iot_sdk::client::DirectMethod;
 use azure_iot_sdk::client::IotMessage;
@@ -52,43 +51,67 @@ impl Command {
         }
     }
 
-    pub fn from_direct_method(direct_method: &DirectMethod) -> Result<Command> {
+    // we only log errors and don't fail in this function if input cannot be parsed
+    pub fn from_direct_method(direct_method: &DirectMethod) -> Option<Command> {
+        // ToDo: write macro or fn for match arms
         match direct_method.name.as_str() {
-            "factory_reset" => Ok(Command::FactoryReset(
-                serde_json::from_value(direct_method.payload.clone())
-                    .context("cannot parse FactoryResetCommand from direct method payload")?,
-            )),
-            "user_consent" => Ok(Command::UserConsent(
-                serde_json::from_value(direct_method.payload.clone())
-                    .context("cannot parse UserConsentCommand from direct method payload")?,
-            )),
-            "get_ssh_pub_key" => Ok(Command::GetSshPubKey(
-                serde_json::from_value(direct_method.payload.clone())
-                    .context("cannot parse GetSshPubKeyCommand from direct method payload")?,
-            )),
-            "open_ssh_tunnel" => Ok(Command::OpenSshTunnel(
-                serde_json::from_value(direct_method.payload.clone())
-                    .context("cannot parse OpenSshTunnelCommand from direct method payload")?,
-            )),
-            "close_ssh_tunnel" => Ok(Command::CloseSshTunnel(
-                serde_json::from_value(direct_method.payload.clone())
-                    .context("cannot parse CloseSshTunnelCommand from direct method payload")?,
-            )),
-            "reboot" => Ok(Command::Reboot),
-            "set_wait_online_timeout" => Ok(Command::SetWaitOnlineTimeout(
-                serde_json::from_value(direct_method.payload.clone()).context(
-                    "cannot parse SetWaitOnlineTimeoutCommand from direct method payload",
-                )?,
-            )),
-            _ => bail!(
-                "cannot parse direct method {} with payload {}",
-                direct_method.name,
-                direct_method.payload
-            ),
+            "factory_reset" => match serde_json::from_value(direct_method.payload.clone()) {
+                Ok(c) => Some(Command::FactoryReset(c)),
+                Err(e) => {
+                    error!("cannot parse FactoryReset from direct method payload {e}");
+                    None
+                }
+            },
+            "user_consent" => match serde_json::from_value(direct_method.payload.clone()) {
+                Ok(c) => Some(Command::UserConsent(c)),
+                Err(e) => {
+                    error!("cannot parse UserConsent from direct method payload {e}");
+                    None
+                }
+            },
+            "get_ssh_pub_key" => match serde_json::from_value(direct_method.payload.clone()) {
+                Ok(c) => Some(Command::GetSshPubKey(c)),
+                Err(e) => {
+                    error!("cannot parse GetSshPubKey from direct method payload {e}");
+                    None
+                }
+            },
+            "open_ssh_tunnel" => match serde_json::from_value(direct_method.payload.clone()) {
+                Ok(c) => Some(Command::OpenSshTunnel(c)),
+                Err(e) => {
+                    error!("cannot parse OpenSshTunnel from direct method payload {e}");
+                    None
+                }
+            },
+            "close_ssh_tunnel" => match serde_json::from_value(direct_method.payload.clone()) {
+                Ok(c) => Some(Command::CloseSshTunnel(c)),
+                Err(e) => {
+                    error!("cannot parse CloseSshTunnel from direct method payload {e}");
+                    None
+                }
+            },
+            "reboot" => Some(Command::Reboot),
+            "set_wait_online_timeout" => {
+                match serde_json::from_value(direct_method.payload.clone()) {
+                    Ok(c) => Some(Command::SetWaitOnlineTimeout(c)),
+                    Err(e) => {
+                        error!("cannot parse CloseSshTunnel from direct method payload {e}");
+                        None
+                    }
+                }
+            }
+            _ => {
+                error!(
+                    "cannot parse direct method {} with payload {}",
+                    direct_method.name, direct_method.payload
+                );
+                None
+            }
         }
     }
 
-    pub fn from_desired_property(update: TwinUpdate) -> Result<Vec<Command>> {
+    // we only log errors and don't fail in this function if input cannot be parsed
+    pub fn from_desired_property(update: TwinUpdate) -> Vec<Command> {
         info!("desired property: {update:?}");
         let mut cmds = vec![];
 
@@ -100,17 +123,18 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
-                    "general_consent" => cmds.push(Command::DesiredGeneralConsent(
-                        serde_json::from_value(value.clone()).context(
-                            "from_desired_property: cannot parse DesiredGeneralConsentCommand",
-                        )?,
-                    )),
+                    "general_consent" => match serde_json::from_value(value.clone()) {
+                        Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
+                        Err(e) => error!(
+                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
+                        ),
+                    },
                     _ => warn!("from_desired_property: unhandled desired property {k}"),
-                }
+                };
             }
         }
 
-        Ok(cmds)
+        cmds
     }
 }
 
@@ -247,8 +271,96 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::twin::factory_reset;
+
     use super::*;
     use serde_json::json;
+    use tokio::sync::oneshot;
+
+    #[test]
+    fn from_direct_method_test() {
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "unknown".to_string(),
+            payload: json!({}),
+            responder,
+        })
+        .is_none());
+
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "factory_reset".to_string(),
+            payload: json!({}),
+            responder,
+        })
+        .is_none());
+
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "factory_reset".to_string(),
+            payload: json!({
+                "mode": 0,
+                "preserve": ["1"],
+            }),
+            responder,
+        })
+        .is_none());
+
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 1,
+                    "preserve": ["1"],
+                }),
+                responder,
+            }),
+            Some(Command::FactoryReset(FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec!["1".to_string()]
+            }))
+        );
+
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 1,
+                    "preserve": [],
+                }),
+                responder,
+            }),
+            Some(Command::FactoryReset(FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec![]
+            }))
+        );
+
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "user_consent".to_string(),
+            payload: json!({"user_consent": "invalid_json"}),
+            responder,
+        })
+        .is_none());
+
+        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "user_consent".to_string(),
+                payload: json!({"user_consent": {"foo": "bar"}}),
+                responder,
+            }),
+            Some(Command::UserConsent(UserConsentCommand {
+                user_consent: std::collections::HashMap::from([(
+                    "foo".to_string(),
+                    "bar".to_string()
+                )]),
+            }))
+        );
+    }
 
     #[test]
     fn from_desired_property_test() {
@@ -256,8 +368,7 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Partial,
                 value: json!({})
-            })
-            .unwrap(),
+            }),
             vec![]
         );
 
@@ -265,8 +376,7 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Partial,
                 value: json!({"general_consent": []})
-            })
-            .unwrap(),
+            }),
             vec![Command::DesiredGeneralConsent(
                 DesiredGeneralConsentCommand {
                     general_consent: vec![]
@@ -278,8 +388,7 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Partial,
                 value: json!({"general_consent": ["one", "two"]})
-            })
-            .unwrap(),
+            }),
             vec![Command::DesiredGeneralConsent(
                 DesiredGeneralConsentCommand {
                     general_consent: vec!["one".to_string(), "two".to_string()]
@@ -291,8 +400,7 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Complete,
                 value: json!({})
-            })
-            .unwrap(),
+            }),
             vec![]
         );
 
@@ -300,8 +408,7 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Complete,
                 value: json!({"desired": {}})
-            })
-            .unwrap(),
+            }),
             vec![]
         );
 
@@ -309,8 +416,7 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Complete,
                 value: json!({"desired": {"general_consent": []}})
-            })
-            .unwrap(),
+            }),
             vec![Command::DesiredGeneralConsent(
                 DesiredGeneralConsentCommand {
                     general_consent: vec![]
@@ -322,15 +428,16 @@ mod tests {
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Complete,
                 value: json!({"desired": {"key": "value"}})
-            })
-            .unwrap(),
+            }),
             vec![]
         );
 
-        assert!(Command::from_desired_property(TwinUpdate {
-            state: TwinUpdateState::Complete,
-            value: json!({"desired": {"general_consent": ""}})
-        })
-        .is_err());
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"general_consent": ""}})
+            }),
+            vec![]
+        );
     }
 }

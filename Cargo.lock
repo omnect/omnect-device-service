@@ -2477,6 +2477,7 @@ dependencies = [
  "sd-notify",
  "serde",
  "serde_json",
+ "serde_repr",
  "serde_with 3.11.0",
  "signal-hook",
  "signal-hook-tokio",

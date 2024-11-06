@@ -8,6 +8,7 @@ use notify_debouncer_full::{notify::*, Debouncer, NoCache};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     env,
     fs::OpenOptions,
     path::{Path, PathBuf},
@@ -37,12 +38,11 @@ macro_rules! history_consent_path {
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct UserConsentCommand {
-    user_consents: serde_json::Value,
+    pub user_consent: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct DesiredGeneralConsentCommand {
-  //  #[serde(default)]
     pub general_consent: Vec<String>,
 }
 
@@ -119,47 +119,41 @@ impl DeviceUpdateConsent {
     fn user_consent(&self, cmd: UserConsentCommand) -> Result<Option<serde_json::Value>> {
         info!("user consent requested: {cmd:?}");
 
-        match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
-            cmd.user_consents,
-        ) {
-            Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
-                let (component, version) = map.iter().next().unwrap();
-                ensure!(
-                    !component.contains(std::path::is_separator),
-                    "user_consent: invalid component name: {component}"
-                );
+        for (component, version) in cmd.user_consent {
+            ensure!(
+                !component.contains(std::path::is_separator),
+                "user_consent: invalid component name: {component}"
+            );
 
-                let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
-                let path = Path::new(&path_string);
-                let path_canonicalized = path.canonicalize().context(format!(
-                    "user_consent: invalid path {}",
-                    path.to_string_lossy()
-                ))?;
+            let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
+            let path = Path::new(&path_string);
+            let path_canonicalized = path.canonicalize().context(format!(
+                "user_consent: invalid path {}",
+                path.to_string_lossy()
+            ))?;
 
-                // ensure path is valid and absolute and not a link
-                ensure!(
-                    path_canonicalized
-                        .to_string_lossy()
-                        .eq(path_string.as_str()),
-                    "user_consent: non-absolute path {}",
-                    path.to_string_lossy()
-                );
+            // ensure path is valid and absolute and not a link
+            ensure!(
+                path_canonicalized
+                    .to_string_lossy()
+                    .eq(path_string.as_str()),
+                "user_consent: non-absolute path {}",
+                path.to_string_lossy()
+            );
 
-                serde_json::to_writer_pretty(
-                    OpenOptions::new()
-                        .write(true)
-                        .create(false)
-                        .truncate(true)
-                        .open(path)
-                        .context("user_consent: open user_consent.json for write")?,
-                    &json!({ "consent": version }),
-                )
-                .context("user_consent: serde_json::to_writer_pretty")?;
-
-                Ok(None)
-            }
-            _ => anyhow::bail!("user_consent: unexpected parameter format"),
+            serde_json::to_writer_pretty(
+                OpenOptions::new()
+                    .write(true)
+                    .create(false)
+                    .truncate(true)
+                    .open(path)
+                    .context("user_consent: open user_consent.json for write")?,
+                &json!({ "consent": version }),
+            )
+            .context("user_consent: serde_json::to_writer_pretty")?;
         }
+
+        Ok(None)
     }
 
     pub async fn update_general_consent(

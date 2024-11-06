@@ -8,6 +8,7 @@ use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_repr::*;
 use std::{collections::HashMap, env, fs::read_dir, fs::File, io::BufReader};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
@@ -39,7 +40,8 @@ macro_rules! factory_reset_custom_config_dir_path {
     }};
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize_repr, PartialEq, Serialize)]
+#[repr(u8)]
 pub(crate) enum FactoryResetMode {
     Mode1 = 1,
     Mode2 = 2,
@@ -146,7 +148,7 @@ impl FactoryReset {
 
         Ok(keys)
     }
-
+    //ToDo: deserialize with hashmap
     async fn report_factory_reset_keys(&self) -> Result<()> {
         // get keys on each call, since factory_reset.d could have changes
         let keys = FactoryReset::factory_reset_keys()?;

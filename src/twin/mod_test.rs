@@ -671,7 +671,6 @@ pub mod mod_test {
                         state: TwinUpdateState::Partial,
                         value: json!("")
                     })
-                    .unwrap()
                     .pop()
                     .unwrap(),
                     None
@@ -686,7 +685,6 @@ pub mod mod_test {
                             state: TwinUpdateState::Partial,
                             value: json!({"general_consent": {}})
                         })
-                        .unwrap()
                         .pop()
                         .unwrap(),
                         None
@@ -704,7 +702,6 @@ pub mod mod_test {
                             state: TwinUpdateState::Complete,
                             value: json!("")
                         })
-                        .unwrap()
                         .pop()
                         .unwrap(),
                         None
@@ -722,7 +719,6 @@ pub mod mod_test {
                             state: TwinUpdateState::Complete,
                             value: json!({"desired": {"general_consent": {}}}),
                         })
-                        .unwrap()
                         .pop()
                         .unwrap(),
                         None
@@ -828,7 +824,6 @@ pub mod mod_test {
                         state: TwinUpdateState::Complete,
                         value: json!({"desired": {}})
                     })
-                    .unwrap()
                     .pop()
                     .unwrap(),
                     None
@@ -850,7 +845,6 @@ pub mod mod_test {
                         state: TwinUpdateState::Partial,
                         value: json!({"general_consent": ["SWUPDATE2", "SWUPDATE1"]})
                     })
-                    .unwrap()
                     .pop()
                     .unwrap(),
                     None
@@ -872,7 +866,6 @@ pub mod mod_test {
                         state: TwinUpdateState::Complete,
                         value: json!({"desired": {}})
                     })
-                    .unwrap()
                     .pop()
                     .unwrap(),
                     None

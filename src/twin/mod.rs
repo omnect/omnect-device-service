@@ -391,11 +391,8 @@ impl Twin {
                     select! (
                         // random access order in 2nd select! macro
                         Some(update_desired) = rx_twin_desired.recv() => {
-                            for cmd in feature::Command::from_desired_property(update_desired)? {
-                                twin.handle_command(
-                                    cmd,
-                                    None,
-                                )?
+                            for cmd in feature::Command::from_desired_property(update_desired) {
+                                twin.handle_command(cmd, None)?
                             }
                         },
                         Some(reported) = rx_reported_properties.recv() => {
@@ -405,10 +402,9 @@ impl Twin {
                                 .twin_report(reported)?
                         },
                         Some(direct_method) = rx_direct_method.recv() => {
-                            twin.handle_command(
-                                feature::Command::from_direct_method(&direct_method)?,
-                                Some(direct_method.responder),
-                            )?
+                            if let Some(cmd) = feature::Command::from_direct_method(&direct_method) {
+                                twin.handle_command(cmd, Some(direct_method.responder))?
+                            }
                         },
                         Some(message) = rx_outgoing_message.recv() => {
                             twin.client
@@ -417,10 +413,7 @@ impl Twin {
                                 .send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_command(
-                                request.command,
-                                Some(request.reply)
-                            )?
+                            twin.handle_command(request.command, Some(request.reply))?
                         },
                         event = refresh_features.select_next_some() => {
                             let feature = twin
