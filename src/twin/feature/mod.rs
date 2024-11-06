@@ -123,7 +123,7 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
-                    "general_consent" => match serde_json::from_value(value["general_consent"].clone()) {
+                    "general_consent" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
                         Err(e) => error!(
                             "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
@@ -168,7 +168,7 @@ pub(crate) trait Feature {
     fn event_stream(&mut self) -> Result<Option<EventStream>> {
         Ok(None)
     }
-
+    // ToDo rm and use command()
     async fn handle_event(&mut self, _event: &EventData) -> Result<()> {
         unimplemented!();
     }
@@ -377,6 +377,20 @@ mod tests {
         assert_eq!(
             Command::from_desired_property(TwinUpdate {
                 state: TwinUpdateState::Partial,
+                value: json!({
+                    "$version": 1,
+                    "general_consent": ["swupdate"]})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                DesiredGeneralConsentCommand {
+                    general_consent: vec!["swupdate".to_string()]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
                 value: json!({"general_consent": []})
             }),
             vec![Command::DesiredGeneralConsent(
@@ -422,6 +436,18 @@ mod tests {
             vec![Command::DesiredGeneralConsent(
                 DesiredGeneralConsentCommand {
                     general_consent: vec![]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"general_consent": ["one", "two"]}})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                DesiredGeneralConsentCommand {
+                    general_consent: vec!["one".to_string(), "two".to_string()]
                 }
             )]
         );
