@@ -40,7 +40,7 @@ macro_rules! factory_reset_custom_config_dir_path {
     }};
 }
 
-#[derive(Debug, Deserialize_repr, PartialEq, Serialize)]
+#[derive(Debug, Deserialize_repr, PartialEq, Serialize_repr)]
 #[repr(u8)]
 pub(crate) enum FactoryResetMode {
     Mode1 = 1,
