@@ -391,7 +391,7 @@ impl Twin {
                     select! (
                         // random access order in 2nd select! macro
                         Some(update_desired) = rx_twin_desired.recv() => {
-                            if let Some(cmd) = feature::Command::from_desired_property(update_desired)? {
+                            for cmd in feature::Command::from_desired_property(update_desired)? {
                                 twin.handle_command(
                                     cmd,
                                     None,
