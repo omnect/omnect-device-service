@@ -1,4 +1,4 @@
-use crate::twin::feature;
+use crate::twin::feature::*;
 use actix_server::ServerHandle;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use anyhow::{Context, Result};
@@ -17,8 +17,8 @@ static PUBLISH_ENDPOINTS: OnceLock<Mutex<Vec<PublishEndpoint>>> = OnceLock::new(
 
 #[derive(Debug)]
 pub struct Request {
-    pub(crate) command: feature::Command,
-    pub(crate) reply: oneshot::Sender<Result<Option<serde_json::Value>>>,
+    pub(crate) command: Command,
+    pub(crate) reply: oneshot::Sender<CommandResult>,
 }
 
 #[derive(Debug, strum_macros::Display)]
@@ -179,7 +179,7 @@ impl WebService {
         };
         let (tx_reply, rx_reply) = oneshot::channel();
         let req = Request {
-            command: feature::Command::FactoryReset(command),
+            command: Command::FactoryReset(command),
             reply: tx_reply,
         };
 
@@ -191,7 +191,7 @@ impl WebService {
 
         let (tx_reply, rx_reply) = oneshot::channel();
         let cmd = Request {
-            command: feature::Command::Reboot,
+            command: Command::Reboot,
             reply: tx_reply,
         };
 
@@ -203,7 +203,7 @@ impl WebService {
 
         let (tx_reply, rx_reply) = oneshot::channel();
         let cmd = Request {
-            command: feature::Command::ReloadNetwork,
+            command: Command::ReloadNetwork,
             reply: tx_reply,
         };
 
@@ -267,7 +267,7 @@ impl WebService {
 
     async fn exec_request(
         tx_request: &mpsc::Sender<Request>,
-        rx_reply: tokio::sync::oneshot::Receiver<Result<Option<serde_json::Value>>>,
+        rx_reply: tokio::sync::oneshot::Receiver<CommandResult>,
         request: Request,
     ) -> HttpResponse {
         tx_request.send(request).await.unwrap();

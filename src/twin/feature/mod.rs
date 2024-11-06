@@ -3,7 +3,7 @@ use super::factory_reset::FactoryResetCommand;
 use super::reboot::SetWaitOnlineTimeoutCommand;
 use super::ssh_tunnel::{CloseSshTunnelCommand, GetSshPubKeyCommand, OpenSshTunnelCommand};
 use super::{TwinUpdate, TwinUpdateState};
-use anyhow::{bail, Result,ensure};
+use anyhow::{bail, ensure, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::DirectMethod;
 use azure_iot_sdk::client::IotMessage;
@@ -123,7 +123,7 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
-                    "general_consent" => match serde_json::from_value(value.clone()) {
+                    "general_consent" => match serde_json::from_value(value["general_consent"].clone()) {
                         Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
                         Err(e) => error!(
                             "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
@@ -137,6 +137,8 @@ impl Command {
         cmds
     }
 }
+
+pub type CommandResult = Result<Option<serde_json::Value>>;
 
 #[async_trait(?Send)]
 pub(crate) trait Feature {
@@ -171,7 +173,7 @@ pub(crate) trait Feature {
         unimplemented!();
     }
 
-    async fn command(&mut self, _cmd: Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, _cmd: Command) -> CommandResult {
         unimplemented!();
     }
 }
@@ -279,7 +281,7 @@ mod tests {
 
     #[test]
     fn from_direct_method_test() {
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert!(Command::from_direct_method(&DirectMethod {
             name: "unknown".to_string(),
             payload: json!({}),
@@ -287,7 +289,7 @@ mod tests {
         })
         .is_none());
 
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert!(Command::from_direct_method(&DirectMethod {
             name: "factory_reset".to_string(),
             payload: json!({}),
@@ -295,7 +297,7 @@ mod tests {
         })
         .is_none());
 
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert!(Command::from_direct_method(&DirectMethod {
             name: "factory_reset".to_string(),
             payload: json!({
@@ -306,7 +308,7 @@ mod tests {
         })
         .is_none());
 
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
                 name: "factory_reset".to_string(),
@@ -322,7 +324,7 @@ mod tests {
             }))
         );
 
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
                 name: "factory_reset".to_string(),
@@ -338,7 +340,7 @@ mod tests {
             }))
         );
 
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert!(Command::from_direct_method(&DirectMethod {
             name: "user_consent".to_string(),
             payload: json!({"user_consent": "invalid_json"}),
@@ -346,7 +348,7 @@ mod tests {
         })
         .is_none());
 
-        let (responder, _rx) = oneshot::channel::<Result<Option<serde_json::Value>>>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
                 name: "user_consent".to_string(),

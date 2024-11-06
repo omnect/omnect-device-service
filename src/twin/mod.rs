@@ -22,10 +22,9 @@ cfg_if::cfg_if! {
 }
 
 use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, feature::Feature,
-    modem_info::ModemInfo, network::Network, provisioning_config::ProvisioningConfig,
-    reboot::Reboot, ssh_tunnel::SshTunnel, system_info::SystemInfo,
-    wifi_commissioning::WifiCommissioning,
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
+    network::Network, provisioning_config::ProvisioningConfig, reboot::Reboot,
+    ssh_tunnel::SshTunnel, system_info::SystemInfo, wifi_commissioning::WifiCommissioning, feature::*,
 };
 use crate::web_service::{self, PublishChannel, Request as WebServiceCommand, WebService};
 use crate::{systemd, systemd::watchdog::WatchdogManager};
@@ -238,8 +237,8 @@ impl Twin {
 
     fn handle_command(
         &mut self,
-        cmd: feature::Command,
-        reply: Option<oneshot::Sender<Result<Option<serde_json::Value>>>>,
+        cmd: Command,
+        reply: Option<oneshot::Sender<CommandResult>>,
     ) -> Result<()> {
         block_on(async {
             let cmd_string = format!("{cmd:?}");
@@ -391,7 +390,7 @@ impl Twin {
                     select! (
                         // random access order in 2nd select! macro
                         Some(update_desired) = rx_twin_desired.recv() => {
-                            for cmd in feature::Command::from_desired_property(update_desired) {
+                            for cmd in Command::from_desired_property(update_desired) {
                                 twin.handle_command(cmd, None)?
                             }
                         },
@@ -402,7 +401,7 @@ impl Twin {
                                 .twin_report(reported)?
                         },
                         Some(direct_method) = rx_direct_method.recv() => {
-                            if let Some(cmd) = feature::Command::from_direct_method(&direct_method) {
+                            if let Some(cmd) = Command::from_direct_method(&direct_method) {
                                 twin.handle_command(cmd, Some(direct_method.responder))?
                             }
                         },

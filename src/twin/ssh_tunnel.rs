@@ -1,4 +1,7 @@
-use super::{feature, Feature};
+use super::{
+    feature::{Command as FeatureCommand, CommandResult},
+    Feature,
+};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -134,13 +137,13 @@ impl Feature for SshTunnel {
         Ok(())
     }
 
-    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
         self.ensure()?;
 
         match cmd {
-            feature::Command::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
-            feature::Command::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,
-            feature::Command::OpenSshTunnel(cmd) => self.open_ssh_tunnel(cmd).await,
+            FeatureCommand::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
+            FeatureCommand::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,
+            FeatureCommand::OpenSshTunnel(cmd) => self.open_ssh_tunnel(cmd).await,
             _ => bail!("unexpected command"),
         }
     }
@@ -157,10 +160,7 @@ impl SshTunnel {
         }
     }
 
-    async fn get_ssh_pub_key(
-        &self,
-        args: GetSshPubKeyCommand,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn get_ssh_pub_key(&self, args: GetSshPubKeyCommand) -> CommandResult {
         info!("ssh pub key requested");
 
         let (priv_key_path, pub_key_path) = (
@@ -231,10 +231,7 @@ impl SshTunnel {
         Ok(str::from_utf8(&output.stdout)?.to_string())
     }
 
-    async fn open_ssh_tunnel(
-        &self,
-        args: OpenSshTunnelCommand,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn open_ssh_tunnel(&self, args: OpenSshTunnelCommand) -> CommandResult {
         info!("open ssh tunnel requested");
 
         let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
@@ -412,10 +409,7 @@ impl SshTunnel {
         }
     }
 
-    async fn close_ssh_tunnel(
-        &self,
-        args: CloseSshTunnelCommand,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn close_ssh_tunnel(&self, args: CloseSshTunnelCommand) -> CommandResult {
         info!("close ssh tunnel requested");
 
         let control_socket_path = control_socket_path!(&args.tunnel_id);

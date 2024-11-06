@@ -1,6 +1,6 @@
 use super::super::bootloader_env;
 use super::super::systemd;
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use crate::web_service;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -102,10 +102,10 @@ impl Feature for FactoryReset {
         Ok(())
     }
 
-    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: Command) -> CommandResult {
         info!("factory reset requested: {cmd:?}");
 
-        let feature::Command::FactoryReset(cmd) = cmd else {
+        let Command::FactoryReset(cmd) = cmd else {
             bail!("unexpected command")
         };
 
@@ -173,10 +173,7 @@ impl FactoryReset {
         .context("report_factory_reset_status: send")
     }
 
-    async fn reset_to_factory_settings(
-        &self,
-        cmd: FactoryResetCommand,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn reset_to_factory_settings(&self, cmd: FactoryResetCommand) -> CommandResult {
         let keys = FactoryReset::factory_reset_keys()?;
         for topic in &cmd.preserve {
             let topic = String::from(topic.to_string().trim_matches('"'));

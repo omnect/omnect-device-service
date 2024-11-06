@@ -1,4 +1,4 @@
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use crate::consent_path;
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use async_trait::async_trait;
@@ -80,8 +80,8 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(&history_consent_path!()).await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
-        let (file_observer, stream) = feature::file_modified_stream::<DeviceUpdateConsent>(vec![
+    fn event_stream(&mut self) -> Result<Option<EventStream>> {
+        let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),
         ])
@@ -90,10 +90,10 @@ impl Feature for DeviceUpdateConsent {
         Ok(Some(stream))
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
         self.ensure()?;
 
-        let feature::EventData::FileModified(p) = event else {
+        let EventData::FileModified(p) = event else {
             bail!("unexpected event: {event:?}")
         };
 
@@ -101,12 +101,12 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(p).await
     }
 
-    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: Command) -> CommandResult {
         self.ensure()?;
 
         match cmd {
-            feature::Command::DesiredGeneralConsent(cmd) => self.update_general_consent(cmd).await,
-            feature::Command::UserConsent(cmd) => self.user_consent(cmd),
+            Command::DesiredGeneralConsent(cmd) => self.update_general_consent(cmd).await,
+            Command::UserConsent(cmd) => self.user_consent(cmd),
             _ => bail!("unexpected command"),
         }
     }
@@ -116,7 +116,7 @@ impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
 
-    fn user_consent(&self, cmd: UserConsentCommand) -> Result<Option<serde_json::Value>> {
+    fn user_consent(&self, cmd: UserConsentCommand) -> CommandResult {
         info!("user consent requested: {cmd:?}");
 
         for (component, version) in cmd.user_consent {
@@ -159,7 +159,7 @@ impl DeviceUpdateConsent {
     pub async fn update_general_consent(
         &self,
         desired_consents: DesiredGeneralConsentCommand,
-    ) -> Result<Option<serde_json::Value>> {
+    ) -> CommandResult {
         self.ensure()?;
 
         let mut new_consents = desired_consents.general_consent;

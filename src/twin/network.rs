@@ -1,6 +1,6 @@
 use super::super::systemd::networkd;
 use super::web_service;
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use super::{systemd, systemd::unit::UnitAction};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -78,29 +78,29 @@ impl Feature for Network {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+    fn event_stream(&mut self) -> Result<Option<EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(feature::interval_stream::<Network>(interval(
+            Ok(Some(interval_stream::<Network>(interval(
                 Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
             ))))
         }
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
         self.ensure()?;
 
-        let feature::EventData::Interval(_) = event else {
+        let EventData::Interval(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 
         self.report(false).await
     }
 
-    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: Command) -> CommandResult {
         info!("Reload network requested: {cmd:?}");
-        let feature::Command::ReloadNetwork = cmd else {
+        let Command::ReloadNetwork = cmd else {
             bail!("unexpected command")
         };
 

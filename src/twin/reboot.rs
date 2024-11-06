@@ -1,6 +1,6 @@
 use super::super::systemd;
 use super::web_service;
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -52,12 +52,12 @@ impl Feature for Reboot {
         self.report_wait_online_timeout().await
     }
 
-    async fn command(&mut self, cmd: feature::Command) -> Result<Option<serde_json::Value>> {
+    async fn command(&mut self, cmd: Command) -> CommandResult {
         self.ensure()?;
 
         match cmd {
-            feature::Command::Reboot => self.reboot().await,
-            feature::Command::SetWaitOnlineTimeout(cmd) => self.set_wait_online_timeout(cmd).await,
+            Command::Reboot => self.reboot().await,
+            Command::SetWaitOnlineTimeout(cmd) => self.set_wait_online_timeout(cmd).await,
             _ => bail!("unexpected command"),
         }
     }
@@ -67,7 +67,7 @@ impl Reboot {
     const REBOOT_VERSION: u8 = 2;
     const ID: &'static str = "reboot";
 
-    async fn reboot(&self) -> Result<Option<serde_json::Value>> {
+    async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
 
         self.ensure()?;
@@ -80,7 +80,7 @@ impl Reboot {
     async fn set_wait_online_timeout(
         &self,
         cmd: SetWaitOnlineTimeoutCommand,
-    ) -> Result<Option<serde_json::Value>> {
+    ) -> CommandResult {
         info!("set wait_online_timeout requested: {cmd:?}");
 
         self.ensure()?;

@@ -1,5 +1,5 @@
 use super::web_service;
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use crate::system;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -8,8 +8,8 @@ use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
+use std::env;
 use std::path::Path;
-use std::{ env};
 use tokio::sync::mpsc;
 
 lazy_static! {
@@ -59,9 +59,9 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+    fn event_stream(&mut self) -> Result<Option<EventStream>> {
         if self.boot_time.is_none() {
-            Ok(Some(feature::file_created_stream::<SystemInfo>(vec![
+            Ok(Some(file_created_stream::<SystemInfo>(vec![
                 &TIMESYNC_FILE,
             ])))
         } else {
@@ -69,10 +69,10 @@ impl Feature for SystemInfo {
         }
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
         self.ensure()?;
 
-        let feature::EventData::FileCreated(_) = event else {
+        let EventData::FileCreated(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 

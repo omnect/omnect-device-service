@@ -1,4 +1,4 @@
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -370,20 +370,20 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+    fn event_stream(&mut self) -> Result<Option<EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(feature::interval_stream::<ModemInfo>(interval(
+            Ok(Some(interval_stream::<ModemInfo>(interval(
                 Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
             ))))
         }
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
         self.ensure()?;
 
-        let feature::EventData::Interval(_) = event else {
+        let EventData::Interval(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 

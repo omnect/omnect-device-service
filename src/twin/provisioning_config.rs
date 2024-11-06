@@ -1,4 +1,4 @@
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -144,13 +144,13 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+    fn event_stream(&mut self) -> Result<Option<EventStream>> {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
             match &self.method {
                 Method::X509(cert) if cert.est => {
-                    Ok(Some(feature::interval_stream::<ProvisioningConfig>(
+                    Ok(Some(interval_stream::<ProvisioningConfig>(
                         interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
                     )))
                 }
@@ -159,10 +159,10 @@ impl Feature for ProvisioningConfig {
         }
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
+    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
         self.ensure()?;
 
-        let feature::EventData::Interval(_) = event else {
+        let EventData::Interval(_) = event else {
             bail!("unexpected event: {event:?}")
         };
 
@@ -341,7 +341,7 @@ mod tests {
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .handle_event(&feature::EventData::Interval(Instant::now()))
+            .handle_event(&EventData::Interval(Instant::now()))
             .await
             .unwrap();
         let Method::X509(est2) = config.method.clone() else {
