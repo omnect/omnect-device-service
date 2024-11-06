@@ -48,7 +48,7 @@ macro_rules! control_socket_path {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 struct BastionConfig {
     host: String,
     port: u16,
@@ -82,13 +82,13 @@ where
         .to_string())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct GetSshPubKeyCommand {
     #[serde(deserialize_with = "validate_uuid")]
     tunnel_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct OpenSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
     tunnel_id: String,
@@ -97,7 +97,7 @@ pub(crate) struct OpenSshTunnelCommand {
     bastion_config: BastionConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct CloseSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
     tunnel_id: String,

@@ -10,7 +10,7 @@ use azure_iot_sdk::client::DirectMethod;
 use azure_iot_sdk::client::IotMessage;
 use futures::Stream;
 use futures::StreamExt;
-use log::{debug, error, warn};
+use log::{debug, error, info};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
 use std::any::TypeId;
 use std::path::Path;
@@ -22,7 +22,7 @@ use tokio::{
     time::{Instant, Interval},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     CloseSshTunnel(CloseSshTunnelCommand),
     DesiredGeneralConsent(DesiredGeneralConsentCommand),
@@ -89,30 +89,23 @@ impl Command {
     }
 
     pub fn from_desired_property(update: TwinUpdate) -> Result<Option<Command>> {
-        debug!("desired property: {update:?}");
+        info!("desired property: {update:?}");
 
-        match update.state {
-            TwinUpdateState::Partial => {
-                if let Some(gc) = update.value.get("general_consent") {
-                    return  Ok(Some(Command::DesiredGeneralConsent(
-                        serde_json::from_value(gc.clone()).context(format!(
-                            "from_desired_property: cannot parse DesiredGeneralConsentCommand: {gc:#?}"
-                        ))?,
-                    )));
-                }
-            }
-            TwinUpdateState::Complete => {
-                let gc = &update.value["desired"]["general_consent"];
-                if !gc.is_null() {
-                    return Ok(Some(Command::DesiredGeneralConsent(
-                            serde_json::from_value(gc.clone()).context(format!(
-                                "from_desired_property: cannot parse DesiredGeneralConsentCommand: {gc:#?}"
-                            ))?,
-                        )));
-                }
-                warn!("from_desired_property: 'desired: general_consent' missing while TwinUpdateState::Complete");
-            }
+        let value = match update.state {
+            TwinUpdateState::Partial => &update.value,
+            TwinUpdateState::Complete => &update.value["desired"],
+        };
+
+        if value
+            .as_object()
+            .map_or(false, |o| o.contains_key("general_consent"))
+        {
+            return Ok(Some(Command::DesiredGeneralConsent(
+                serde_json::from_value(value.clone())
+                    .context("from_desired_property: cannot parse DesiredGeneralConsentCommand")?,
+            )));
         }
+
         Ok(None)
     }
 }
@@ -246,4 +239,76 @@ where
             })
             .boxed(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn from_desired_property_test() {
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({})
+            })
+            .unwrap(),
+            None
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({"general_consent": []})
+            })
+            .unwrap()
+            .unwrap(),
+            Command::DesiredGeneralConsent(DesiredGeneralConsentCommand {
+                general_consent: vec![]
+            })
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({"general_consent": ["one", "two"]})
+            })
+            .unwrap()
+            .unwrap(),
+            Command::DesiredGeneralConsent(DesiredGeneralConsentCommand {
+                general_consent: vec!["one".to_string(), "two".to_string()]
+            })
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({})
+            })
+            .unwrap(),
+            None
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {}})
+            })
+            .unwrap(),
+            None
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"general_consent": []}})
+            })
+            .unwrap()
+            .unwrap(),
+            Command::DesiredGeneralConsent(DesiredGeneralConsentCommand {
+                general_consent: vec![]
+            })
+        );
+    }
 }

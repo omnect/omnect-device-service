@@ -10,7 +10,7 @@ use serde_json::json;
 use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct SetWaitOnlineTimeoutCommand {
     timeout_secs: Option<u64>,
 }
