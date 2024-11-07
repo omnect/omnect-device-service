@@ -72,7 +72,6 @@ impl Feature for Network {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
         self.report(true).await?;
         Ok(())
@@ -88,30 +87,19 @@ impl Feature for Network {
         }
     }
 
-    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
-        self.ensure()?;
-
-        let EventData::Interval(_) = event else {
-            bail!("unexpected event: {event:?}")
-        };
-
-        self.report(false).await
-    }
-
     async fn command(&mut self, cmd: Command) -> CommandResult {
-        info!("Reload network requested: {cmd:?}");
-        let Command::ReloadNetwork = cmd else {
-            bail!("unexpected command")
-        };
-
-        self.ensure()?;
-
-        systemd::unit::unit_action(
-            NETWORK_SERVICE,
-            UnitAction::Reload,
-            Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
-        )
-        .await?;
+        match cmd {
+            Command::Interval(_) => {}
+            Command::ReloadNetwork => {
+                systemd::unit::unit_action(
+                    NETWORK_SERVICE,
+                    UnitAction::Reload,
+                    Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
+                )
+                .await?
+            }
+            _ => bail!("unexpected command"),
+        }
 
         self.report(false).await?;
 

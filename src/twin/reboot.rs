@@ -39,22 +39,16 @@ impl Feature for Reboot {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties);
 
         self.report_wait_online_timeout().await
     }
 
     async fn connect_web_service(&self) -> Result<()> {
-        self.ensure()?;
-
         self.report_wait_online_timeout().await
     }
 
     async fn command(&mut self, cmd: Command) -> CommandResult {
-        self.ensure()?;
-
         match cmd {
             Command::Reboot => self.reboot().await,
             Command::SetWaitOnlineTimeout(cmd) => self.set_wait_online_timeout(cmd).await,
@@ -70,8 +64,6 @@ impl Reboot {
     async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
 
-        self.ensure()?;
-
         systemd::reboot().await?;
 
         Ok(None)
@@ -83,8 +75,6 @@ impl Reboot {
     ) -> CommandResult {
         info!("set wait_online_timeout requested: {cmd:?}");
 
-        self.ensure()?;
-
         systemd::networkd::set_networkd_wait_online_timeout(
             cmd.timeout_secs.map(Duration::from_secs),
         )?;
@@ -95,8 +85,6 @@ impl Reboot {
     }
 
     async fn report_wait_online_timeout(&self) -> Result<()> {
-        self.ensure()?;
-
         let timeout = systemd::networkd::networkd_wait_online_timeout()?;
 
         if let Some(tx) = &self.tx_reported_properties {

@@ -3,7 +3,7 @@ use super::factory_reset::FactoryResetCommand;
 use super::reboot::SetWaitOnlineTimeoutCommand;
 use super::ssh_tunnel::{CloseSshTunnelCommand, GetSshPubKeyCommand, OpenSshTunnelCommand};
 use super::{TwinUpdate, TwinUpdateState};
-use anyhow::{bail, ensure, Result};
+use anyhow::{ensure, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::DirectMethod;
 use azure_iot_sdk::client::IotMessage;
@@ -26,7 +26,10 @@ pub enum Command {
     CloseSshTunnel(CloseSshTunnelCommand),
     DesiredGeneralConsent(DesiredGeneralConsentCommand),
     FactoryReset(FactoryResetCommand),
+    FileCreated(FileCommand),
+    FileModified(FileCommand),
     GetSshPubKey(GetSshPubKeyCommand),
+    Interval(IntervalCommand),
     OpenSshTunnel(OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
@@ -42,7 +45,10 @@ impl Command {
             CloseSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<super::DeviceUpdateConsent>(),
             FactoryReset(_) => TypeId::of::<super::FactoryReset>(),
+            FileCreated(cmd) => cmd.feature_id,
+            FileModified(cmd) => cmd.feature_id,
             GetSshPubKey(_) => TypeId::of::<super::SshTunnel>(),
+            Interval(cmd) => cmd.feature_id,
             OpenSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
             Reboot => TypeId::of::<super::Reboot>(),
             ReloadNetwork => TypeId::of::<super::Network>(),
@@ -148,13 +154,6 @@ pub(crate) trait Feature {
     fn name(&self) -> String;
     fn version(&self) -> u8;
     fn is_enabled(&self) -> bool;
-    fn ensure(&self) -> Result<()> {
-        if !self.is_enabled() {
-            bail!("feature disabled: {}", self.name());
-        }
-
-        Ok(())
-    }
 
     async fn connect_twin(
         &mut self,
@@ -171,38 +170,36 @@ pub(crate) trait Feature {
     fn event_stream(&mut self) -> Result<Option<EventStream>> {
         Ok(None)
     }
-    // ToDo rm and use command()
-    async fn handle_event(&mut self, _event: &EventData) -> Result<()> {
-        unimplemented!();
-    }
 
     async fn command(&mut self, _cmd: Command) -> CommandResult {
         unimplemented!();
     }
 }
 
-#[derive(Debug)]
-pub enum EventData {
-    FileCreated(PathBuf),
-    FileModified(PathBuf),
-    Interval(Instant),
+#[derive(Debug, PartialEq)]
+pub struct FileCommand {
+    feature_id: TypeId,
+    pub path: PathBuf,
 }
 
-pub struct Event {
-    pub feature_id: TypeId,
-    pub data: EventData,
+#[derive(Debug, PartialEq)]
+pub struct IntervalCommand {
+    feature_id: TypeId,
+    instant: Instant,
 }
 
-pub type EventStream = Pin<Box<dyn Stream<Item = Event> + Send>>;
+pub type EventStream = Pin<Box<dyn Stream<Item = Command> + Send>>;
 
 pub fn interval_stream<T>(interval: Interval) -> EventStream
 where
     T: 'static,
 {
     tokio_stream::wrappers::IntervalStream::new(interval)
-        .map(|i| Event {
-            feature_id: TypeId::of::<T>(),
-            data: EventData::Interval(i),
+        .map(|i| {
+            Command::Interval(IntervalCommand {
+                feature_id: TypeId::of::<T>(),
+                instant: i,
+            })
         })
         .boxed()
 }
@@ -217,19 +214,17 @@ where
     tokio::task::spawn_blocking(move || loop {
         for p in &inner_paths {
             if matches!(p.try_exists(), Ok(true)) {
-                let _ = tx.blocking_send(p.clone());
+                let _ = tx.blocking_send(Command::FileCreated(FileCommand {
+                    feature_id: TypeId::of::<T>(),
+                    path: p.clone(),
+                }));
                 return;
             }
         }
         std::thread::sleep(Duration::from_millis(500));
     });
 
-    tokio_stream::wrappers::ReceiverStream::new(rx)
-        .map(|p| Event {
-            feature_id: TypeId::of::<T>(),
-            data: EventData::FileCreated(p),
-        })
-        .boxed()
+    tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
 }
 
 pub fn file_modified_stream<T>(
@@ -248,7 +243,10 @@ where
                     if let EventKind::Modify(_) = de.event.kind {
                         debug!("notify-event: {de:?}");
                         for p in &de.paths {
-                            let _ = tx.blocking_send(p.clone());
+                            let _ = tx.blocking_send(Command::FileModified(FileCommand {
+                                feature_id: TypeId::of::<T>(),
+                                path: p.clone(),
+                            }));
                         }
                     }
                 }
@@ -265,12 +263,7 @@ where
 
     Ok((
         debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx)
-            .map(|p| Event {
-                feature_id: TypeId::of::<T>(),
-                data: EventData::FileModified(p),
-            })
-            .boxed(),
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
     ))
 }
 

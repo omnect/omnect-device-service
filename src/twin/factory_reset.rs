@@ -78,8 +78,6 @@ impl Feature for FactoryReset {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties);
 
         self.report_factory_reset_keys().await?;
@@ -108,8 +106,6 @@ impl Feature for FactoryReset {
         let Command::FactoryReset(cmd) = cmd else {
             bail!("unexpected command")
         };
-
-        self.ensure()?;
 
         self.reset_to_factory_settings(cmd).await?;
 

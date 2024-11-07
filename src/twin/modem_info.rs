@@ -148,7 +148,7 @@ mod inner {
             }
         }
 
-        pub async fn report(&mut self, force: bool) -> Result<()> {
+        fn report(&mut self, force: bool) -> Result<()> {
             let modem_reports = join_all(
                 self.modem_paths()
                     .await?
@@ -306,8 +306,6 @@ mod inner {
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
-            self.ensure()?;
-
             let Some(tx) = &self.tx_reported_properties else {
                 warn!("skip since tx_reported_properties is None");
                 return Ok(());
@@ -365,7 +363,6 @@ impl Feature for ModemInfo {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
         self.report(true).await
     }
@@ -380,13 +377,13 @@ impl Feature for ModemInfo {
         }
     }
 
-    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
-        self.ensure()?;
-
-        let EventData::Interval(_) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        let Command::Interval(_) = cmd else {
+            bail!("unexpected event: {cmd:?}")
         };
 
-        self.report(false).await
+        self.report(false).await?;
+
+        Ok(None)
     }
 }

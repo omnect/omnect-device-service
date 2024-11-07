@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use lazy_static::lazy_static;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::env;
@@ -49,13 +49,11 @@ impl Feature for SystemInfo {
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         _tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
         self.report().await
     }
 
     async fn connect_web_service(&self) -> Result<()> {
-        self.ensure()?;
         self.report().await
     }
 
@@ -69,16 +67,15 @@ impl Feature for SystemInfo {
         }
     }
 
-    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
-        self.ensure()?;
-
-        let EventData::FileCreated(_) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        let Command::FileCreated(_) = cmd else {
+            bail!("unexpected event: {cmd:?}")
         };
 
-        info!("handle_event: time synced");
         self.boot_time = Some(system::boot_time()?);
-        self.report().await
+        self.report().await?;
+
+        Ok(None)
     }
 }
 

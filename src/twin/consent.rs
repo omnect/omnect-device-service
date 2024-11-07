@@ -1,6 +1,6 @@
 use super::{feature::*, Feature};
 use crate::consent_path;
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
@@ -71,8 +71,6 @@ impl Feature for DeviceUpdateConsent {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties.clone());
 
         self.report_general_consent().await?;
@@ -90,25 +88,21 @@ impl Feature for DeviceUpdateConsent {
         Ok(Some(stream))
     }
 
-    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
-        self.ensure()?;
-
-        let EventData::FileModified(p) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        match cmd {
+            Command::FileModified(file) => {
+                self.report_user_consent(&file.path).await?;
+            }
+            Command::DesiredGeneralConsent(cmd) => {
+                self.update_general_consent(cmd).await?;
+            }
+            Command::UserConsent(cmd) => {
+                self.user_consent(cmd)?;
+            }
+            _ => bail!("unexpected command"),
         };
 
-        info!("handle_event: report {p:?}");
-        self.report_user_consent(p).await
-    }
-
-    async fn command(&mut self, cmd: Command) -> CommandResult {
-        self.ensure()?;
-
-        match cmd {
-            Command::DesiredGeneralConsent(cmd) => self.update_general_consent(cmd).await,
-            Command::UserConsent(cmd) => self.user_consent(cmd),
-            _ => bail!("unexpected command"),
-        }
+        Ok(None)
     }
 }
 
@@ -156,19 +150,16 @@ impl DeviceUpdateConsent {
         Ok(None)
     }
 
-    pub async fn update_general_consent(
+    async fn update_general_consent(
         &self,
         desired_consents: DesiredGeneralConsentCommand,
     ) -> CommandResult {
-        self.ensure()?;
-
         let mut new_consents = desired_consents.general_consent;
         // enforce entries only exists once
         new_consents.sort_by_key(|name| name.to_string());
         new_consents.dedup();
 
-        // ToDo use serialize
-        let mut current_config: serde_json::Value = serde_json::from_reader(
+        let mut current_config: DesiredGeneralConsentCommand = serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
                 .create(false)
@@ -177,24 +168,15 @@ impl DeviceUpdateConsent {
         )
         .context("update_general_consent: serde_json::from_reader")?;
 
-        let saved_consents = current_config["general_consent"]
-            .as_array()
-            .context("update_general_consent: general_consent array malformed")?
-            .iter()
-            .map(|e| match (e.is_string(), e.as_str()) {
-                (true, Some(s)) => Ok(s.to_string().to_lowercase()),
-                _ => Err(anyhow!("cannot parse string from saved_consents json.")
-                    .context("update_general_consent: parse saved_consents")),
-            })
-            .collect::<Result<Vec<String>>>()?;
+        current_config.general_consent.iter_mut().for_each(|s| {
+            *s = s.to_lowercase();
+        });
 
         // check if consents changed (current desired vs. saved)
-        if new_consents.eq(&saved_consents) {
+        if new_consents.eq(&current_config.general_consent) {
             info!("desired general_consent didn't change");
             return Ok(None);
         }
-
-        current_config["general_consent"] = serde_json::Value::from(new_consents);
 
         serde_json::to_writer_pretty(
             OpenOptions::new()
@@ -203,7 +185,7 @@ impl DeviceUpdateConsent {
                 .truncate(true)
                 .open(format!("{}/consent_conf.json", consent_path!()))
                 .context("update_general_consent: open consent_conf.json for write")?,
-            &current_config,
+            &serde_json::Value::from(json!({"general_consent": new_consents})),
         )
         .context("update_general_consent: serde_json::to_writer_pretty")?;
 

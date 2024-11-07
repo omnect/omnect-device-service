@@ -139,7 +139,6 @@ impl Feature for ProvisioningConfig {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties.clone());
         self.report().await
     }
@@ -159,11 +158,9 @@ impl Feature for ProvisioningConfig {
         }
     }
 
-    async fn handle_event(&mut self, event: &EventData) -> Result<()> {
-        self.ensure()?;
-
-        let EventData::Interval(_) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        let Command::Interval(_) = cmd else {
+            bail!("unexpected event: {cmd:?}")
         };
 
         let expires = match &self.method {
@@ -182,7 +179,7 @@ impl Feature for ProvisioningConfig {
             debug!("refresh: est expiration date didn't change");
         }
 
-        Ok(())
+        Ok(None)
     }
 }
 

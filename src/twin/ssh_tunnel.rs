@@ -130,16 +130,12 @@ impl Feature for SshTunnel {
         _tx_reported_properties: Sender<serde_json::Value>,
         tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_outgoing_message = Some(tx_outgoing_message);
 
         Ok(())
     }
 
     async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
-        self.ensure()?;
-
         match cmd {
             FeatureCommand::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
             FeatureCommand::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,

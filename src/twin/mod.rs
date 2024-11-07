@@ -22,15 +22,15 @@ cfg_if::cfg_if! {
 }
 
 use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, modem_info::ModemInfo,
+    consent::DeviceUpdateConsent, factory_reset::FactoryReset, feature::*, modem_info::ModemInfo,
     network::Network, provisioning_config::ProvisioningConfig, reboot::Reboot,
-    ssh_tunnel::SshTunnel, system_info::SystemInfo, wifi_commissioning::WifiCommissioning, feature::*,
+    ssh_tunnel::SshTunnel, system_info::SystemInfo, wifi_commissioning::WifiCommissioning,
 };
 use crate::web_service::{self, PublishChannel, Request as WebServiceCommand, WebService};
 use crate::{systemd, systemd::watchdog::WatchdogManager};
 use crate::{update_validation, update_validation::UpdateValidation};
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use azure_iot_sdk::client::{
     AuthenticationStatus, IotMessage, TwinUpdate, TwinUpdateState, UnauthenticatedReason,
 };
@@ -243,12 +243,20 @@ impl Twin {
         block_on(async {
             let cmd_string = format!("{cmd:?}");
 
-            let result = self
+            let feature = self
                 .features
                 .get_mut(&cmd.feature_id())
-                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?
-                .command(cmd)
-                .await;
+                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
+
+            ensure!(
+                feature.is_enabled(),
+                "handle_command: feature is disabled {}",
+                feature.name()
+            );
+
+            info!("handle_command: {}({cmd_string})", feature.name());
+
+            let result = feature.command(cmd).await;
 
             match &result {
                 Ok(inner_result) => {
@@ -348,7 +356,7 @@ impl Twin {
             let refresh_features = futures::stream::select_all::select_all(twin
                 .features
                 .values_mut()
-                .filter_map(|f| f.event_stream().unwrap()));
+                .filter_map(|f| f.is_enabled().then(|| f.event_stream().unwrap().unwrap())));
         };
 
         systemd::sd_notify_ready();
@@ -414,12 +422,15 @@ impl Twin {
                         Some(request) = rx_web_service.recv() => {
                             twin.handle_command(request.command, Some(request.reply))?
                         },
-                        event = refresh_features.select_next_some() => {
+                        command = refresh_features.select_next_some() => {
                             let feature = twin
                                 .features
-                                .get_mut(&event.feature_id)
+                                .get_mut(&command.feature_id())
                                 .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
-                            block_on(feature.handle_event(&event.data))?;
+
+                            ensure!(feature.is_enabled(), "event stream: feature is disabled {}", feature.name());
+                            info!("event stream: {}({command:?})", feature.name());
+                            block_on(feature.command(command))?;
                         },
                     );
 

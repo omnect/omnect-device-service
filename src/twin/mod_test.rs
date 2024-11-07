@@ -939,7 +939,7 @@ pub mod mod_test {
                     .features
                     .get_mut(&TypeId::of::<DeviceUpdateConsent>())
                     .unwrap()
-                    .handle_event(&ev.data)
+                    .handle_event(&ev.command)
                     .await
             })
             .is_ok());
