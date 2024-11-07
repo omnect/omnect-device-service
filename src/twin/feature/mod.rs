@@ -53,6 +53,8 @@ impl Command {
 
     // we only log errors and don't fail in this function if input cannot be parsed
     pub fn from_direct_method(direct_method: &DirectMethod) -> Option<Command> {
+        info!("direct method: {direct_method:?}");
+
         // ToDo: write macro or fn for match arms
         match direct_method.name.as_str() {
             "factory_reset" => match serde_json::from_value(direct_method.payload.clone()) {
@@ -63,7 +65,7 @@ impl Command {
                 }
             },
             "user_consent" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Some(Command::UserConsent(c)),
+                Ok(c) => Some(Command::UserConsent(UserConsentCommand { user_consent: c })),
                 Err(e) => {
                     error!("cannot parse UserConsent from direct method payload {e}");
                     None
@@ -129,6 +131,7 @@ impl Command {
                             "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
                         ),
                     },
+                    "$version" => { /*ignore*/ }
                     _ => warn!("from_desired_property: unhandled desired property {k}"),
                 };
             }
@@ -343,7 +346,7 @@ mod tests {
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert!(Command::from_direct_method(&DirectMethod {
             name: "user_consent".to_string(),
-            payload: json!({"user_consent": "invalid_json"}),
+            payload: json!({"foo": 1}),
             responder,
         })
         .is_none());
@@ -352,7 +355,7 @@ mod tests {
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
                 name: "user_consent".to_string(),
-                payload: json!({"user_consent": {"foo": "bar"}}),
+                payload: json!({"foo": "bar"}),
                 responder,
             }),
             Some(Command::UserConsent(UserConsentCommand {
