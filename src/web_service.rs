@@ -1,6 +1,6 @@
 use crate::twin::feature::*;
 use actix_server::ServerHandle;
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
 use anyhow::{Context, Result};
 use futures_util::StreamExt as _;
 use lazy_static::lazy_static;
@@ -167,7 +167,7 @@ impl WebService {
         while let Some(item) = body.next().await {
             let Ok(item) = item else {
                 error!("couldn't read body stream");
-                return HttpResponse::build(actix_web::http::StatusCode::BAD_REQUEST).finish();
+                return HttpResponse::build(StatusCode::BAD_REQUEST).finish();
             };
 
             bytes.extend_from_slice(&item);
@@ -175,7 +175,7 @@ impl WebService {
 
         let Ok(command) = serde_json::from_slice(&bytes) else {
             error!("couldn't parse FactoryResetCommand from body");
-            return HttpResponse::build(actix_web::http::StatusCode::BAD_REQUEST).finish();
+            return HttpResponse::build(StatusCode::BAD_REQUEST).finish();
         };
         let (tx_reply, rx_reply) = oneshot::channel();
         let req = Request {
@@ -270,17 +270,30 @@ impl WebService {
         rx_reply: tokio::sync::oneshot::Receiver<CommandResult>,
         request: Request,
     ) -> HttpResponse {
-        tx_request.send(request).await.unwrap();
+        info!("execute request: send {request:?}");
 
-        // ToDo: log and return results
-        match rx_reply.await {
-            Ok(Ok(_)) => HttpResponse::Ok().finish(),
-            Ok(Err(_)) => {
-                HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
+        if tx_request.send(request).await.is_err() {
+            error!("execute request: command receiver droped");
+            return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).finish();
+        }
+
+        let Ok(result) = rx_reply.await else {
+            error!("execute request: command sender droped");
+            return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).finish();
+        };
+
+        match result {
+            Ok(Some(content)) => {
+                info!("execute request: succeeded with result {content:?}");
+                HttpResponse::Ok().json(content)
             }
-            Err(_) => {
-                error!("couldn't receive command result");
-                HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
+            Ok(None) => {
+                info!("execute request: succeeded");
+                HttpResponse::Ok().finish()
+            }
+            Err(e) => {
+                error!("execute request: request failed {e}");
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
             }
         }
     }
