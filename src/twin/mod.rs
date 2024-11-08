@@ -1,5 +1,5 @@
 mod consent;
-pub(crate) mod factory_reset;
+mod factory_reset;
 pub(crate) mod feature;
 #[cfg(test)]
 #[path = "mod_test.rs"]
@@ -21,20 +21,11 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::twin::{
-    consent::DeviceUpdateConsent, factory_reset::FactoryReset, feature::*, modem_info::ModemInfo,
-    network::Network, provisioning_config::ProvisioningConfig, reboot::Reboot,
-    ssh_tunnel::SshTunnel, system_info::SystemInfo, wifi_commissioning::WifiCommissioning,
-};
-use crate::web_service::{self, PublishChannel, Request as WebServiceCommand, WebService};
-use crate::{systemd, systemd::watchdog::WatchdogManager};
-use crate::{update_validation, update_validation::UpdateValidation};
-
+use crate::{systemd, update_validation, web_service};
 use anyhow::{ensure, Context, Result};
-use azure_iot_sdk::client::{
-    AuthenticationStatus, IotMessage, TwinUpdate, TwinUpdateState, UnauthenticatedReason,
-};
+use azure_iot_sdk::client::*;
 use dotenvy;
+use feature::*;
 use futures_executor::block_on;
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -56,7 +47,7 @@ enum TwinState {
 
 pub struct Twin {
     client: Option<IotHubClient>,
-    web_service: Option<WebService>,
+    web_service: Option<web_service::WebService>,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     state: TwinState,
@@ -66,52 +57,52 @@ pub struct Twin {
 
 impl Twin {
     async fn new(
-        tx_web_service: mpsc::Sender<WebServiceCommand>,
+        tx_web_service: mpsc::Sender<web_service::Request>,
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
         // has to be called before iothub client authentication
-        let update_validation = UpdateValidation::new()?;
+        let update_validation = update_validation::UpdateValidation::new()?;
         let client = None;
-        let web_service = WebService::run(tx_web_service.clone()).await?;
+        let web_service = web_service::WebService::run(tx_web_service.clone()).await?;
         let state = TwinState::Uninitialized;
 
         let features = HashMap::from([
             (
-                TypeId::of::<DeviceUpdateConsent>(),
-                Box::<DeviceUpdateConsent>::default() as Box<dyn Feature>,
+                TypeId::of::<consent::DeviceUpdateConsent>(),
+                Box::<consent::DeviceUpdateConsent>::default() as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<FactoryReset>(),
-                Box::new(FactoryReset::new()) as Box<dyn Feature>,
+                TypeId::of::<factory_reset::FactoryReset>(),
+                Box::new(factory_reset::FactoryReset::new()) as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<ModemInfo>(),
-                Box::new(ModemInfo::new()) as Box<dyn Feature>,
+                TypeId::of::<modem_info::ModemInfo>(),
+                Box::new(modem_info::ModemInfo::new()) as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<Network>(),
-                Box::<Network>::default() as Box<dyn Feature>,
+                TypeId::of::<network::Network>(),
+                Box::<network::Network>::default() as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<ProvisioningConfig>(),
-                Box::new(ProvisioningConfig::new()?) as Box<dyn Feature>,
+                TypeId::of::<provisioning_config::ProvisioningConfig>(),
+                Box::new(provisioning_config::ProvisioningConfig::new()?) as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<Reboot>(),
-                Box::<Reboot>::default() as Box<dyn Feature>,
+                TypeId::of::<reboot::Reboot>(),
+                Box::<reboot::Reboot>::default() as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<SshTunnel>(),
-                Box::new(SshTunnel::new()) as Box<dyn Feature>,
+                TypeId::of::<ssh_tunnel::SshTunnel>(),
+                Box::new(ssh_tunnel::SshTunnel::new()) as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<SystemInfo>(),
-                Box::new(SystemInfo::new()?) as Box<dyn Feature>,
+                TypeId::of::<system_info::SystemInfo>(),
+                Box::new(system_info::SystemInfo::new()?) as Box<dyn Feature>,
             ),
             (
-                TypeId::of::<WifiCommissioning>(),
-                Box::<WifiCommissioning>::default() as Box<dyn Feature>,
+                TypeId::of::<wifi_commissioning::WifiCommissioning>(),
+                Box::<wifi_commissioning::WifiCommissioning>::default() as Box<dyn Feature>,
             ),
         ]);
 
@@ -159,7 +150,11 @@ impl Twin {
     }
 
     async fn connect_web_service(&self) -> Result<()> {
-        web_service::publish(PublishChannel::OnlineStatus, json!({"iothub": false})).await?;
+        web_service::publish(
+            web_service::PublishChannel::OnlineStatus,
+            json!({"iothub": false}),
+        )
+        .await?;
 
         // connect twin channels
         for f in self.features.values() {
@@ -226,7 +221,7 @@ impl Twin {
             }
 
             web_service::publish(
-                PublishChannel::OnlineStatus,
+                web_service::PublishChannel::OnlineStatus,
                 json!({"iothub": auth_status == AuthenticationStatus::Authenticated}),
             )
             .await?;
@@ -349,7 +344,7 @@ impl Twin {
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = match WatchdogManager::init(){
+            let trigger_watchdog = match systemd::watchdog::WatchdogManager::init(){
                 None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
                 Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
             };
@@ -368,7 +363,7 @@ impl Twin {
                 biased;
 
                 Some(_) = trigger_watchdog.next() => {
-                    WatchdogManager::notify()?;
+                    systemd::watchdog::WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
                     twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message);

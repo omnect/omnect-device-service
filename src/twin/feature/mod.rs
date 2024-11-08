@@ -1,8 +1,6 @@
-use super::consent::{DesiredGeneralConsentCommand, UserConsentCommand};
-use super::factory_reset::FactoryResetCommand;
-use super::reboot::SetWaitOnlineTimeoutCommand;
-use super::ssh_tunnel::{CloseSshTunnelCommand, GetSshPubKeyCommand, OpenSshTunnelCommand};
-use super::{TwinUpdate, TwinUpdateState};
+use crate::twin::network;
+
+use super::{consent, factory_reset, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
 use anyhow::{ensure, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::DirectMethod;
@@ -23,18 +21,18 @@ use tokio::{
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    CloseSshTunnel(CloseSshTunnelCommand),
-    DesiredGeneralConsent(DesiredGeneralConsentCommand),
-    FactoryReset(FactoryResetCommand),
+    CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
+    DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
+    FactoryReset(factory_reset::FactoryResetCommand),
     FileCreated(FileCommand),
     FileModified(FileCommand),
-    GetSshPubKey(GetSshPubKeyCommand),
+    GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
-    OpenSshTunnel(OpenSshTunnelCommand),
+    OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
-    SetWaitOnlineTimeout(SetWaitOnlineTimeoutCommand),
-    UserConsent(UserConsentCommand),
+    SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
+    UserConsent(consent::UserConsentCommand),
 }
 
 impl Command {
@@ -42,18 +40,18 @@ impl Command {
         use Command::*;
 
         match self {
-            CloseSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
-            DesiredGeneralConsent(_) => TypeId::of::<super::DeviceUpdateConsent>(),
-            FactoryReset(_) => TypeId::of::<super::FactoryReset>(),
+            CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
             FileCreated(cmd) => cmd.feature_id,
             FileModified(cmd) => cmd.feature_id,
-            GetSshPubKey(_) => TypeId::of::<super::SshTunnel>(),
+            GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
-            OpenSshTunnel(_) => TypeId::of::<super::SshTunnel>(),
-            Reboot => TypeId::of::<super::Reboot>(),
-            ReloadNetwork => TypeId::of::<super::Network>(),
-            SetWaitOnlineTimeout(_) => TypeId::of::<super::Reboot>(),
-            UserConsent(_) => TypeId::of::<super::DeviceUpdateConsent>(),
+            OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            Reboot => TypeId::of::<reboot::Reboot>(),
+            ReloadNetwork => TypeId::of::<network::Network>(),
+            SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
+            UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
         }
     }
 
@@ -71,7 +69,9 @@ impl Command {
                 }
             },
             "user_consent" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Some(Command::UserConsent(UserConsentCommand { user_consent: c })),
+                Ok(c) => Some(Command::UserConsent(consent::UserConsentCommand {
+                    user_consent: c,
+                })),
                 Err(e) => {
                     error!("cannot parse UserConsent from direct method payload {e}");
                     None
@@ -314,7 +314,7 @@ mod tests {
                 }),
                 responder,
             }),
-            Some(Command::FactoryReset(FactoryResetCommand {
+            Some(Command::FactoryReset(factory_reset::FactoryResetCommand {
                 mode: factory_reset::FactoryResetMode::Mode1,
                 preserve: vec!["1".to_string()]
             }))
@@ -330,7 +330,7 @@ mod tests {
                 }),
                 responder,
             }),
-            Some(Command::FactoryReset(FactoryResetCommand {
+            Some(Command::FactoryReset(factory_reset::FactoryResetCommand {
                 mode: factory_reset::FactoryResetMode::Mode1,
                 preserve: vec![]
             }))
@@ -351,7 +351,7 @@ mod tests {
                 payload: json!({"foo": "bar"}),
                 responder,
             }),
-            Some(Command::UserConsent(UserConsentCommand {
+            Some(Command::UserConsent(consent::UserConsentCommand {
                 user_consent: std::collections::HashMap::from([(
                     "foo".to_string(),
                     "bar".to_string()
@@ -378,7 +378,7 @@ mod tests {
                     "general_consent": ["swupdate"]})
             }),
             vec![Command::DesiredGeneralConsent(
-                DesiredGeneralConsentCommand {
+                consent::DesiredGeneralConsentCommand {
                     general_consent: vec!["swupdate".to_string()]
                 }
             )]
@@ -390,7 +390,7 @@ mod tests {
                 value: json!({"general_consent": []})
             }),
             vec![Command::DesiredGeneralConsent(
-                DesiredGeneralConsentCommand {
+                consent::DesiredGeneralConsentCommand {
                     general_consent: vec![]
                 }
             )]
@@ -402,7 +402,7 @@ mod tests {
                 value: json!({"general_consent": ["one", "two"]})
             }),
             vec![Command::DesiredGeneralConsent(
-                DesiredGeneralConsentCommand {
+                consent::DesiredGeneralConsentCommand {
                     general_consent: vec!["one".to_string(), "two".to_string()]
                 }
             )]
@@ -430,7 +430,7 @@ mod tests {
                 value: json!({"desired": {"general_consent": []}})
             }),
             vec![Command::DesiredGeneralConsent(
-                DesiredGeneralConsentCommand {
+                consent::DesiredGeneralConsentCommand {
                     general_consent: vec![]
                 }
             )]
@@ -442,7 +442,7 @@ mod tests {
                 value: json!({"desired": {"general_consent": ["one", "two"]}})
             }),
             vec![Command::DesiredGeneralConsent(
-                DesiredGeneralConsentCommand {
+                consent::DesiredGeneralConsentCommand {
                     general_consent: vec!["one".to_string(), "two".to_string()]
                 }
             )]
