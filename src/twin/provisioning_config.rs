@@ -262,6 +262,7 @@ impl ProvisioningConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
     use tokio::time::Instant;
 
     use super::*;
@@ -336,7 +337,10 @@ mod tests {
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .handle_event(&EventData::Interval(Instant::now()))
+            .command(Command::Interval(IntervalCommand {
+                feature_id: TypeId::of::<ProvisioningConfig>(),
+                instant: Instant::now(),
+            }))
             .await
             .unwrap();
         let Method::X509(est2) = config.method.clone() else {

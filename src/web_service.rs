@@ -166,24 +166,29 @@ impl WebService {
         let mut bytes = web::BytesMut::new();
         while let Some(item) = body.next().await {
             let Ok(item) = item else {
-                error!("couldn't read body stream");
-                return HttpResponse::build(StatusCode::BAD_REQUEST).finish();
+                error!("couldn't read body from stream");
+                return HttpResponse::build(StatusCode::BAD_REQUEST)
+                    .body("couldn't read body from stream");
             };
 
             bytes.extend_from_slice(&item);
         }
 
-        let Ok(command) = serde_json::from_slice(&bytes) else {
-            error!("couldn't parse FactoryResetCommand from body");
-            return HttpResponse::build(StatusCode::BAD_REQUEST).finish();
-        };
-        let (tx_reply, rx_reply) = oneshot::channel();
-        let req = Request {
-            command: Command::FactoryReset(command),
-            reply: tx_reply,
-        };
+        match serde_json::from_slice(&bytes) {
+            Ok(command) => {
+                let (tx_reply, rx_reply) = oneshot::channel();
+                let req = Request {
+                    command: Command::FactoryReset(command),
+                    reply: tx_reply,
+                };
 
-        Self::exec_request(tx_request.as_ref(), rx_reply, req).await
+                Self::exec_request(tx_request.as_ref(), rx_reply, req).await
+            }
+            Err(e) => {
+                error!("couldn't parse FactoryResetCommand from body: {e}");
+                HttpResponse::build(StatusCode::BAD_REQUEST).body(e.to_string())
+            }
+        }
     }
 
     async fn reboot(tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {

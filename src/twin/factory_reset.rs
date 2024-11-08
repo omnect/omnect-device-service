@@ -124,7 +124,7 @@ impl FactoryReset {
     }
 
     fn factory_reset_keys() -> Result<Vec<String>> {
-        let factory_reset_config: HashMap<String, Vec<String>> =
+        let factory_reset_config: HashMap<String, Vec<std::path::PathBuf>> =
             serde_json::from_reader(BufReader::new(
                 File::open(factory_reset_config_path!()).context("open factory-reset.json")?,
             ))

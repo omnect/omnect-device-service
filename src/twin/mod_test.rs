@@ -602,7 +602,7 @@ pub mod mod_test {
             assert!(test_attr
                 .twin
                 .features
-                .get_mut(&TypeId::of::<FactoryReset>())
+                .get_mut(&TypeId::of::<factory_reset::FactoryReset>())
                 .is_none());
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
@@ -631,22 +631,22 @@ pub mod mod_test {
             assert!(test_attr
                 .twin
                 .features
-                .get_mut(&TypeId::of::<FactoryReset>())
+                .get_mut(&TypeId::of::<factory_reset::FactoryReset>())
                 .is_none());
             assert!(test_attr
                 .twin
                 .features
-                .get_mut(&TypeId::of::<DeviceUpdateConsent>())
+                .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
                 .is_none());
             assert!(test_attr
                 .twin
                 .features
-                .get_mut(&TypeId::of::<Network>())
+                .get_mut(&TypeId::of::<network::Network>())
                 .is_none());
             assert!(test_attr
                 .twin
                 .features
-                .get_mut(&TypeId::of::<Reboot>())
+                .get_mut(&TypeId::of::<reboot::Reboot>())
                 .is_none());
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
@@ -908,7 +908,7 @@ pub mod mod_test {
             let mut ev_stream = test_attr
                 .twin
                 .features
-                .get_mut(&TypeId::of::<DeviceUpdateConsent>())
+                .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
                 .unwrap()
                 .event_stream()
                 .unwrap()
@@ -931,15 +931,15 @@ pub mod mod_test {
             )
             .unwrap();
 
-            let ev = block_on(async { ev_stream.next().await }).unwrap();
+            let cmd = block_on(async { ev_stream.next().await }).unwrap();
 
             assert!(block_on(async {
                 test_attr
                     .twin
                     .features
-                    .get_mut(&TypeId::of::<DeviceUpdateConsent>())
+                    .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
                     .unwrap()
-                    .handle_event(&ev.command)
+                    .command(cmd)
                     .await
             })
             .is_ok());

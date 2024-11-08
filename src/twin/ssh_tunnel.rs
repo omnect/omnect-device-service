@@ -88,7 +88,7 @@ where
 #[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct GetSshPubKeyCommand {
     #[serde(deserialize_with = "validate_uuid")]
-    tunnel_id: String,
+    pub tunnel_id: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -103,7 +103,7 @@ pub(crate) struct OpenSshTunnelCommand {
 #[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct CloseSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
-    tunnel_id: String,
+    pub tunnel_id: String,
 }
 
 pub struct SshTunnel {
