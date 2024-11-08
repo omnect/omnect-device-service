@@ -57,7 +57,7 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> Result<Option<EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         if self.boot_time.is_none() {
             Ok(Some(file_created_stream::<SystemInfo>(vec![
                 &TIMESYNC_FILE,

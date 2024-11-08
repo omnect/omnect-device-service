@@ -77,7 +77,7 @@ impl Feature for Network {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> Result<Option<EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {

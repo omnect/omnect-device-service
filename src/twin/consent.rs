@@ -78,7 +78,7 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(&history_consent_path!()).await
     }
 
-    fn event_stream(&mut self) -> Result<Option<EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),
@@ -185,7 +185,7 @@ impl DeviceUpdateConsent {
                 .truncate(true)
                 .open(format!("{}/consent_conf.json", consent_path!()))
                 .context("update_general_consent: open consent_conf.json for write")?,
-            &serde_json::Value::from(json!({"general_consent": new_consents})),
+            &json!({"general_consent": new_consents}),
         )
         .context("update_general_consent: serde_json::to_writer_pretty")?;
 

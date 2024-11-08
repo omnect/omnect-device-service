@@ -148,6 +148,8 @@ impl Command {
 }
 
 pub type CommandResult = Result<Option<serde_json::Value>>;
+pub type EventStream = Pin<Box<dyn Stream<Item = Command> + Send>>;
+pub type EventStreamResult = Result<Option<EventStream>>;
 
 #[async_trait(?Send)]
 pub(crate) trait Feature {
@@ -167,7 +169,7 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> Result<Option<EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         Ok(None)
     }
 
@@ -187,8 +189,6 @@ pub struct IntervalCommand {
     feature_id: TypeId,
     instant: Instant,
 }
-
-pub type EventStream = Pin<Box<dyn Stream<Item = Command> + Send>>;
 
 pub fn interval_stream<T>(interval: Interval) -> EventStream
 where

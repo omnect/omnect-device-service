@@ -143,16 +143,14 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> Result<Option<EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
             match &self.method {
-                Method::X509(cert) if cert.est => {
-                    Ok(Some(interval_stream::<ProvisioningConfig>(
-                        interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                    )))
-                }
+                Method::X509(cert) if cert.est => Ok(Some(interval_stream::<ProvisioningConfig>(
+                    interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
+                ))),
                 _ => Ok(None),
             }
         }

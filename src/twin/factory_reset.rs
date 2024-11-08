@@ -124,13 +124,13 @@ impl FactoryReset {
     }
 
     fn factory_reset_keys() -> Result<Vec<String>> {
-        let key_value_map: HashMap<String, serde_json::Value> =
+        let factory_reset_config: HashMap<String, Vec<String>> =
             serde_json::from_reader(BufReader::new(
                 File::open(factory_reset_config_path!()).context("open factory-reset.json")?,
             ))
             .context("parsing factory reset config")?;
 
-        let mut keys: Vec<String> = key_value_map.into_keys().collect();
+        let mut keys: Vec<String> = factory_reset_config.into_keys().collect();
         if read_dir(factory_reset_custom_config_dir_path!())
             .context("read factory-reset.d")?
             .next()
@@ -144,7 +144,7 @@ impl FactoryReset {
 
         Ok(keys)
     }
-    //ToDo: deserialize with hashmap
+
     async fn report_factory_reset_keys(&self) -> Result<()> {
         // get keys on each call, since factory_reset.d could have changes
         let keys = FactoryReset::factory_reset_keys()?;
