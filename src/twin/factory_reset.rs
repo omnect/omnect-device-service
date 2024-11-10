@@ -73,31 +73,19 @@ impl Feature for FactoryReset {
         env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
     }
 
+    async fn connect_web_service(&self) -> Result<()> {
+        self.report_factory_reset_keys().await?;
+        self.handle_factory_reset_status().await
+    }
+
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
         self.tx_reported_properties = Some(tx_reported_properties);
-
         self.report_factory_reset_keys().await?;
-
-        match Self::factory_reset_status() {
-            Ok(Some(status)) => {
-                info!("factory reset status: {status}");
-                self.report_factory_reset_status(status).await?
-            }
-            Ok(None) => {
-                info!("factory reset status: normal boot without factory reset");
-            }
-            Err(e) => {
-                warn!("factory reset status: {e}");
-                self.report_factory_reset_status(e.to_string().as_str())
-                    .await?
-            }
-        };
-
-        Ok(())
+        self.handle_factory_reset_status().await
     }
 
     async fn command(&mut self, cmd: Command) -> CommandResult {
@@ -241,18 +229,131 @@ impl FactoryReset {
             _ => bail!("unexpected factory reset status format"),
         }
     }
+
+    async fn handle_factory_reset_status(&self) -> Result<()> {
+        match Self::factory_reset_status() {
+            Ok(Some(status)) => {
+                info!("factory reset status: {status}");
+                self.report_factory_reset_status(status).await
+            }
+            Ok(None) => {
+                info!("factory reset status: normal boot without factory reset");
+                Ok(())
+            }
+            Err(e) => {
+                warn!("factory reset status: {e}");
+                self.report_factory_reset_status(e.to_string().as_str())
+                    .await
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_executor::block_on;
+    use regex::Regex;
 
     #[test]
-    fn factory_reset_status_test() {
+    fn factory_reset_test() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("factory-reset.json");
+        let custom_dir_path = temp_dir.path().join("factory-reset.d");
+
+        std::fs::copy(
+            "testfiles/positive/factory-reset.json",
+            file_path.clone().as_path(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(custom_dir_path.clone()).unwrap();
+
+        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+
+        let mut factory_reset = FactoryReset {
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        assert!(block_on(async {
+            factory_reset
+                .command(Command::FactoryReset(FactoryResetCommand {
+                    mode: FactoryResetMode::Mode1,
+                    preserve: vec!["foo".to_string()],
+                }))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
+            .to_string()
+            .starts_with("unknown preserve topic received: foo")));
+
+        assert!(block_on(async {
+            factory_reset
+                .command(Command::FactoryReset(FactoryResetCommand {
+                    mode: FactoryResetMode::Mode1,
+                    preserve: vec![
+                        "network".to_string(),
+                        "firewall".to_string(),
+                        "certificates".to_string(),
+                    ],
+                }))
+                .await
+        })
+        .is_ok());
+
+        let reported = format!("{:?}", rx_reported_properties.blocking_recv().unwrap());
+        const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+
+        let re = format!(
+            "{}{}{}",
+            regex::escape(r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,),
+            UTC_REGEX,
+            regex::escape(r#""), "status": String("in_progress")}}}"#,),
+        );
+
+        let re = Regex::new(re.as_str()).unwrap();
+        assert!(re.is_match(&reported));
+    }
+
+    #[test]
+    fn factory_reset_keys_test() {
         std::env::set_var(
             "FACTORY_RESET_CONFIG_FILE_PATH",
             "testfiles/positive/factory-rest.json",
         );
+        assert!(FactoryReset::factory_reset_keys()
+            .unwrap_err()
+            .to_string()
+            .starts_with("open factory-reset.json"));
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let file_path = tmp_dir.path().join("factory-reset.json");
+        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+
+        std::fs::copy(
+            "testfiles/positive/factory-reset.json",
+            file_path.clone().as_path(),
+        )
+        .unwrap();
+
+        assert!(FactoryReset::factory_reset_keys()
+            .unwrap_err()
+            .to_string()
+            .starts_with("read factory-reset.d"));
+
+        let custom_dir_path = tmp_dir.path().join("factory-reset.d");
+        std::fs::create_dir(custom_dir_path.clone()).unwrap();
+        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+
+        assert!(FactoryReset::factory_reset_keys().is_ok());
+    }
+
+    #[test]
+    fn factory_reset_status_test() {
         std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()

@@ -240,39 +240,186 @@ impl DeviceUpdateConsent {
 
 #[cfg(test)]
 mod tests {
+    use std::{any::TypeId, str::FromStr};
+
     use super::*;
     use futures_executor::block_on;
+    use tempfile;
 
     #[test]
-    fn update_and_report_general_consent_test() {
-        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
-        let usr_consent = DeviceUpdateConsent {
+    fn consent_files_changed_test() {
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut consent = DeviceUpdateConsent {
             file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
         };
-        /*
-        assert!(block_on(async { usr_consent.update_general_consent(None).await }).is_ok());
 
-        let err = block_on(async {
-            usr_consent
-                .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
+        assert!(block_on(async {
+            consent
+                .command(Command::FileModified(FileCommand {
+                    feature_id: TypeId::of::<DeviceUpdateConsent>(),
+                    path: PathBuf::from_str("my-path").unwrap(),
+                }))
                 .await
         })
-        .unwrap_err();
-
-        assert!(err.chain().any(|e| e
+        .unwrap_err()
+        .chain()
+        .any(|e| e
             .to_string()
-            .starts_with("update_general_consent: parse desired_consents")));
+            .starts_with("report_user_consent: open report_consent_file for read")));
 
-        let err = block_on(async {
-            usr_consent
-                .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
+        assert!(block_on(async {
+            consent
+                .command(Command::FileModified(FileCommand {
+                    feature_id: TypeId::of::<DeviceUpdateConsent>(),
+                    path: PathBuf::from_str("testfiles/positive/test_component/user_consent.json")
+                        .unwrap(),
+                }))
                 .await
         })
-        .unwrap_err();
+        .is_ok());
 
-        assert!(err.chain().any(|e| e
+        assert_eq!(
+            rx_reported_properties.blocking_recv(),
+            Some(json!({"device_update_consent": {}}))
+        );
+    }
+
+    #[test]
+    fn desired_consent_test() {
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut consent = DeviceUpdateConsent {
+            file_observer: None,
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec![],
+                    },
+                ))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
             .to_string()
-            .starts_with("update_general_consent: open consent_conf.json"))); */
+            .starts_with("update_general_consent: open consent_conf.json for read")));
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
+
+        std::fs::copy(
+            "testfiles/negative/consent_conf.json",
+            tmp_dir.path().join("consent_conf.json"),
+        )
+        .unwrap();
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec![],
+                    },
+                ))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
+            .to_string()
+            .starts_with("update_general_consent: serde_json::from_reader")));
+
+        std::fs::copy(
+            "testfiles/positive/consent_conf.json",
+            tmp_dir.path().join("consent_conf.json"),
+        )
+        .unwrap();
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec![],
+                    },
+                ))
+                .await
+        })
+        .is_ok());
+
+        assert_eq!(
+            rx_reported_properties.blocking_recv(),
+            Some(json!({"device_update_consent":  {"general_consent":  []}}))
+        );
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec!["foo".to_string(), "bar".to_string()],
+                    },
+                ))
+                .await
+        })
+        .is_ok());
+
+        assert_eq!(
+            rx_reported_properties.blocking_recv(),
+            Some(json!({"device_update_consent":  {"general_consent":  ["bar", "foo"]}}))
+        );
+    }
+
+    #[test]
+    fn user_consent_test() {
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut consent = DeviceUpdateConsent {
+            file_observer: None,
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        assert!(block_on(async {
+            consent
+                .command(Command::UserConsent(UserConsentCommand {
+                    user_consent: HashMap::from([("foo/bar".to_string(), "bar".to_string())]),
+                }))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
+            .to_string()
+            .starts_with("user_consent: invalid component name: foo/bar")));
+
+        assert!(block_on(async {
+            consent
+                .command(Command::UserConsent(UserConsentCommand {
+                    user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
+                }))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e.to_string().starts_with("user_consent: invalid path")));
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
+        let foo_dir = tmp_dir.path().join("foo");
+        std::fs::create_dir(foo_dir.clone()).unwrap();
+        std::fs::copy(
+            "testfiles/positive/test_component/user_consent.json",
+            foo_dir.join("user_consent.json"),
+        )
+        .unwrap();
+
+        assert!(block_on(async {
+            consent
+                .command(Command::UserConsent(UserConsentCommand {
+                    user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
+                }))
+                .await
+        })
+        .is_ok());
     }
 }

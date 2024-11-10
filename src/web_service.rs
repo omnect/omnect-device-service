@@ -381,12 +381,8 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let req = rx_web_service.recv().await.unwrap() {
-                req.reply.send(Ok(None)).unwrap();
-                return;
-            }
-
-            panic!("unexpected command")
+            let req = rx_web_service.recv().await.unwrap();
+            req.reply.send(Ok(None)).unwrap();
         });
 
         let req = test::TestRequest::post().uri("/reboot/v1").to_request();
@@ -406,12 +402,8 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let req = rx_web_service.recv().await.unwrap() {
-                req.reply.send(Ok(None)).unwrap();
-                return;
-            }
-
-            panic!("unexpected command")
+            let req = rx_web_service.recv().await.unwrap();
+            req.reply.send(Err(anyhow::anyhow!("error"))).unwrap();
         });
 
         let req = test::TestRequest::post().uri("/reboot/v1").to_request();

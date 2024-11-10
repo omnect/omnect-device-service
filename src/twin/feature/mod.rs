@@ -173,7 +173,7 @@ pub(crate) trait Feature {
 
 #[derive(Debug, PartialEq)]
 pub struct FileCommand {
-    feature_id: TypeId,
+    pub feature_id: TypeId,
     pub path: PathBuf,
 }
 
@@ -262,9 +262,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::twin::factory_reset;
 
     use super::*;
+    use reboot::SetWaitOnlineTimeoutCommand;
     use serde_json::json;
     use tokio::sync::oneshot;
 
@@ -306,7 +309,8 @@ mod tests {
                     "preserve": ["1"],
                 }),
                 responder,
-            }).unwrap(),
+            })
+            .unwrap(),
             Command::FactoryReset(factory_reset::FactoryResetCommand {
                 mode: factory_reset::FactoryResetMode::Mode1,
                 preserve: vec!["1".to_string()]
@@ -322,7 +326,8 @@ mod tests {
                     "preserve": [],
                 }),
                 responder,
-            }).unwrap(),
+            })
+            .unwrap(),
             Command::FactoryReset(factory_reset::FactoryResetCommand {
                 mode: factory_reset::FactoryResetMode::Mode1,
                 preserve: vec![]
@@ -343,7 +348,8 @@ mod tests {
                 name: "user_consent".to_string(),
                 payload: json!({"foo": "bar"}),
                 responder,
-            }).unwrap(),
+            })
+            .unwrap(),
             Command::UserConsent(consent::UserConsentCommand {
                 user_consent: std::collections::HashMap::from([(
                     "foo".to_string(),
@@ -353,13 +359,12 @@ mod tests {
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(
-            Command::from_direct_method(&DirectMethod {
-                name: "close_ssh_tunnel".to_string(),
-                payload: json!({"tunnel_id": "no-uuid"}),
-                responder,
-            }).is_err()
-        );
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "close_ssh_tunnel".to_string(),
+            payload: json!({"tunnel_id": "no-uuid"}),
+            responder,
+        })
+        .is_err());
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
@@ -367,19 +372,59 @@ mod tests {
                 name: "close_ssh_tunnel".to_string(),
                 payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
                 responder,
-            }).unwrap(),
+            })
+            .unwrap(),
             Command::CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand {
                 tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
             })
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "get_ssh_pub_key".to_string(),
+            payload: json!({"tunnel_id": "no-uuid"}),
+            responder,
+        })
+        .is_err());
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
             Command::from_direct_method(&DirectMethod {
                 name: "get_ssh_pub_key".to_string(),
-                payload: json!({"tunnel_id": "no-uuid"}),
+                payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
                 responder,
-            }).is_err()
+            })
+            .unwrap(),
+            Command::GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand {
+                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "open_ssh_tunnel".to_string(),
+                payload: json!({
+                    "tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d",
+                    "certificate": "cert",
+                    "host": "my-host",
+                    "port": 22,
+                    "user": "usr",
+                    "socket_path": "/socket",
+                }),
+                responder,
+            })
+            .unwrap(),
+            Command::OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand {
+                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
+                certificate: "cert".to_string(),
+                bastion_config: ssh_tunnel::BastionConfig {
+                    host: "my-host".to_string(),
+                    port: 22,
+                    user: "usr".to_string(),
+                    socket_path: PathBuf::from_str("/socket").unwrap(),
+                }
+            })
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
@@ -388,45 +433,55 @@ mod tests {
                 name: "get_ssh_pub_key".to_string(),
                 payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
                 responder,
-            }).unwrap(),
+            })
+            .unwrap(),
             Command::GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand {
                 tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
             })
         );
 
-/*         let (responder, _rx) = oneshot::channel::<CommandResult>();
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
-                name: "open_ssh_tunnel".to_string(),
-                payload: json!({
-                    "tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d",
-                    "certificate": "cert",
-                    "host": String,
-                    "port": u16,
-                    "user": String,
-                    "socket_path": PathBuf,
-                }),
+                name: "reboot".to_string(),
+                payload: json!({}),
                 responder,
-            }).unwrap(),
-            Command::GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand {
-                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
-                certificate: "cert".to_string(),
-                host: String,
-                port: u16,
-                user: String,
-                socket_path: PathBuf,
             })
-        );*/
+            .unwrap(),
+            Command::Reboot
+        );
 
-        /*
-        FileCreated(FileCommand),
-        FileModified(FileCommand),
-        ),
-        Interval(IntervalCommand),
-        Reboot,
-        ReloadNetwork,
-        SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
-        */
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "set_wait_online_timeout".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .unwrap(),
+            Command::SetWaitOnlineTimeout(SetWaitOnlineTimeoutCommand { timeout_secs: None })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "set_wait_online_timeout".to_string(),
+                payload: json!({"timeout_secs": 1}),
+                responder,
+            })
+            .unwrap(),
+            Command::SetWaitOnlineTimeout(SetWaitOnlineTimeoutCommand {
+                timeout_secs: Some(1),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(Command::from_direct_method(&DirectMethod {
+            name: "set_wait_online_timeout".to_string(),
+            payload: json!({"timeout_secs": "1"}),
+            responder,
+        })
+        .is_err());
     }
 
     #[test]

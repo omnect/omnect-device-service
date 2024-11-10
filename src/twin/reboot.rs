@@ -12,7 +12,7 @@ use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct SetWaitOnlineTimeoutCommand {
-    timeout_secs: Option<u64>,
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Default)]

@@ -1,5 +1,5 @@
 use super::Feature;
-use std::{ env};
+use std::env;
 
 #[derive(Default)]
 pub struct WifiCommissioning {}
