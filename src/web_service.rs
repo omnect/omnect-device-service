@@ -331,11 +331,20 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) -> Resul
             continue;
         };
 
-        if let Err(e) = request.send().await {
-            warn!(
+        debug!("before");
+
+        match tokio::time::timeout_at(
+            tokio::time::Instant::now() + tokio::time::Duration::from_secs(15),
+            request.send(),
+        )
+        .await
+        {
+            Err(_) => error!("timeout"),
+            Ok(Err(e)) => warn!(
                 "publish: sending request {msg} to {} failed with {e}. Endpoint not present?",
                 endpoint.url
-            );
+            ),
+            Ok(Ok(_)) => debug!("after"),
         }
     }
 
