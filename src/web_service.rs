@@ -326,12 +326,12 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) -> Resul
         .await
         .iter()
     {
-        let Ok(reqest) = publish_request(&msg, endpoint) else {
+        let Ok(request) = publish_request(&msg, endpoint) else {
             error!("publish: building request {msg} to {} failed", endpoint.url);
             continue;
         };
 
-        if let Err(e) = reqest.send().await {
+        if let Err(e) = request.send().await {
             warn!(
                 "publish: sending request {msg} to {} failed with {e}. Endpoint not present?",
                 endpoint.url
