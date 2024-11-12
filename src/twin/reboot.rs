@@ -69,10 +69,7 @@ impl Reboot {
         Ok(None)
     }
 
-    async fn set_wait_online_timeout(
-        &self,
-        cmd: SetWaitOnlineTimeoutCommand,
-    ) -> CommandResult {
+    async fn set_wait_online_timeout(&self, cmd: SetWaitOnlineTimeoutCommand) -> CommandResult {
         info!("set wait_online_timeout requested: {cmd:?}");
 
         systemd::networkd::set_networkd_wait_online_timeout(
@@ -103,8 +100,7 @@ impl Reboot {
                 "wait_online_timeout": timeout
             }),
         )
-        .await
-        .context("report_wait_online_timeout: publish")?;
+        .await;
 
         Ok(())
     }

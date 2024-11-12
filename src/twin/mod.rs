@@ -154,7 +154,7 @@ impl Twin {
             web_service::PublishChannel::OnlineStatus,
             json!({"iothub": false}),
         )
-        .await?;
+        .await;
 
         // connect twin channels
         for f in self.features.values() {
@@ -224,7 +224,7 @@ impl Twin {
                 web_service::PublishChannel::OnlineStatus,
                 json!({"iothub": auth_status == AuthenticationStatus::Authenticated}),
             )
-            .await?;
+            .await;
 
             Ok(restart_twin)
         })

@@ -140,8 +140,7 @@ impl FactoryReset {
             web_service::PublishChannel::FactoryResetKeys,
             json!({"keys": keys}),
         )
-        .await
-        .context("report_factory_reset_keys: publish")?;
+        .await;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report_factory_reset_keys: skip since tx_reported_properties is None");
@@ -178,8 +177,7 @@ impl FactoryReset {
             web_service::PublishChannel::FactoryResetStatus,
             json!({"factory_reset_status": status}),
         )
-        .await
-        .context("report_factory_reset_status: publish")?;
+        .await;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report_factory_reset_status: skip since tx_reported_properties is None");

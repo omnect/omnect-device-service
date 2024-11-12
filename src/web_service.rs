@@ -1,11 +1,11 @@
 use crate::twin::feature::*;
 use actix_server::ServerHandle;
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use futures_util::StreamExt as _;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
-use reqwest::{header, Client, RequestBuilder};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use serde_json::json;
 use std::{str::FromStr, sync::OnceLock};
@@ -227,27 +227,8 @@ impl WebService {
         {
             let msg = json!({"channel": channel, "data": value});
 
-            for endpoint in PUBLISH_ENDPOINTS
-                .get()
-                .expect("PUBLISH_ENDPOINTS not available")
-                .lock()
-                .await
-                .iter()
-            {
-                let Ok(reqest) = publish_request(&msg, endpoint) else {
-                    error!(
-                        "republish: building request {msg} to {} failed",
-                        endpoint.url
-                    );
-                    return HttpResponse::InternalServerError().finish();
-                };
-
-                if let Err(e) = reqest.send().await {
-                    warn!(
-                        "republish: sending request {msg} to {} failed with {e}. Endpoint not present?",
-                        endpoint.url);
-                    return HttpResponse::InternalServerError().finish();
-                }
+            if let Err(e) = publish_to_endpoints(msg).await {
+                return HttpResponse::InternalServerError().body(e.to_string());
             }
         }
 
@@ -304,21 +285,26 @@ impl WebService {
     }
 }
 
-pub async fn publish(channel: PublishChannel, value: serde_json::Value) -> Result<()> {
+pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
     if !(*WEBSERVICE_ENABLED) {
         debug!("publish: skip since feature not enabled");
-        return Ok(());
+    } else {
+        let msg = json!({"channel": channel.to_string(), "data": value});
+
+        PUBLISH_CHANNEL_MAP
+            .get()
+            .expect("PUBLISH_CHANNEL_MAP not available")
+            .lock()
+            .await
+            .insert(channel.to_string(), value.clone());
+
+        if let Err(e) = publish_to_endpoints(msg).await {
+            warn!("publish: failed to publish request with {e}");
+        };
     }
+}
 
-    let msg = json!({"channel": channel.to_string(), "data": value});
-
-    PUBLISH_CHANNEL_MAP
-        .get()
-        .expect("PUBLISH_CHANNEL_MAP not available")
-        .lock()
-        .await
-        .insert(channel.to_string(), value.clone());
-
+async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
     for endpoint in PUBLISH_ENDPOINTS
         .get()
         .expect("PUBLISH_ENDPOINTS not available")
@@ -326,50 +312,43 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) -> Resul
         .await
         .iter()
     {
-        let Ok(request) = publish_request(&msg, endpoint) else {
-            error!("publish: building request {msg} to {} failed", endpoint.url);
-            continue;
-        };
+        let mut headers = header::HeaderMap::new();
 
-        debug!("before");
-
-        match tokio::time::timeout_at(
-            tokio::time::Instant::now() + tokio::time::Duration::from_secs(15),
-            request.send(),
-        )
-        .await
-        {
-            Err(_) => error!("timeout"),
-            Ok(Err(e)) => warn!(
-                "publish: sending request {msg} to {} failed with {e}. Endpoint not present?",
-                endpoint.url
-            ),
-            Ok(Ok(_)) => debug!("after"),
+        for h in &endpoint.headers {
+            headers.insert(
+                header::HeaderName::from_str(&h.name)?,
+                header::HeaderValue::from_str(&h.value)?,
+            );
         }
+
+        // we allow self-signed ssl certs
+        let Ok(request) = Client::builder()
+            .timeout(tokio::time::Duration::from_secs(3))
+            .default_headers(headers)
+            .danger_accept_invalid_certs(true)
+            .build()
+        else {
+            bail!(
+                "publish_to_endpoints: building request {msg} to {} failed",
+                endpoint.url
+            );
+        };
+        if let Err(e) = request
+            .post(&endpoint.url)
+            .body(msg.to_string())
+            .send()
+            .await
+        {
+            bail!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?", endpoint.url);
+        }
+
+        info!(
+            "publish_to_endpoints: successfully sent {msg} to {}.",
+            endpoint.url
+        )
     }
 
     Ok(())
-}
-
-fn publish_request(msg: &serde_json::Value, endpoint: &PublishEndpoint) -> Result<RequestBuilder> {
-    let mut headers = header::HeaderMap::new();
-
-    debug!("publish_request {msg} to {}", endpoint.url);
-
-    for h in &endpoint.headers {
-        headers.insert(
-            header::HeaderName::from_str(&h.name)?,
-            header::HeaderValue::from_str(&h.value)?,
-        );
-    }
-
-    // we allow self-signed ssl certs
-    Ok(Client::builder()
-        .default_headers(headers)
-        .danger_accept_invalid_certs(true)
-        .build()?
-        .post(&endpoint.url)
-        .body(msg.to_string()))
 }
 
 #[cfg(test)]
