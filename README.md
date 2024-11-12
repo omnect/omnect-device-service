@@ -722,7 +722,7 @@ The web service features is disabled by default and must be explicitly activated
 Description [Factory reset](#factory-reset).
 
 ```
-curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1 -d '{"mode": 1, "preserve": []}'
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1 --json '{"mode": 1, "preserve": []}'
 ```
 
 ### Trigger reboot
