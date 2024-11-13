@@ -1,10 +1,10 @@
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
-use std::{any::Any, env, time::Duration};
+use std::{env, time::Duration};
 use tokio::{sync::mpsc::Sender, time::interval};
 
 #[cfg(feature = "modem_info")]
@@ -148,7 +148,7 @@ mod inner {
             }
         }
 
-        pub async fn report(&mut self, force: bool) -> Result<()> {
+        fn report(&mut self, force: bool) -> Result<()> {
             let modem_reports = join_all(
                 self.modem_paths()
                     .await?
@@ -306,8 +306,6 @@ mod inner {
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
-            self.ensure()?;
-
             let Some(tx) = &self.tx_reported_properties else {
                 warn!("skip since tx_reported_properties is None");
                 return Ok(());
@@ -360,37 +358,32 @@ impl Feature for ModemInfo {
         }
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties);
         self.report(true).await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(feature::interval_stream::<ModemInfo>(interval(
+            Ok(Some(interval_stream::<ModemInfo>(interval(
                 Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
             ))))
         }
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
-        self.ensure()?;
-
-        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        let Command::Interval(_) = cmd else {
+            bail!("unexpected event: {cmd:?}")
         };
 
-        self.report(false).await
+        self.report(false).await?;
+
+        Ok(None)
     }
 }

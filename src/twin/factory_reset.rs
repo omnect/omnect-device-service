@@ -1,13 +1,15 @@
 use super::super::bootloader_env;
 use super::super::systemd;
-use super::Feature;
+use super::{feature::*, Feature};
 use crate::web_service;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{any::Any, collections::HashMap, env, fs::File, fs::read_dir, io::BufReader};
+use serde_repr::*;
+use std::{collections::HashMap, env, fs::read_dir, fs::File, io::BufReader};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
@@ -38,6 +40,20 @@ macro_rules! factory_reset_custom_config_dir_path {
     }};
 }
 
+#[derive(Debug, Deserialize_repr, PartialEq, Serialize_repr)]
+#[repr(u8)]
+pub(crate) enum FactoryResetMode {
+    Mode1 = 1,
+    Mode2 = 2,
+    Mode3 = 3,
+    Mode4 = 4,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct FactoryResetCommand {
+    pub mode: FactoryResetMode,
+    pub preserve: Vec<String>,
+}
 
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
@@ -57,8 +73,9 @@ impl Feature for FactoryReset {
         env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    async fn connect_web_service(&self) -> Result<()> {
+        self.report_factory_reset_keys().await?;
+        self.handle_factory_reset_status().await
     }
 
     async fn connect_twin(
@@ -66,28 +83,21 @@ impl Feature for FactoryReset {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties);
-
         self.report_factory_reset_keys().await?;
+        self.handle_factory_reset_status().await
+    }
 
-        match Self::factory_reset_status() {
-            Ok(Some(status)) => {
-                info!("factory reset status: {status}");
-                self.report_factory_reset_status(status).await?
-            }
-            Ok(None) => {
-                info!("factory reset status: normal boot without factory reset");
-            }
-            Err(e) => {
-                warn!("factory reset status: {e}");
-                self.report_factory_reset_status(e.to_string().as_str())
-                    .await?
-            }
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        info!("factory reset requested: {cmd:?}");
+
+        let Command::FactoryReset(cmd) = cmd else {
+            bail!("unexpected command")
         };
 
-        Ok(())
+        self.reset_to_factory_settings(cmd).await?;
+
+        Ok(None)
     }
 }
 
@@ -101,15 +111,19 @@ impl FactoryReset {
         }
     }
 
-    fn factory_reset_keys() -> Result<Vec<String>>
-    {
-        let key_value_map: HashMap<String, serde_json::Value> = serde_json::from_reader(BufReader::new(
-            File::open(factory_reset_config_path!()).context("open factory-reset.json")?,
-        ))
-        .context("parsing factory reset config")?;
+    fn factory_reset_keys() -> Result<Vec<String>> {
+        let factory_reset_config: HashMap<String, Vec<std::path::PathBuf>> =
+            serde_json::from_reader(BufReader::new(
+                File::open(factory_reset_config_path!()).context("open factory-reset.json")?,
+            ))
+            .context("parsing factory reset config")?;
 
-        let mut keys: Vec<String> = key_value_map.into_keys().collect();
-        if read_dir(factory_reset_custom_config_dir_path!()).context("read factory-reset.d")?.next().is_some(){
+        let mut keys: Vec<String> = factory_reset_config.into_keys().collect();
+        if read_dir(factory_reset_custom_config_dir_path!())
+            .context("read factory-reset.d")?
+            .next()
+            .is_some()
+        {
             keys.push(String::from("applications"))
         }
 
@@ -126,8 +140,7 @@ impl FactoryReset {
             web_service::PublishChannel::FactoryResetKeys,
             json!({"keys": keys}),
         )
-        .await
-        .context("report_factory_reset_keys: publish")?;
+        .await;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report_factory_reset_keys: skip since tx_reported_properties is None");
@@ -143,29 +156,16 @@ impl FactoryReset {
         .context("report_factory_reset_status: send")
     }
 
-    pub async fn reset_to_factory_settings(
-        &self,
-        in_json: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
-        info!("factory reset requested: {in_json}");
-
-        self.ensure()?;
-
-        if in_json["mode"].as_u64().is_none() {
-            anyhow::bail!("reset mode missing or not supported");
-        }
-        let preserve = in_json["preserve"].as_array();
-        if  preserve.is_some() {
-            let keys=FactoryReset::factory_reset_keys()?;
-            for topic in preserve.unwrap().iter() {
-                let topic = String::from(topic.to_string().trim_matches('"'));
-                if ! keys.contains(&topic) {
-                    anyhow::bail!("unknown preserve topic received: {topic}");
-                }
+    async fn reset_to_factory_settings(&self, cmd: FactoryResetCommand) -> CommandResult {
+        let keys = FactoryReset::factory_reset_keys()?;
+        for topic in &cmd.preserve {
+            let topic = String::from(topic.to_string().trim_matches('"'));
+            if !keys.contains(&topic) {
+                anyhow::bail!("unknown preserve topic received: {topic}");
             }
         }
 
-        bootloader_env::set("factory-reset", &in_json.to_string())?;
+        bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
         self.report_factory_reset_status("in_progress").await?;
         systemd::reboot().await?;
         Ok(None)
@@ -177,8 +177,7 @@ impl FactoryReset {
             web_service::PublishChannel::FactoryResetStatus,
             json!({"factory_reset_status": status}),
         )
-        .await
-        .context("report_factory_reset_status: publish")?;
+        .await;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report_factory_reset_status: skip since tx_reported_properties is None");
@@ -228,15 +227,131 @@ impl FactoryReset {
             _ => bail!("unexpected factory reset status format"),
         }
     }
+
+    async fn handle_factory_reset_status(&self) -> Result<()> {
+        match Self::factory_reset_status() {
+            Ok(Some(status)) => {
+                info!("factory reset status: {status}");
+                self.report_factory_reset_status(status).await
+            }
+            Ok(None) => {
+                info!("factory reset status: normal boot without factory reset");
+                Ok(())
+            }
+            Err(e) => {
+                warn!("factory reset status: {e}");
+                self.report_factory_reset_status(e.to_string().as_str())
+                    .await
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_executor::block_on;
+    use regex::Regex;
+
+    #[test]
+    fn factory_reset_test() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("factory-reset.json");
+        let custom_dir_path = temp_dir.path().join("factory-reset.d");
+
+        std::fs::copy(
+            "testfiles/positive/factory-reset.json",
+            file_path.clone().as_path(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(custom_dir_path.clone()).unwrap();
+
+        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+
+        let mut factory_reset = FactoryReset {
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        assert!(block_on(async {
+            factory_reset
+                .command(Command::FactoryReset(FactoryResetCommand {
+                    mode: FactoryResetMode::Mode1,
+                    preserve: vec!["foo".to_string()],
+                }))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
+            .to_string()
+            .starts_with("unknown preserve topic received: foo")));
+
+        assert!(block_on(async {
+            factory_reset
+                .command(Command::FactoryReset(FactoryResetCommand {
+                    mode: FactoryResetMode::Mode1,
+                    preserve: vec![
+                        "network".to_string(),
+                        "firewall".to_string(),
+                        "certificates".to_string(),
+                    ],
+                }))
+                .await
+        })
+        .is_ok());
+
+        let reported = format!("{:?}", rx_reported_properties.blocking_recv().unwrap());
+        const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+
+        let re = format!(
+            "{}{}{}",
+            regex::escape(r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,),
+            UTC_REGEX,
+            regex::escape(r#""), "status": String("in_progress")}}}"#,),
+        );
+
+        let re = Regex::new(re.as_str()).unwrap();
+        assert!(re.is_match(&reported));
+    }
+
+    #[test]
+    fn factory_reset_keys_test() {
+        std::env::set_var(
+            "FACTORY_RESET_CONFIG_FILE_PATH",
+            "testfiles/positive/factory-rest.json",
+        );
+        assert!(FactoryReset::factory_reset_keys()
+            .unwrap_err()
+            .to_string()
+            .starts_with("open factory-reset.json"));
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let file_path = tmp_dir.path().join("factory-reset.json");
+        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+
+        std::fs::copy(
+            "testfiles/positive/factory-reset.json",
+            file_path.clone().as_path(),
+        )
+        .unwrap();
+
+        assert!(FactoryReset::factory_reset_keys()
+            .unwrap_err()
+            .to_string()
+            .starts_with("read factory-reset.d"));
+
+        let custom_dir_path = tmp_dir.path().join("factory-reset.d");
+        std::fs::create_dir(custom_dir_path.clone()).unwrap();
+        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+
+        assert!(FactoryReset::factory_reset_keys().is_ok());
+    }
 
     #[test]
     fn factory_reset_status_test() {
-        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", "testfiles/positive/factory-rest.json");
         std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()

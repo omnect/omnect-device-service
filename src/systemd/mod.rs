@@ -3,12 +3,8 @@ pub mod unit;
 pub mod watchdog;
 
 use anyhow::{bail, Result};
-#[cfg(not(feature = "mock"))]
-use log::error;
 use log::{debug, info};
 use sd_notify::NotifyState;
-#[cfg(not(feature = "mock"))]
-use std::process::Command;
 use std::{sync::Once, thread, time, time::Duration};
 use systemd_zbus::ManagerProxy;
 use tokio::time::{timeout_at, Instant};
@@ -23,6 +19,10 @@ pub fn sd_notify_ready() {
 
 #[cfg(not(feature = "mock"))]
 pub async fn reboot() -> Result<()> {
+    use anyhow::Context;
+    use log::error;
+    use std::process::Command;
+
     info!("systemd::reboot");
     //journalctl seems not to have a dbus api
     if let Err(e) = Command::new("sudo")
@@ -33,44 +33,19 @@ pub async fn reboot() -> Result<()> {
         error!("reboot: failed to execute 'journalctl --sync' with: {e}")
     }
 
-    /*
-       we observed situations when the reboot future never completed.
-       that's why we have here a retry + timeout workaround.
-       the workaround should be removed someday in case we never face the situation again.
-    */
-    for i in 0..3 {
-        let con_result = timeout_at(
-            Instant::now() + Duration::from_secs(3),
-            zbus::Connection::system(),
+    zbus::Connection::system()
+        .await
+        .context("reboot: zbus::Connection::system() failed")?
+        .call_method(
+            Some("org.freedesktop.login1"),
+            "/org/freedesktop/login1",
+            Some("org.freedesktop.login1.Manager"),
+            "Reboot",
+            &(true),
         )
-        .await;
-
-        match con_result {
-            Err(e) => error!("reboot: trial{i:?} system(): {e}"),
-            Ok(Err(e)) => error!("reboot: trial{i:?} system(): {e}"),
-            Ok(Ok(con)) => {
-                let call_result = timeout_at(
-                    Instant::now() + Duration::from_secs(3),
-                    con.call_method(
-                        Some("org.freedesktop.login1"),
-                        "/org/freedesktop/login1",
-                        Some("org.freedesktop.login1.Manager"),
-                        "Reboot",
-                        &(true),
-                    ),
-                )
-                .await;
-
-                match call_result {
-                    Err(e) => error!("reboot: trial{i:?} call_method: {e}"),
-                    Ok(Err(e)) => error!("reboot: trial{i:?} call_method: {e}"),
-                    _ => return Ok(()),
-                }
-            }
-        }
-    }
-
-    bail!("reboot: failed")
+        .await
+        .context("reboot: call_method() failed")?;
+    Ok(())
 }
 
 pub async fn wait_for_system_running(timeout: Duration) -> Result<()> {

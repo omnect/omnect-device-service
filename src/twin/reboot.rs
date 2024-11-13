@@ -1,14 +1,19 @@
-use crate::web_service;
-
 use super::super::systemd;
-use super::Feature;
+use super::web_service;
+use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info};
+use serde::Deserialize;
 use serde_json::json;
-use std::{any::Any, env, time::Duration};
+use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct SetWaitOnlineTimeoutCommand {
+    pub timeout_secs: Option<u64>,
+}
 
 #[derive(Default)]
 pub struct Reboot {
@@ -29,26 +34,26 @@ impl Feature for Reboot {
         env::var("SUPPRESS_REBOOT") != Ok("true".to_string())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties);
 
         self.report_wait_online_timeout().await
     }
 
     async fn connect_web_service(&self) -> Result<()> {
-        self.ensure()?;
-
         self.report_wait_online_timeout().await
+    }
+
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        match cmd {
+            Command::Reboot => self.reboot().await,
+            Command::SetWaitOnlineTimeout(cmd) => self.set_wait_online_timeout(cmd).await,
+            _ => bail!("unexpected command"),
+        }
     }
 }
 
@@ -56,33 +61,20 @@ impl Reboot {
     const REBOOT_VERSION: u8 = 2;
     const ID: &'static str = "reboot";
 
-    pub async fn reboot(&self) -> Result<Option<serde_json::Value>> {
+    async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
-
-        self.ensure()?;
 
         systemd::reboot().await?;
 
         Ok(None)
     }
 
-    pub async fn set_wait_online_timeout(
-        &self,
-        in_json: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
-        info!("set wait_online_timeout requested: {in_json}");
+    async fn set_wait_online_timeout(&self, cmd: SetWaitOnlineTimeoutCommand) -> CommandResult {
+        info!("set wait_online_timeout requested: {cmd:?}");
 
-        self.ensure()?;
-
-        match &in_json["timeout_secs"] {
-            serde_json::Value::Number(timeout) if timeout.is_u64() => {
-                systemd::networkd::set_networkd_wait_online_timeout(Some(Duration::from_secs(
-                    timeout.as_u64().unwrap(),
-                )))?
-            }
-            serde_json::Value::Null => systemd::networkd::set_networkd_wait_online_timeout(None)?,
-            value => bail!("invalid value for timeout_secs: {value}"),
-        }
+        systemd::networkd::set_networkd_wait_online_timeout(
+            cmd.timeout_secs.map(Duration::from_secs),
+        )?;
 
         self.report_wait_online_timeout().await?;
 
@@ -90,8 +82,6 @@ impl Reboot {
     }
 
     async fn report_wait_online_timeout(&self) -> Result<()> {
-        self.ensure()?;
-
         let timeout = systemd::networkd::networkd_wait_online_timeout()?;
 
         if let Some(tx) = &self.tx_reported_properties {
@@ -110,8 +100,7 @@ impl Reboot {
                 "wait_online_timeout": timeout
             }),
         )
-        .await
-        .context("report_wait_online_timeout: publish")?;
+        .await;
 
         Ok(())
     }

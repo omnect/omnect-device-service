@@ -1,25 +1,24 @@
+use crate::twin::feature::*;
 use actix_server::ServerHandle;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use anyhow::{Context, Result};
+use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
+use anyhow::{bail, Context, Result};
+use futures_util::StreamExt as _;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
-use reqwest::{header, Client, RequestBuilder};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use serde_json::json;
 use std::{str::FromStr, sync::OnceLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
-
-type Reply = oneshot::Sender<bool>;
 
 static PUBLISH_CHANNEL_MAP: OnceLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     OnceLock::new();
 static PUBLISH_ENDPOINTS: OnceLock<Mutex<Vec<PublishEndpoint>>> = OnceLock::new();
 
 #[derive(Debug)]
-pub enum Command {
-    FactoryReset(Reply),
-    Reboot(Reply),
-    ReloadNetwork(Reply),
+pub struct Request {
+    pub(crate) command: Command,
+    pub(crate) reply: oneshot::Sender<CommandResult>,
 }
 
 #[derive(Debug, strum_macros::Display)]
@@ -66,7 +65,7 @@ pub struct WebService {
 }
 
 impl WebService {
-    pub async fn run(tx_request: mpsc::Sender<Command>) -> Result<Option<Self>> {
+    pub async fn run(tx_request: mpsc::Sender<Request>) -> Result<Option<Self>> {
         // we only start web service feature if WEBSERVICE_ENABLED env var is explicitly set
         if !(*WEBSERVICE_ENABLED) {
             info!("WebService is disabled");
@@ -75,29 +74,23 @@ impl WebService {
 
         info!("WebService is enabled");
 
-        let _unused = PUBLISH_CHANNEL_MAP
-            .get_or_init(|| Mutex::new(serde_json::Map::default()))
-            .lock()
-            .await;
+        PUBLISH_CHANNEL_MAP.get_or_init(|| Mutex::new(serde_json::Map::default()));
 
-        let _unused = PUBLISH_ENDPOINTS
-            .get_or_init(|| {
-                let Ok(true) = std::path::Path::new(&publish_endpoints_path!()).try_exists() else {
-                    info!("run: no endpoint file present");
+        PUBLISH_ENDPOINTS.get_or_init(|| {
+            let Ok(true) = std::path::Path::new(&publish_endpoints_path!()).try_exists() else {
+                info!("run: no endpoint file present");
 
-                    return Mutex::new(vec![]);
-                };
+                return Mutex::new(vec![]);
+            };
 
-                Mutex::new(
-                    serde_json::from_reader(std::io::BufReader::new(
-                        std::fs::File::open(publish_endpoints_path!())
-                            .expect("cannot open endpoints file"),
-                    ))
-                    .expect("cannot parse endpoints file"),
-                )
-            })
-            .lock()
-            .await;
+            Mutex::new(
+                serde_json::from_reader(std::io::BufReader::new(
+                    std::fs::File::open(publish_endpoints_path!())
+                        .expect("cannot open endpoints file"),
+                ))
+                .expect("cannot parse endpoints file"),
+            )
+        });
 
         let srv = HttpServer::new(move || {
             App::new()
@@ -158,34 +151,65 @@ impl WebService {
         self.srv_handle.stop(false).await;
     }
 
-    async fn factory_reset(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn factory_reset(
+        mut body: web::Payload,
+        tx_request: web::Data<mpsc::Sender<Request>>,
+    ) -> HttpResponse {
         debug!("WebService factory_reset");
 
-        let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Command::FactoryReset(tx_reply);
+        let mut bytes = web::BytesMut::new();
+        while let Some(item) = body.next().await {
+            let Ok(item) = item else {
+                error!("couldn't read body from stream");
+                return HttpResponse::build(StatusCode::BAD_REQUEST)
+                    .body("couldn't read body from stream");
+            };
 
-        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
+            bytes.extend_from_slice(&item);
+        }
+
+        match serde_json::from_slice(&bytes) {
+            Ok(command) => {
+                let (tx_reply, rx_reply) = oneshot::channel();
+                let req = Request {
+                    command: Command::FactoryReset(command),
+                    reply: tx_reply,
+                };
+
+                Self::exec_request(tx_request.as_ref(), rx_reply, req).await
+            }
+            Err(e) => {
+                error!("couldn't parse FactoryResetCommand from body: {e}");
+                HttpResponse::build(StatusCode::BAD_REQUEST).body(e.to_string())
+            }
+        }
     }
 
-    async fn reboot(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn reboot(tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService reboot");
 
         let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Command::Reboot(tx_reply);
+        let cmd = Request {
+            command: Command::Reboot,
+            reply: tx_reply,
+        };
 
-        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
+        Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn reload_network(tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn reload_network(tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService reload_network");
 
         let (tx_reply, rx_reply) = oneshot::channel();
-        let cmd = Command::ReloadNetwork(tx_reply);
+        let cmd = Request {
+            command: Command::ReloadNetwork,
+            reply: tx_reply,
+        };
 
-        Self::exec_cmd(tx_request.as_ref(), rx_reply, cmd).await
+        Self::exec_request(tx_request.as_ref(), rx_reply, cmd).await
     }
 
-    async fn republish(_tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn republish(_tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService republish");
 
         for (channel, value) in PUBLISH_CHANNEL_MAP
@@ -197,34 +221,15 @@ impl WebService {
         {
             let msg = json!({"channel": channel, "data": value});
 
-            for endpoint in PUBLISH_ENDPOINTS
-                .get()
-                .expect("PUBLISH_ENDPOINTS not available")
-                .lock()
-                .await
-                .iter()
-            {
-                let Ok(reqest) = publish_request(&msg, endpoint) else {
-                    error!(
-                        "republish: building request {msg} to {} failed",
-                        endpoint.url
-                    );
-                    return HttpResponse::InternalServerError().finish();
-                };
-
-                if let Err(e) = reqest.send().await {
-                    warn!(
-                        "republish: sending request {msg} to {} failed with {e}. Endpoint not present?",
-                        endpoint.url);
-                    return HttpResponse::InternalServerError().finish();
-                }
+            if let Err(e) = publish_to_endpoints(msg).await {
+                return HttpResponse::InternalServerError().body(e.to_string());
             }
         }
 
         HttpResponse::Ok().finish()
     }
 
-    async fn status(_tx_request: web::Data<mpsc::Sender<Command>>) -> impl Responder {
+    async fn status(_tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService status");
 
         let pubs = PUBLISH_CHANNEL_MAP
@@ -240,41 +245,60 @@ impl WebService {
         HttpResponse::Ok().body(pubs)
     }
 
-    async fn exec_cmd(
-        tx_request: &mpsc::Sender<Command>,
-        rx_reply: tokio::sync::oneshot::Receiver<bool>,
-        cmd: Command,
-    ) -> impl Responder {
-        tx_request.send(cmd).await.unwrap();
+    async fn exec_request(
+        tx_request: &mpsc::Sender<Request>,
+        rx_reply: tokio::sync::oneshot::Receiver<CommandResult>,
+        request: Request,
+    ) -> HttpResponse {
+        info!("execute request: send {request:?}");
 
-        match rx_reply.await {
-            Ok(true) => HttpResponse::Ok().finish(),
-            Ok(false) => {
-                HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
+        if tx_request.send(request).await.is_err() {
+            error!("execute request: command receiver droped");
+            return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).finish();
+        }
+
+        let Ok(result) = rx_reply.await else {
+            error!("execute request: command sender droped");
+            return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).finish();
+        };
+
+        match result {
+            Ok(Some(content)) => {
+                info!("execute request: succeeded with result {content:?}");
+                HttpResponse::Ok().json(content)
             }
-            Err(_) => {
-                error!("couldn't receive command result");
-                HttpResponse::build(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR).finish()
+            Ok(None) => {
+                info!("execute request: succeeded");
+                HttpResponse::Ok().finish()
+            }
+            Err(e) => {
+                error!("execute request: request failed {e}");
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
             }
         }
     }
 }
 
-pub async fn publish(channel: PublishChannel, value: serde_json::Value) -> Result<()> {
+pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
     if !(*WEBSERVICE_ENABLED) {
         debug!("publish: skip since feature not enabled");
-        return Ok(());
+    } else {
+        let msg = json!({"channel": channel.to_string(), "data": value});
+
+        PUBLISH_CHANNEL_MAP
+            .get()
+            .expect("PUBLISH_CHANNEL_MAP not available")
+            .lock()
+            .await
+            .insert(channel.to_string(), value.clone());
+
+        if let Err(e) = publish_to_endpoints(msg).await {
+            warn!("publish: failed to publish request with {e}");
+        };
     }
+}
 
-    let msg = json!({"channel": channel.to_string(), "data": value});
-
-    PUBLISH_CHANNEL_MAP
-        .get()
-        .expect("PUBLISH_CHANNEL_MAP not available")
-        .lock()
-        .await
-        .insert(channel.to_string(), value.clone());
-
+async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
     for endpoint in PUBLISH_ENDPOINTS
         .get()
         .expect("PUBLISH_ENDPOINTS not available")
@@ -282,41 +306,43 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) -> Resul
         .await
         .iter()
     {
-        let Ok(reqest) = publish_request(&msg, endpoint) else {
-            error!("publish: building request {msg} to {} failed", endpoint.url);
-            continue;
-        };
+        let mut headers = header::HeaderMap::new();
 
-        if let Err(e) = reqest.send().await {
-            warn!(
-                "publish: sending request {msg} to {} failed with {e}. Endpoint not present?",
-                endpoint.url
+        for h in &endpoint.headers {
+            headers.insert(
+                header::HeaderName::from_str(&h.name)?,
+                header::HeaderValue::from_str(&h.value)?,
             );
         }
+
+        // we allow self-signed ssl certs
+        let Ok(request) = Client::builder()
+            .timeout(tokio::time::Duration::from_secs(3))
+            .default_headers(headers)
+            .danger_accept_invalid_certs(true)
+            .build()
+        else {
+            bail!(
+                "publish_to_endpoints: building request {msg} to {} failed",
+                endpoint.url
+            );
+        };
+        if let Err(e) = request
+            .post(&endpoint.url)
+            .body(msg.to_string())
+            .send()
+            .await
+        {
+            bail!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?", endpoint.url);
+        }
+
+        info!(
+            "publish_to_endpoints: successfully sent {msg} to {}.",
+            endpoint.url
+        )
     }
 
     Ok(())
-}
-
-fn publish_request(msg: &serde_json::Value, endpoint: &PublishEndpoint) -> Result<RequestBuilder> {
-    let mut headers = header::HeaderMap::new();
-
-    debug!("publish_request {msg} to {}", endpoint.url);
-
-    for h in &endpoint.headers {
-        headers.insert(
-            header::HeaderName::from_str(&h.name)?,
-            header::HeaderValue::from_str(&h.value)?,
-        );
-    }
-
-    // we allow self-signed ssl certs
-    Ok(Client::builder()
-        .default_headers(headers)
-        .danger_accept_invalid_certs(true)
-        .build()?
-        .post(&endpoint.url)
-        .body(msg.to_string()))
 }
 
 #[cfg(test)]
@@ -327,7 +353,7 @@ mod tests {
 
     #[actix_web::test]
     async fn reboot_ok() {
-        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Command>(100);
+        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Request>(100);
 
         let app = test::init_service(
             App::new()
@@ -337,12 +363,8 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let Command::Reboot(reply) = rx_web_service.recv().await.unwrap() {
-                reply.send(true).unwrap();
-                return;
-            }
-
-            panic!("unexpected command")
+            let req = rx_web_service.recv().await.unwrap();
+            req.reply.send(Ok(None)).unwrap();
         });
 
         let req = test::TestRequest::post().uri("/reboot/v1").to_request();
@@ -352,7 +374,7 @@ mod tests {
 
     #[actix_web::test]
     async fn reboot_fail() {
-        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Command>(100);
+        let (tx_web_service, mut rx_web_service) = tokio::sync::mpsc::channel::<Request>(100);
 
         let app = test::init_service(
             App::new()
@@ -362,12 +384,8 @@ mod tests {
         .await;
 
         tokio::spawn(async move {
-            if let Command::Reboot(reply) = rx_web_service.recv().await.unwrap() {
-                reply.send(false).unwrap();
-                return;
-            }
-
-            panic!("unexpected command")
+            let req = rx_web_service.recv().await.unwrap();
+            req.reply.send(Err(anyhow::anyhow!("error"))).unwrap();
         });
 
         let req = test::TestRequest::post().uri("/reboot/v1").to_request();

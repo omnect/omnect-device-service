@@ -1,13 +1,14 @@
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use crate::consent_path;
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
+use serde::Deserialize;
 use serde_json::json;
 use std::{
-    any::Any,
+    collections::HashMap,
     env,
     fs::OpenOptions,
     path::{Path, PathBuf},
@@ -35,6 +36,16 @@ macro_rules! history_consent_path {
     }};
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct UserConsentCommand {
+    pub user_consent: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct DesiredGeneralConsentCommand {
+    pub general_consent: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct DeviceUpdateConsent {
     file_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
@@ -55,21 +66,11 @@ impl Feature for DeviceUpdateConsent {
         env::var("SUPPRESS_DEVICE_UPDATE_USER_CONSENT") != Ok("true".to_string())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_reported_properties = Some(tx_reported_properties.clone());
 
         self.report_general_consent().await?;
@@ -77,8 +78,8 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(&history_consent_path!()).await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
-        let (file_observer, stream) = feature::file_modified_stream::<DeviceUpdateConsent>(vec![
+    fn event_stream(&mut self) -> EventStreamResult {
+        let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),
         ])
@@ -87,15 +88,21 @@ impl Feature for DeviceUpdateConsent {
         Ok(Some(stream))
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
-        self.ensure()?;
-
-        let feature::EventData::FileModified(p) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        match cmd {
+            Command::FileModified(file) => {
+                self.report_user_consent(&file.path).await?;
+            }
+            Command::DesiredGeneralConsent(cmd) => {
+                self.update_general_consent(cmd).await?;
+            }
+            Command::UserConsent(cmd) => {
+                self.user_consent(cmd)?;
+            }
+            _ => bail!("unexpected command"),
         };
 
-        info!("handle_event: report {p:?}");
-        self.report_user_consent(p).await
+        Ok(None)
     }
 }
 
@@ -103,118 +110,90 @@ impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
 
-    pub fn user_consent(&self, in_json: serde_json::Value) -> Result<Option<serde_json::Value>> {
-        info!("user consent requested: {in_json}");
+    fn user_consent(&self, cmd: UserConsentCommand) -> CommandResult {
+        info!("user consent requested: {cmd:?}");
 
-        self.ensure()?;
+        for (component, version) in cmd.user_consent {
+            ensure!(
+                !component.contains(std::path::is_separator),
+                "user_consent: invalid component name: {component}"
+            );
 
-        match serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(in_json) {
-            Ok(map) if map.len() == 1 && map.values().next().unwrap().is_string() => {
-                let (component, version) = map.iter().next().unwrap();
-                ensure!(
-                    !component.contains(std::path::is_separator),
-                    "user_consent: invalid component name: {component}"
-                );
+            let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
+            let path = Path::new(&path_string);
+            let path_canonicalized = path.canonicalize().context(format!(
+                "user_consent: invalid path {}",
+                path.to_string_lossy()
+            ))?;
 
-                let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
-                let path = Path::new(&path_string);
-                let path_canonicalized = path.canonicalize().context(format!(
-                    "user_consent: invalid path {}",
-                    path.to_string_lossy()
-                ))?;
-
-                // ensure path is valid and absolute and not a link
-                ensure!(
-                    path_canonicalized
-                        .to_string_lossy()
-                        .eq(path_string.as_str()),
-                    "user_consent: non-absolute path {}",
-                    path.to_string_lossy()
-                );
-
-                serde_json::to_writer_pretty(
-                    OpenOptions::new()
-                        .write(true)
-                        .create(false)
-                        .truncate(true)
-                        .open(path)
-                        .context("user_consent: open user_consent.json for write")?,
-                    &json!({ "consent": version }),
-                )
-                .context("user_consent: serde_json::to_writer_pretty")?;
-
-                Ok(None)
-            }
-            _ => anyhow::bail!("user_consent: unexpected parameter format"),
-        }
-    }
-
-    pub async fn update_general_consent(
-        &self,
-        desired_consents: Option<&Vec<serde_json::Value>>,
-    ) -> Result<()> {
-        self.ensure()?;
-
-        if let Some(desired_consents) = desired_consents {
-            let mut new_consents = desired_consents
-                .iter()
-                .map(|e| match (e.is_string(), e.as_str()) {
-                    (true, Some(s)) => Ok(s.to_string().to_lowercase()),
-                    _ => Err(anyhow!("cannot parse string from new_consents json.")
-                        .context("update_general_consent: parse desired_consents")),
-                })
-                .collect::<Result<Vec<String>>>()?;
-
-            // enforce entries only exists once
-            new_consents.sort_by_key(|name| name.to_string());
-            new_consents.dedup();
-
-            let mut current_config: serde_json::Value = serde_json::from_reader(
-                OpenOptions::new()
-                    .read(true)
-                    .create(false)
-                    .open(format!("{}/consent_conf.json", consent_path!()))
-                    .context("update_general_consent: open consent_conf.json for read")?,
-            )
-            .context("update_general_consent: serde_json::from_reader")?;
-
-            let saved_consents = current_config["general_consent"]
-                .as_array()
-                .context("update_general_consent: general_consent array malformed")?
-                .iter()
-                .map(|e| match (e.is_string(), e.as_str()) {
-                    (true, Some(s)) => Ok(s.to_string().to_lowercase()),
-                    _ => Err(anyhow!("cannot parse string from saved_consents json.")
-                        .context("update_general_consent: parse saved_consents")),
-                })
-                .collect::<Result<Vec<String>>>()?;
-
-            // check if consents changed (current desired vs. saved)
-            if new_consents.eq(&saved_consents) {
-                info!("desired general_consent didn't change");
-                return Ok(());
-            }
-
-            current_config["general_consent"] = serde_json::Value::from(new_consents);
+            // ensure path is valid and absolute and not a link
+            ensure!(
+                path_canonicalized
+                    .to_string_lossy()
+                    .eq(path_string.as_str()),
+                "user_consent: non-absolute path {}",
+                path.to_string_lossy()
+            );
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
                     .create(false)
                     .truncate(true)
-                    .open(format!("{}/consent_conf.json", consent_path!()))
-                    .context("update_general_consent: open consent_conf.json for write")?,
-                &current_config,
+                    .open(path)
+                    .context("user_consent: open user_consent.json for write")?,
+                &json!({ "consent": version }),
             )
-            .context("update_general_consent: serde_json::to_writer_pretty")?;
-
-            self.report_general_consent()
-                .await
-                .context("update_general_consent: report_general_consent")
-        } else {
-            info!("no general consent defined in desired properties.");
-            Ok(())
+            .context("user_consent: serde_json::to_writer_pretty")?;
         }
+
+        Ok(None)
+    }
+
+    async fn update_general_consent(
+        &self,
+        desired_consents: DesiredGeneralConsentCommand,
+    ) -> CommandResult {
+        let mut new_consents = desired_consents.general_consent;
+        // enforce entries only exists once
+        new_consents.sort_by_key(|name| name.to_string());
+        new_consents.dedup();
+
+        let mut current_config: DesiredGeneralConsentCommand = serde_json::from_reader(
+            OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open(format!("{}/consent_conf.json", consent_path!()))
+                .context("update_general_consent: open consent_conf.json for read")?,
+        )
+        .context("update_general_consent: serde_json::from_reader")?;
+
+        current_config.general_consent.iter_mut().for_each(|s| {
+            *s = s.to_lowercase();
+        });
+
+        // check if consents changed (current desired vs. saved)
+        if new_consents.eq(&current_config.general_consent) {
+            info!("desired general_consent didn't change");
+            return Ok(None);
+        }
+
+        serde_json::to_writer_pretty(
+            OpenOptions::new()
+                .write(true)
+                .create(false)
+                .truncate(true)
+                .open(format!("{}/consent_conf.json", consent_path!()))
+                .context("update_general_consent: open consent_conf.json for write")?,
+            &json!({"general_consent": new_consents}),
+        )
+        .context("update_general_consent: serde_json::to_writer_pretty")?;
+
+        self.report_general_consent()
+            .await
+            .context("update_general_consent: report_general_consent")?;
+
+        Ok(None)
     }
 
     async fn report_general_consent(&self) -> Result<()> {
@@ -261,39 +240,186 @@ impl DeviceUpdateConsent {
 
 #[cfg(test)]
 mod tests {
+    use std::{any::TypeId, str::FromStr};
+
     use super::*;
     use futures_executor::block_on;
+    use tempfile;
 
     #[test]
-    fn update_and_report_general_consent_test() {
-        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
-        let usr_consent = DeviceUpdateConsent {
+    fn consent_files_changed_test() {
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut consent = DeviceUpdateConsent {
             file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
         };
 
-        assert!(block_on(async { usr_consent.update_general_consent(None).await }).is_ok());
-
-        let err = block_on(async {
-            usr_consent
-                .update_general_consent(Some(json!([1, 1]).as_array().unwrap()))
+        assert!(block_on(async {
+            consent
+                .command(Command::FileModified(FileCommand {
+                    feature_id: TypeId::of::<DeviceUpdateConsent>(),
+                    path: PathBuf::from_str("my-path").unwrap(),
+                }))
                 .await
         })
-        .unwrap_err();
-
-        assert!(err.chain().any(|e| e
+        .unwrap_err()
+        .chain()
+        .any(|e| e
             .to_string()
-            .starts_with("update_general_consent: parse desired_consents")));
+            .starts_with("report_user_consent: open report_consent_file for read")));
 
-        let err = block_on(async {
-            usr_consent
-                .update_general_consent(Some(json!(["1", "1"]).as_array().unwrap()))
+        assert!(block_on(async {
+            consent
+                .command(Command::FileModified(FileCommand {
+                    feature_id: TypeId::of::<DeviceUpdateConsent>(),
+                    path: PathBuf::from_str("testfiles/positive/test_component/user_consent.json")
+                        .unwrap(),
+                }))
                 .await
         })
-        .unwrap_err();
+        .is_ok());
 
-        assert!(err.chain().any(|e| e
+        assert_eq!(
+            rx_reported_properties.blocking_recv(),
+            Some(json!({"device_update_consent": {}}))
+        );
+    }
+
+    #[test]
+    fn desired_consent_test() {
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut consent = DeviceUpdateConsent {
+            file_observer: None,
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec![],
+                    },
+                ))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
             .to_string()
-            .starts_with("update_general_consent: open consent_conf.json")));
+            .starts_with("update_general_consent: open consent_conf.json for read")));
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
+
+        std::fs::copy(
+            "testfiles/negative/consent_conf.json",
+            tmp_dir.path().join("consent_conf.json"),
+        )
+        .unwrap();
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec![],
+                    },
+                ))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
+            .to_string()
+            .starts_with("update_general_consent: serde_json::from_reader")));
+
+        std::fs::copy(
+            "testfiles/positive/consent_conf.json",
+            tmp_dir.path().join("consent_conf.json"),
+        )
+        .unwrap();
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec![],
+                    },
+                ))
+                .await
+        })
+        .is_ok());
+
+        assert_eq!(
+            rx_reported_properties.blocking_recv(),
+            Some(json!({"device_update_consent":  {"general_consent":  []}}))
+        );
+
+        assert!(block_on(async {
+            consent
+                .command(Command::DesiredGeneralConsent(
+                    DesiredGeneralConsentCommand {
+                        general_consent: vec!["foo".to_string(), "bar".to_string()],
+                    },
+                ))
+                .await
+        })
+        .is_ok());
+
+        assert_eq!(
+            rx_reported_properties.blocking_recv(),
+            Some(json!({"device_update_consent":  {"general_consent":  ["bar", "foo"]}}))
+        );
+    }
+
+    #[test]
+    fn user_consent_test() {
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut consent = DeviceUpdateConsent {
+            file_observer: None,
+            tx_reported_properties: Some(tx_reported_properties),
+        };
+
+        assert!(block_on(async {
+            consent
+                .command(Command::UserConsent(UserConsentCommand {
+                    user_consent: HashMap::from([("foo/bar".to_string(), "bar".to_string())]),
+                }))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e
+            .to_string()
+            .starts_with("user_consent: invalid component name: foo/bar")));
+
+        assert!(block_on(async {
+            consent
+                .command(Command::UserConsent(UserConsentCommand {
+                    user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
+                }))
+                .await
+        })
+        .unwrap_err()
+        .chain()
+        .any(|e| e.to_string().starts_with("user_consent: invalid path")));
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
+        let foo_dir = tmp_dir.path().join("foo");
+        std::fs::create_dir(foo_dir.clone()).unwrap();
+        std::fs::copy(
+            "testfiles/positive/test_component/user_consent.json",
+            foo_dir.join("user_consent.json"),
+        )
+        .unwrap();
+
+        assert!(block_on(async {
+            consent
+                .command(Command::UserConsent(UserConsentCommand {
+                    user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
+                }))
+                .await
+        })
+        .is_ok());
     }
 }

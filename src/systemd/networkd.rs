@@ -1,11 +1,7 @@
 use anyhow::{bail, ensure, Context, Result};
 use freedesktop_entry_parser::parse_entry;
-#[cfg(not(feature = "mock"))]
-use log::error;
 use regex::RegexBuilder;
 use std::time::Duration;
-#[cfg(not(feature = "mock"))]
-use tokio::time::{timeout_at, Instant};
 
 macro_rules! service_file_path {
     () => {{
@@ -25,55 +21,29 @@ macro_rules! env_file_path {
 
 #[cfg(not(feature = "mock"))]
 pub async fn networkd_interfaces() -> Result<serde_json::Value> {
-    /*
-       we observed situations when the future never completes.
-       that's why we have here a retry + timeout workaround.
-       the workaround should be removed someday in case we never face the situation again.
-    */
     use log::debug;
 
-    for i in 0..3 {
-        let con_result = timeout_at(
-            Instant::now() + Duration::from_secs(3),
-            zbus::Connection::system(),
+    let result = zbus::Connection::system()
+        .await
+        .context("networkd_interfaces: zbus::Connection::system() failed")?
+        .call_method(
+            Some("org.freedesktop.network1"),
+            "/org/freedesktop/network1",
+            Some("org.freedesktop.network1.Manager"),
+            "Describe",
+            &(),
         )
-        .await;
+        .await
+        .context("networkd_interfaces: call_method() failed")?;
 
-        match con_result {
-            Err(e) => error!("networkd_interfaces: trial{i:?} system(): {e}"),
-            Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} system(): {e}"),
-            Ok(Ok(con)) => {
-                let call_result = timeout_at(
-                    Instant::now() + Duration::from_secs(3),
-                    con.call_method(
-                        Some("org.freedesktop.network1"),
-                        "/org/freedesktop/network1",
-                        Some("org.freedesktop.network1.Manager"),
-                        "Describe",
-                        &(),
-                    ),
-                )
-                .await;
-
-                match call_result {
-                    Err(e) => error!("networkd_interfaces: trial{i:?} call_method: {e}"),
-                    Ok(Err(e)) => error!("networkd_interfaces: trial{i:?} call_method: {e}"),
-                    Ok(Ok(result)) => {
-                        debug!("networkd_interfaces: succeeded");
-                        return serde_json::from_str(
-                            result
-                                .body()
-                                .deserialize()
-                                .context("networkd_interfaces: trial{i:?} deserialize body")?,
-                        )
-                        .context("networkd_interfaces: cannot parse network description");
-                    }
-                }
-            }
-        }
-    }
-
-    bail!("networkd_interfaces: failed")
+    debug!("networkd_interfaces: succeeded");
+    serde_json::from_str(
+        result
+            .body()
+            .deserialize()
+            .context("networkd_interfaces: cannot deserialize body")?,
+    )
+    .context("networkd_interfaces: cannot parse network description")
 }
 
 #[cfg(feature = "mock")]

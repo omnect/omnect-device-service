@@ -1,4 +1,4 @@
-use super::{feature, Feature};
+use super::{feature::*, Feature};
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::{any::Any, env, path::Path, time::Duration};
+use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
 use tokio::{sync::mpsc::Sender, time::interval};
 
@@ -134,44 +134,31 @@ impl Feature for ProvisioningConfig {
         env::var("SUPPRESS_PROVISIONING_CONFIG") != Ok("true".to_string())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     async fn connect_twin(
         &mut self,
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
         self.tx_reported_properties = Some(tx_reported_properties.clone());
         self.report().await
     }
 
-    fn event_stream(&mut self) -> Result<Option<feature::EventStream>> {
+    fn event_stream(&mut self) -> EventStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
             match &self.method {
-                Method::X509(cert) if cert.est => {
-                    Ok(Some(feature::interval_stream::<ProvisioningConfig>(
-                        interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                    )))
-                }
+                Method::X509(cert) if cert.est => Ok(Some(interval_stream::<ProvisioningConfig>(
+                    interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
+                ))),
                 _ => Ok(None),
             }
         }
     }
 
-    async fn handle_event(&mut self, event: &feature::EventData) -> Result<()> {
-        self.ensure()?;
-
-        let (feature::EventData::Interval(_) | feature::EventData::Manual) = event else {
-            bail!("unexpected event: {event:?}")
+    async fn command(&mut self, cmd: Command) -> CommandResult {
+        let Command::Interval(_) = cmd else {
+            bail!("unexpected event: {cmd:?}")
         };
 
         let expires = match &self.method {
@@ -190,7 +177,7 @@ impl Feature for ProvisioningConfig {
             debug!("refresh: est expiration date didn't change");
         }
 
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -275,6 +262,9 @@ impl ProvisioningConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
+    use tokio::time::Instant;
+
     use super::*;
 
     #[test]
@@ -347,7 +337,10 @@ mod tests {
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .handle_event(&feature::EventData::Manual)
+            .command(Command::Interval(IntervalCommand {
+                feature_id: TypeId::of::<ProvisioningConfig>(),
+                instant: Instant::now(),
+            }))
             .await
             .unwrap();
         let Method::X509(est2) = config.method.clone() else {

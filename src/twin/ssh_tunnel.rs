@@ -1,11 +1,13 @@
-use super::Feature;
-use anyhow::{Context, Result};
+use super::{
+    feature::{Command as FeatureCommand, CommandResult},
+    Feature,
+};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{error, info, warn};
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
-use std::any::Any;
 use std::env;
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
@@ -49,12 +51,12 @@ macro_rules! control_socket_path {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize)]
-struct BastionConfig {
-    host: String,
-    port: u16,
-    user: String,
-    socket_path: PathBuf,
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct BastionConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub socket_path: PathBuf,
 }
 
 #[cfg(feature = "mock")]
@@ -83,31 +85,25 @@ where
         .to_string())
 }
 
-#[derive(Deserialize)]
-struct GetSshPubKeyArgs {
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct GetSshPubKeyCommand {
     #[serde(deserialize_with = "validate_uuid")]
-    tunnel_id: String,
+    pub tunnel_id: String,
 }
 
-#[derive(Deserialize)]
-struct OpenSshTunnelArgs {
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct OpenSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
-    tunnel_id: String,
-    certificate: String,
+    pub tunnel_id: String,
+    pub certificate: String,
     #[serde(flatten)]
-    bastion_config: BastionConfig,
+    pub bastion_config: BastionConfig,
 }
 
-#[derive(Deserialize)]
-struct CloseSshTunnelArgs {
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct CloseSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
-    tunnel_id: String,
-}
-
-macro_rules! unpack_args {
-    ($func:literal, $args:expr) => {
-        serde_json::from_value($args).map_err(|e| anyhow::anyhow!("{}: {e}", $func))
-    };
+    pub tunnel_id: String,
 }
 
 pub struct SshTunnel {
@@ -129,20 +125,23 @@ impl Feature for SshTunnel {
         env::var("SUPPRESS_SSH_TUNNEL") != Ok("true".to_string())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     async fn connect_twin(
         &mut self,
         _tx_reported_properties: Sender<serde_json::Value>,
         tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
-        self.ensure()?;
-
         self.tx_outgoing_message = Some(tx_outgoing_message);
 
         Ok(())
+    }
+
+    async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
+        match cmd {
+            FeatureCommand::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
+            FeatureCommand::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,
+            FeatureCommand::OpenSshTunnel(cmd) => self.open_ssh_tunnel(cmd).await,
+            _ => bail!("unexpected command"),
+        }
     }
 }
 
@@ -157,15 +156,8 @@ impl SshTunnel {
         }
     }
 
-    pub async fn get_ssh_pub_key(
-        &self,
-        args: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn get_ssh_pub_key(&self, args: GetSshPubKeyCommand) -> CommandResult {
         info!("ssh pub key requested");
-
-        self.ensure()?;
-
-        let args: GetSshPubKeyArgs = unpack_args!("get_ssh_pub_key", args)?;
 
         let (priv_key_path, pub_key_path) = (
             priv_key_path!(args.tunnel_id),
@@ -235,15 +227,8 @@ impl SshTunnel {
         Ok(str::from_utf8(&output.stdout)?.to_string())
     }
 
-    pub async fn open_ssh_tunnel(
-        &self,
-        args: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn open_ssh_tunnel(&self, args: OpenSshTunnelCommand) -> CommandResult {
         info!("open ssh tunnel requested");
-
-        self.ensure()?;
-
-        let args: OpenSshTunnelArgs = unpack_args!("open_ssh_tunnel", args)?;
 
         let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
@@ -337,7 +322,11 @@ impl SshTunnel {
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
             .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
-            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: failed setting up tunnel to bastion host with: {e}"))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "open_ssh_tunnel: failed setting up tunnel to bastion host with: {e}"
+                )
+            })
     }
 
     #[cfg(feature = "mock")]
@@ -416,15 +405,8 @@ impl SshTunnel {
         }
     }
 
-    pub async fn close_ssh_tunnel(
-        &self,
-        args: serde_json::Value,
-    ) -> Result<Option<serde_json::Value>> {
+    async fn close_ssh_tunnel(&self, args: CloseSshTunnelCommand) -> CommandResult {
         info!("close ssh tunnel requested");
-
-        self.ensure()?;
-
-        let args: CloseSshTunnelArgs = unpack_args!("close_ssh_tunnel", args)?;
 
         let control_socket_path = control_socket_path!(&args.tunnel_id);
 
@@ -567,7 +549,10 @@ async fn notify_tunnel_termination(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_executor::block_on;
+    use regex::Regex;
     use std::fs::File;
+    use std::str::FromStr;
     use tempfile::tempdir;
 
     #[test]
@@ -575,7 +560,7 @@ mod tests {
         let uuid = "c0c7d30c-511a-4fed-80b2-b4cccc74228e";
         let uuid_message = format!("{{\"tunnel_id\": \"{uuid}\"}}");
 
-        let args = serde_json::from_str::<GetSshPubKeyArgs>(&uuid_message).unwrap();
+        let args = serde_json::from_str::<GetSshPubKeyCommand>(&uuid_message).unwrap();
 
         assert_eq!(args.tunnel_id, uuid);
     }
@@ -586,7 +571,7 @@ mod tests {
         let uuid = "!@#$S";
         let uuid_message = format!("{{\"tunnel_id\": \"{uuid}\"}}");
 
-        let _args = serde_json::from_str::<GetSshPubKeyArgs>(&uuid_message).unwrap();
+        let _args = serde_json::from_str::<GetSshPubKeyCommand>(&uuid_message).unwrap();
     }
 
     #[test]
@@ -614,5 +599,154 @@ mod tests {
         assert!(!priv_key_path.exists());
         assert!(!pub_key_path.exists());
         assert!(!cert_path.exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_ssh_pub_key_test() {
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let mut ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_dir = tempfile::tempdir().unwrap();
+        env::set_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
+
+        // test creation of pub key
+        let tunnel_id = "b054a76d-520c-40a9-b401-0f6bfb7cee9b".to_string();
+        let pub_key_regex = Regex::new(
+            r#"^\{"key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5[0-9A-Za-z+/]+[=]{0,3}(\s.*)\\n"\}?$"#,
+        )
+        .unwrap();
+
+        let response = block_on(async {
+            ssh_tunnel
+                .command(FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
+                    tunnel_id,
+                }))
+                .await
+        })
+        .unwrap()
+        .unwrap()
+        .to_string();
+
+        assert!(pub_key_regex.is_match(&response));
+
+        // test for correct handling of existing private key file
+        std::fs::copy(
+            "testfiles/positive/b7afb216-5f7a-4755-a300-9374f8a0e9ff",
+            tmp_dir.path().join("b7afb216-5f7a-4755-a300-9374f8a0e9ff"),
+        )
+        .unwrap();
+        let tunnel_id = "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string();
+
+        let response = block_on(async {
+            ssh_tunnel
+                .command(FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
+                    tunnel_id,
+                }))
+                .await
+        })
+        .unwrap()
+        .unwrap()
+        .to_string();
+
+        assert!(!response.starts_with(
+            "-----BEGIN OPENSSH PRIVATE KEY-----
+        b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+        "
+        ));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_ssh_tunnel_test() {
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let mut ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cert_path = tmp_dir.path().join("cert.pub");
+        std::fs::copy("testfiles/positive/cert.pub", cert_path.clone()).unwrap();
+        env::set_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
+
+        // test successful
+        assert!(block_on(async {
+            ssh_tunnel
+                .command(FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                    tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                    certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                    bastion_config: BastionConfig {
+                        host: "test-host".to_string(),
+                        port: 2222,
+                        user: "test-user".to_string(),
+                        socket_path: std::path::PathBuf::from_str("/some/test/socket/path")
+                            .unwrap(),
+                    },
+                }))
+                .await
+        })
+        .is_ok());
+
+        // test connection limit
+        let pipe_names = (1..=5)
+            .into_iter()
+            .map(|pipe_num| tmp_dir.path().join(&format!("named_pipe_{}", pipe_num)))
+            .collect::<Vec<_>>();
+
+        for pipe_name in &pipe_names {
+            Command::new("mkfifo")
+                .arg(pipe_name)
+                .output()
+                .await
+                .unwrap();
+        }
+
+        // the first 5 requests should succeed
+        for pipe_name in &pipe_names[0..=4] {
+            assert!(block_on(async {
+                ssh_tunnel
+                    .command(FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                        tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                        certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                        bastion_config: BastionConfig {
+                            host: pipe_name.to_str().unwrap().to_string(),
+                            port: 2222,
+                            user: "test-user".to_string(),
+                            socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
+                        },
+                    }))
+                    .await
+            })
+            .is_ok());
+        }
+
+        // the final should fail
+        assert!(block_on(async {
+            ssh_tunnel
+                .command(FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                    tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                    certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                    bastion_config: BastionConfig {
+                        host: "test-host".to_string(),
+                        port: 2222,
+                        user: "test-user".to_string(),
+                        socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
+                    },
+                }))
+                .await
+        })
+        .is_err());
+
+        // finally, close the pipes. By opening and closing for writing is
+        // sufficient.
+        for pipe_name in pipe_names {
+            let pipe_file = std::fs::File::options()
+                .write(true)
+                .open(pipe_name)
+                .unwrap();
+            drop(pipe_file);
+        }
+        info!("done with all files");
+        // we can't wait for the spawned completion tasks here
     }
 }

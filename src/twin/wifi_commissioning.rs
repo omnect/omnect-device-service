@@ -1,5 +1,5 @@
 use super::Feature;
-use std::{any::Any, env};
+use std::env;
 
 #[derive(Default)]
 pub struct WifiCommissioning {}
@@ -19,10 +19,6 @@ impl Feature for WifiCommissioning {
         } else {
             false
         }
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
