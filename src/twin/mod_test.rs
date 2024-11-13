@@ -737,18 +737,21 @@ pub mod mod_test {
 
             let (tx, _rx) = tokio::sync::oneshot::channel();
 
-            assert!(test_attr
-                .twin
-                .handle_command(
-                    feature::Command::from_direct_method(&DirectMethod {
-                        name: "user_consent".to_string(),
-                        payload: json!({"test_component": "1.0.0"}),
-                        responder: tx,
-                    })
-                    .unwrap(),
-                    None
-                )
-                .is_ok());
+            assert!(block_on(async {
+                test_attr
+                    .twin
+                    .handle_command(
+                        feature::Command::from_direct_method(&DirectMethod {
+                            name: "user_consent".to_string(),
+                            payload: json!({"test_component": "1.0.0"}),
+                            responder: tx,
+                        })
+                        .unwrap(),
+                        None,
+                    )
+                    .await
+            })
+            .is_ok());
         };
 
         TestCase::run(test_files, test_dirs, vec![], expect, test);
