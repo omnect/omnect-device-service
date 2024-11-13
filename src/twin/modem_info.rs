@@ -148,7 +148,7 @@ mod inner {
             }
         }
 
-        fn report(&mut self, force: bool) -> Result<()> {
+        pub async fn report(&mut self, force: bool) -> Result<()> {
             let modem_reports = join_all(
                 self.modem_paths()
                     .await?
