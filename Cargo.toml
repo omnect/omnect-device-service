@@ -54,6 +54,7 @@ zbus = { version = "4.4", default-features = false, features = ["tokio"] }
 [dev-dependencies]
 assert-json-diff = "2.0"
 cp_r = "0.5"
+futures-executor = "0.3"
 mockall = "0.12"
 rand = "0.8"
 regex = "1"
