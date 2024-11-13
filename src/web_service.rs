@@ -74,29 +74,23 @@ impl WebService {
 
         info!("WebService is enabled");
 
-        let _unused = PUBLISH_CHANNEL_MAP
-            .get_or_init(|| Mutex::new(serde_json::Map::default()))
-            .lock()
-            .await;
+        PUBLISH_CHANNEL_MAP.get_or_init(|| Mutex::new(serde_json::Map::default()));
 
-        let _unused = PUBLISH_ENDPOINTS
-            .get_or_init(|| {
-                let Ok(true) = std::path::Path::new(&publish_endpoints_path!()).try_exists() else {
-                    info!("run: no endpoint file present");
+        PUBLISH_ENDPOINTS.get_or_init(|| {
+            let Ok(true) = std::path::Path::new(&publish_endpoints_path!()).try_exists() else {
+                info!("run: no endpoint file present");
 
-                    return Mutex::new(vec![]);
-                };
+                return Mutex::new(vec![]);
+            };
 
-                Mutex::new(
-                    serde_json::from_reader(std::io::BufReader::new(
-                        std::fs::File::open(publish_endpoints_path!())
-                            .expect("cannot open endpoints file"),
-                    ))
-                    .expect("cannot parse endpoints file"),
-                )
-            })
-            .lock()
-            .await;
+            Mutex::new(
+                serde_json::from_reader(std::io::BufReader::new(
+                    std::fs::File::open(publish_endpoints_path!())
+                        .expect("cannot open endpoints file"),
+                ))
+                .expect("cannot parse endpoints file"),
+            )
+        });
 
         let srv = HttpServer::new(move || {
             App::new()

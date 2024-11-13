@@ -26,13 +26,12 @@ use anyhow::{ensure, Context, Result};
 use azure_iot_sdk::client::*;
 use dotenvy;
 use feature::*;
-use futures_executor::block_on;
 use futures_util::StreamExt;
 use log::{error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
-use std::{any::TypeId, collections::HashMap, path::Path, time};
+use std::{any::TypeId, collections::HashMap, path::Path, sync::Mutex, time};
 use tokio::{
     select,
     sync::{mpsc, oneshot},
@@ -166,156 +165,151 @@ impl Twin {
         Ok(())
     }
 
-    fn handle_connection_status(&mut self, auth_status: AuthenticationStatus) -> Result<bool> {
-        block_on(async {
-            let mut restart_twin = false;
-            match auth_status {
-                AuthenticationStatus::Authenticated => {
-                    if self.state != TwinState::Authenticated {
-                        info!("Succeeded to connect to iothub");
+    async fn handle_connection_status(
+        &mut self,
+        auth_status: AuthenticationStatus,
+    ) -> Result<bool> {
+        let mut restart_twin = false;
+        match auth_status {
+            AuthenticationStatus::Authenticated => {
+                if self.state != TwinState::Authenticated {
+                    info!("Succeeded to connect to iothub");
 
-                        if self.state == TwinState::Uninitialized {
-                            /*
-                             * the update validation test "wait_for_system_running" enforces that
-                             * omnect-device-service already notified its own success
-                             */
-                            self.update_validation.set_authenticated().await?;
-                        };
+                    if self.state == TwinState::Uninitialized {
+                        /*
+                         * the update validation test "wait_for_system_running" enforces that
+                         * omnect-device-service already notified its own success
+                         */
+                        self.update_validation.set_authenticated().await?;
+                    };
 
-                        self.connect_twin().await?;
+                    self.connect_twin().await?;
 
-                        self.state = TwinState::Authenticated;
-                    }
+                    self.state = TwinState::Authenticated;
                 }
-                AuthenticationStatus::Unauthenticated(reason) => {
-                    if matches!(self.state, TwinState::Authenticated) {
-                        self.state = TwinState::Initialized;
+            }
+            AuthenticationStatus::Unauthenticated(reason) => {
+                if matches!(self.state, TwinState::Authenticated) {
+                    self.state = TwinState::Initialized;
+                }
+
+                match reason {
+                    UnauthenticatedReason::BadCredential
+                    | UnauthenticatedReason::CommunicationError => {
+                        error!("Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time");
+
+                        /*
+                        here we start all over again. reason: there are situations where we get
+                        a wrong connection string (BadCredential) from identity service due to wrong system time or
+                        certificate renewal caused by iot-identity-service reprovisioning.
+                        this may occur on devices without RTC or where time is not synced. since we experienced this
+                        behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
+                        */
+
+                        restart_twin = true;
                     }
-
-                    match reason {
-                        UnauthenticatedReason::BadCredential
-                        | UnauthenticatedReason::CommunicationError => {
-                            error!("Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time");
-
-                            /*
-                            here we start all over again. reason: there are situations where we get
-                            a wrong connection string (BadCredential) from identity service due to wrong system time or
-                            certificate renewal caused by iot-identity-service reprovisioning.
-                            this may occur on devices without RTC or where time is not synced. since we experienced this
-                            behavior only for a moment after boot (e.g. RPI without rtc) we just try again.
-                            */
-
-                            restart_twin = true;
-                        }
-                        UnauthenticatedReason::RetryExpired
-                        | UnauthenticatedReason::ExpiredSasToken
-                        | UnauthenticatedReason::NoNetwork
-                        | UnauthenticatedReason::Unknown => {
-                            info!("Failed to connect to iothub: {reason:?}")
-                        }
-                        UnauthenticatedReason::DeviceDisabled => {
-                            warn!("Failed to connect to iothub: {reason:?}")
-                        }
+                    UnauthenticatedReason::RetryExpired
+                    | UnauthenticatedReason::ExpiredSasToken
+                    | UnauthenticatedReason::NoNetwork
+                    | UnauthenticatedReason::Unknown => {
+                        info!("Failed to connect to iothub: {reason:?}")
+                    }
+                    UnauthenticatedReason::DeviceDisabled => {
+                        warn!("Failed to connect to iothub: {reason:?}")
                     }
                 }
             }
+        }
 
-            web_service::publish(
-                web_service::PublishChannel::OnlineStatus,
-                json!({"iothub": auth_status == AuthenticationStatus::Authenticated}),
-            )
-            .await;
+        web_service::publish(
+            web_service::PublishChannel::OnlineStatus,
+            json!({"iothub": auth_status == AuthenticationStatus::Authenticated}),
+        )
+        .await;
 
-            Ok(restart_twin)
-        })
+        Ok(restart_twin)
     }
 
-    fn handle_command(
+    async fn handle_command(
         &mut self,
         cmd: Command,
         reply: Option<oneshot::Sender<CommandResult>>,
     ) -> Result<()> {
-        block_on(async {
-            let cmd_string = format!("{cmd:?}");
+        let cmd_string = format!("{cmd:?}");
 
-            let feature = self
-                .features
-                .get_mut(&cmd.feature_id())
-                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
+        let feature = self
+            .features
+            .get_mut(&cmd.feature_id())
+            .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
 
-            ensure!(
-                feature.is_enabled(),
-                "handle_command: feature is disabled {}",
-                feature.name()
-            );
+        ensure!(
+            feature.is_enabled(),
+            "handle_command: feature is disabled {}",
+            feature.name()
+        );
 
-            info!("handle_command: {}({cmd_string})", feature.name());
+        info!("handle_command: {}({cmd_string})", feature.name());
 
-            let result = feature.command(cmd).await;
+        let result = feature.command(cmd).await;
 
-            match &result {
-                Ok(inner_result) => {
-                    info!("handle_command: {cmd_string} succeeded with result: {inner_result:?}")
-                }
-                Err(e) => error!("handle_command: {cmd_string} returned error: {e}"),
+        match &result {
+            Ok(inner_result) => {
+                info!("handle_command: {cmd_string} succeeded with result: {inner_result:?}")
             }
+            Err(e) => error!("handle_command: {cmd_string} returned error: {e}"),
+        }
 
-            if let Some(reply) = reply {
-                if reply.send(result).is_err() {
-                    error!("handle_command: {cmd_string} receiver dropped");
-                }
+        if let Some(reply) = reply {
+            if reply.send(result).is_err() {
+                error!("handle_command: {cmd_string} receiver dropped");
             }
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 
-    fn shutdown(
+    async fn shutdown(
         &mut self,
         rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
         rx_outgoing_message: &mut mpsc::Receiver<IotMessage>,
     ) {
-        block_on(async {
-            info!("shutdown");
+        info!("shutdown");
 
-            if let Some(client) = self.client.as_mut() {
-                // report remaining properties
-                while let Ok(reported) = rx_reported_properties.try_recv() {
-                    client
-                        .twin_report(reported)
-                        .unwrap_or_else(|e| error!("couldn't report while shutting down: {e:#}"));
-                }
-
-                // send remaining messages
-                while let Ok(message) = rx_outgoing_message.try_recv() {
-                    client
-                        .send_d2c_message(message)
-                        .unwrap_or_else(|e| error!("couldn't send while shutting down: {e:#}"));
-                }
-
-                client.shutdown().await;
-                self.client = None;
+        if let Some(client) = self.client.as_mut() {
+            // report remaining properties
+            while let Ok(reported) = rx_reported_properties.try_recv() {
+                client
+                    .twin_report(reported)
+                    .unwrap_or_else(|e| error!("couldn't report while shutting down: {e:#}"));
             }
 
-            if let Some(ws) = &self.web_service {
-                ws.shutdown().await;
+            // send remaining messages
+            while let Ok(message) = rx_outgoing_message.try_recv() {
+                client
+                    .send_d2c_message(message)
+                    .unwrap_or_else(|e| error!("couldn't send while shutting down: {e:#}"));
             }
-        })
+
+            client.shutdown().await;
+            self.client = None;
+        }
+
+        if let Some(ws) = &self.web_service {
+            ws.shutdown().await;
+        }
     }
 
-    fn reset_client_with_delay(&mut self, timeout: Option<time::Duration>) {
-        block_on(async {
-            if let Some(client) = self.client.as_mut() {
-                info!("reset_client: shutdown iotclient");
-                client.shutdown().await;
-                self.client = None;
-            }
+    async fn reset_client_with_delay(&mut self, timeout: Option<time::Duration>) {
+        if let Some(client) = self.client.as_mut() {
+            info!("reset_client: shutdown iotclient");
+            client.shutdown().await;
+            self.client = None;
+        }
 
-            if let Some(t) = timeout {
-                info!("reset_client: sleep for {}ms", t.as_millis());
-                tokio::time::sleep(t).await
-            }
-        })
+        if let Some(t) = timeout {
+            info!("reset_client: sleep for {}ms", t.as_millis());
+            tokio::time::sleep(t).await;
+        }
     }
 
     pub async fn run() -> Result<()> {
@@ -357,6 +351,8 @@ impl Twin {
 
         systemd::sd_notify_ready();
 
+        let guard = Mutex::new(());
+
         loop {
             select! (
                 // we enforce top down order in 1st select! macro to handle sd-notify, signals and connections status
@@ -364,14 +360,17 @@ impl Twin {
                 biased;
 
                 Some(_) = trigger_watchdog.next() => {
+                    let _ = guard.lock();
                     systemd::watchdog::WatchdogManager::notify()?;
                 },
                 _ = signals.next() => {
-                    twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message);
+                    let _ = guard.lock();
+                    twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
                     signals.handle().close();
                     return Ok(())
                 },
                 result = &mut client_created, if twin.client.is_none() => {
+                    let _ = guard.lock();
                     match result {
                         Ok(client) => {
                             info!("iothub client created");
@@ -379,14 +378,15 @@ impl Twin {
                         },
                         Err(e) => {
                             error!("couldn't create iothub client: {e:#}");
-                            twin.reset_client_with_delay(Some(time::Duration::from_secs(10)));
+                            twin.reset_client_with_delay(Some(time::Duration::from_secs(10))).await;
                             client_created.set(Self::connect_iothub_client(&client_builder));
                         }
                     }
                 },
                 Some(status) = rx_connection_status.recv() => {
-                    if twin.handle_connection_status(status)? {
-                        twin.reset_client_with_delay(Some(time::Duration::from_secs(1)));
+                    let _ = guard.lock();
+                    if twin.handle_connection_status(status).await? {
+                        twin.reset_client_with_delay(Some(time::Duration::from_secs(1))).await;
                         client_created.set(Self::connect_iothub_client(&client_builder));
                     };
                 },
@@ -394,19 +394,22 @@ impl Twin {
                     select! (
                         // random access order in 2nd select! macro
                         Some(update_desired) = rx_twin_desired.recv() => {
+                            let _ = guard.lock();
                             for cmd in Command::from_desired_property(update_desired) {
-                                twin.handle_command(cmd, None)?
+                                twin.handle_command(cmd, None).await?
                             }
                         },
                         Some(reported) = rx_reported_properties.recv() => {
+                            let _ = guard.lock();
                             twin.client
                                 .as_ref()
                                 .context("couldn't report properties since client not present")?
                                 .twin_report(reported)?
                         },
                         Some(direct_method) = rx_direct_method.recv() => {
+                            let _ = guard.lock();
                             match Command::from_direct_method(&direct_method) {
-                                Ok(cmd) => twin.handle_command(cmd, Some(direct_method.responder))?,
+                                Ok(cmd) => twin.handle_command(cmd, Some(direct_method.responder)).await?,
                                 Err(e) => {
                                     error!("parsing direct method: {} with payload: {} failed with error: {e}",
                                         direct_method.name, direct_method.payload);
@@ -417,15 +420,18 @@ impl Twin {
                             }
                         },
                         Some(message) = rx_outgoing_message.recv() => {
+                            let _ = guard.lock();
                             twin.client
                                 .as_ref()
                                 .context("couldn't send msg since client not present")?
                                 .send_d2c_message(message)?
                         },
                         Some(request) = rx_web_service.recv() => {
-                            twin.handle_command(request.command, Some(request.reply))?
+                            let _ = guard.lock();
+                            twin.handle_command(request.command, Some(request.reply)).await?
                         },
                         command = refresh_features.select_next_some() => {
+                            let _ = guard.lock();
                             let feature = twin
                                 .features
                                 .get_mut(&command.feature_id())
@@ -433,7 +439,7 @@ impl Twin {
 
                             ensure!(feature.is_enabled(), "event stream: feature is disabled {}", feature.name());
                             info!("event stream: {}({command:?})", feature.name());
-                            block_on(feature.command(command))?;
+                            feature.command(command).await?;
                         },
                     );
 

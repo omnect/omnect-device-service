@@ -2459,7 +2459,6 @@ dependencies = [
  "env_logger",
  "freedesktop_entry_parser",
  "futures",
- "futures-executor",
  "futures-util",
  "glob",
  "lazy_static",
