@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::env;
 use std::path::Path;
+use sysinfo::Disks;
 use sysinfo::{Components, MemoryRefreshKind};
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use time::format_description::well_known::Rfc3339;
@@ -174,12 +175,12 @@ impl SystemInfo {
         let mut collect_interval = tokio::time::interval(Duration::from_secs(60));
 
         let mut components = Components::new_with_refreshed_list();
-
         let mut s = System::new_with_specifics(
             RefreshKind::new()
                 .with_cpu(CpuRefreshKind::everything())
                 .with_memory(MemoryRefreshKind::everything()),
         );
+        let mut disks = Disks::new_with_refreshed_list();
 
         info!("data collector!");
 
@@ -196,6 +197,7 @@ impl SystemInfo {
             components.refresh_list();
             s.refresh_cpu_usage();
             s.refresh_memory();
+            disks.refresh();
 
             // for component in components.iter() {
             //     debug!("{} {}°C", component.label(), component.temperature());
@@ -206,6 +208,9 @@ impl SystemInfo {
                 first_component.label(),
                 first_component.temperature()
             );
+            for disk in disks.list() {
+                debug!("[{:?}] {}B", disk.name(), disk.available_space());
+            }
 
             let metric_list = vec![
                 Metric::new(
@@ -215,7 +220,7 @@ impl SystemInfo {
                 ),
                 Metric::new(time.clone(), "cpu_usage", s.global_cpu_usage() as f64),
                 Metric::new(time.clone(), "ram_used", s.used_memory() as f64),
-                Metric::new(time.clone(), "ram_available", s.available_memory() as f64),
+                Metric::new(time.clone(), "ram_total", s.total_memory() as f64),
             ];
 
             match serde_json::to_vec(&metric_list) {
