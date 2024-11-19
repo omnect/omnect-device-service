@@ -203,13 +203,25 @@ impl SystemInfo {
             //     debug!("{} {}°C", component.label(), component.temperature());
             // }
             let first_component = components.iter().next().unwrap();
-            debug!(
+            info!(
                 "{} {}°C",
                 first_component.label(),
                 first_component.temperature()
             );
+            let mut disk_total = 0;
+            let mut disk_used = 0;
             for disk in disks.list() {
-                debug!("[{:?}] {}B", disk.name(), disk.available_space());
+                if disk.name().to_str() == Some("/dev/omnect/data") {
+                    disk_total = disk.total_space();
+                    disk_used = disk.total_space() - disk.available_space();
+                    info!(
+                        "[{:?}] disk_total: {} disk_used: {}",
+                        disk.name(),
+                        disk_total,
+                        disk_used
+                    );
+                    break;
+                }
             }
 
             let metric_list = vec![
@@ -219,8 +231,10 @@ impl SystemInfo {
                     first_component.temperature() as f64,
                 ),
                 Metric::new(time.clone(), "cpu_usage", s.global_cpu_usage() as f64),
-                Metric::new(time.clone(), "ram_used", s.used_memory() as f64),
-                Metric::new(time.clone(), "ram_total", s.total_memory() as f64),
+                Metric::new(time.clone(), "memory_used", s.used_memory() as f64),
+                Metric::new(time.clone(), "memory_total", s.total_memory() as f64),
+                Metric::new(time.clone(), "disk_used", disk_used as f64),
+                Metric::new(time.clone(), "disk_total", disk_total as f64),
             ];
 
             match serde_json::to_vec(&metric_list) {
