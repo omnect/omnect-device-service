@@ -96,9 +96,7 @@ function do_get_infos() {
 	fi
 	do_rate "$rating"
 	print_info_header "${ME}(${service})" "$rating"
-	if [    "$rating" != 0
-	     -a -r /var/run/omnect_health_log/${service}.exit-info
-	   ]; then
+	if [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ]; then
 		cat /var/run/omnect_health_log/${service}.exit-info
 	fi
     done
