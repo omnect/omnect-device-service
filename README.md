@@ -11,6 +11,7 @@ This module serves as interface between omnect cloud and device to support certa
     - [System Info](#system-info)
       - [Feature availability](#feature-availability)
       - [Current reported system info](#current-reported-system-info)
+      - [Current reported device metrics](#current-reported-device-metrics)
     - [Factory reset](#factory-reset)
       - [Feature availability](#feature-availability-1)
       - [Trigger factory reset](#trigger-factory-reset)
@@ -100,6 +101,89 @@ The module reports some system information. For this purpose the module sends a 
     "boot_time": <"utc timestamp">
 },
 ```
+
+#### Current reported device metrics
+
+The module reports some device metrics like **cpu_usage**, **memory_usage**, **disk_usage** and **temperature**.
+For this purpose the module sends a D2C(device-to-cloud) message in a default interval of **60s**.
+The default interval might be changed by creating the following environment variable:
+```
+REFRESH_SYSTEM_INFO_INTERVAL_SECS=<interval in seconds>
+```
+
+In case **REFRESH_SYSTEM_INFO_INTERVAL_SECS=0**, the transmission of the device metrics will be disabled.
+
+Example of the D2C payload:
+```
+"body": [
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "cpu_usage",
+      "Value": 0.671448826789856,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service"
+      }
+    },
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "memory_used",
+      "Value": 842010624,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service"
+      }
+    },
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "memory_total",
+      "Value": 2076336128,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service"
+      }
+    },
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "disk_used",
+      "Value": 2195177472,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service"
+      }
+    },
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "disk_total",
+      "Value": 29166592000,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service"
+      }
+    },
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "temp",
+      "Value": 59,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service",
+        "sensor": "cpu_thermal temp1"
+      }
+    },
+    {
+      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
+      "Name": "temp",
+      "Value": 42.0620002746582,
+      "Labels": {
+        "edge_device": "<hostname>",
+        "module_name": "omnect-device-service",
+        "sensor": "tmp102 temp1"
+      }
+    }
+  ]
+```
+
 
 ### Factory reset
 The module itself does not perform a factory reset.
