@@ -11,12 +11,10 @@ use serde::Serialize;
 use serde_json::json;
 use std::env;
 use std::path::Path;
-use sysinfo::Disks;
-use sysinfo::{Components, CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+use sysinfo::{Components, CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use time::format_description::well_known::Rfc3339;
 use tokio::sync::mpsc;
-use tokio::time::interval;
-use tokio::time::Duration;
+use tokio::time::{interval, Duration};
 
 lazy_static! {
     static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
@@ -30,7 +28,7 @@ lazy_static! {
 
 #[derive(Serialize)]
 struct Label {
-    edge_device: String,
+    device_id: String,
     module_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     sensor: Option<String>,
@@ -38,24 +36,26 @@ struct Label {
 
 #[derive(Serialize)]
 struct Metric {
-    #[serde(rename = "TimeGeneratedUtc")]
     time_generated_utc: String,
-    #[serde(rename = "Name")]
     name: String,
-    #[serde(rename = "Value")]
     value: f64,
-    #[serde(rename = "Labels")]
     labels: Label,
 }
 
 impl Metric {
-    fn new(time: String, name: &str, value: f64, device: String, sensor: Option<String>) -> Metric {
+    fn new(
+        time: String,
+        name: String,
+        value: f64,
+        device: String,
+        sensor: Option<String>,
+    ) -> Metric {
         Metric {
             time_generated_utc: time,
-            name: name.to_string(),
+            name,
             value,
             labels: Label {
-                edge_device: device,
+                device_id: device,
                 module_name: "omnect-device-service".to_string(),
                 sensor,
             },
@@ -144,7 +144,7 @@ impl Feature for SystemInfo {
     async fn command(&mut self, cmd: Command) -> CommandResult {
         match cmd {
             Command::Interval(_) => {
-                self.metrics_handler().await?;
+                self.metrics().await?;
             }
             Command::FileCreated(_) => {
                 self.boot_time = Some(system::boot_time()?);
@@ -205,7 +205,7 @@ impl SystemInfo {
         .context("report: send")
     }
 
-    async fn metrics_handler(&mut self) -> Result<()> {
+    async fn metrics(&mut self) -> Result<()> {
         let time = match time::OffsetDateTime::now_utc().format(&Rfc3339) {
             Ok(time) => time,
             Err(e) => {
@@ -237,35 +237,35 @@ impl SystemInfo {
         let mut metric_list = vec![
             Metric::new(
                 time.clone(),
-                "cpu_usage",
+                "cpu_usage".to_string(),
                 self.sysinfo_memory.global_cpu_usage() as f64,
                 hostname.clone(),
                 None,
             ),
             Metric::new(
                 time.clone(),
-                "memory_used",
+                "memory_used".to_string(),
                 self.sysinfo_memory.used_memory() as f64,
                 hostname.clone(),
                 None,
             ),
             Metric::new(
                 time.clone(),
-                "memory_total",
+                "memory_total".to_string(),
                 self.sysinfo_memory.total_memory() as f64,
                 hostname.clone(),
                 None,
             ),
             Metric::new(
                 time.clone(),
-                "disk_used",
+                "disk_used".to_string(),
                 disk_used as f64,
                 hostname.clone(),
                 None,
             ),
             Metric::new(
                 time.clone(),
-                "disk_total",
+                "disk_total".to_string(),
                 disk_total as f64,
                 hostname.clone(),
                 None,
@@ -275,7 +275,7 @@ impl SystemInfo {
         for component in self.sysinfo_components.iter() {
             metric_list.push(Metric::new(
                 time.clone(),
-                "temp",
+                "temp".to_string(),
                 component.temperature() as f64,
                 hostname.clone(),
                 Some(format!("{}", component.label())),
@@ -293,7 +293,7 @@ impl SystemInfo {
                 {
                     Ok(msg) => {
                         let Some(tx) = &self.tx_outgoing_message else {
-                            warn!("metrics_handler: skip since tx_outgoing_message is None");
+                            warn!("metrics: skip since tx_outgoing_message is None");
                             return Ok(());
                         };
 
