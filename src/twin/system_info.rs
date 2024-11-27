@@ -206,12 +206,13 @@ impl SystemInfo {
     }
 
     async fn metrics(&mut self) -> Result<()> {
-        let time = match time::OffsetDateTime::now_utc().format(&Rfc3339) {
-            Ok(time) => time,
-            Err(e) => {
-                warn!("timestamp could not be generated: {e}");
-                return Ok(());
-            }
+        let Some(tx) = &self.tx_outgoing_message else {
+            warn!("metrics: skip since tx_outgoing_message is None");
+            return Ok(());
+        };
+
+        let Ok(time) = time::OffsetDateTime::now_utc().format(&Rfc3339) else {
+            bail!("metrics: timestamp could not be generated")
         };
 
         self.sysinfo_components.refresh_list();
@@ -220,8 +221,7 @@ impl SystemInfo {
         self.sysinfo_disk.refresh();
 
         let Some(hostname) = System::host_name() else {
-            warn!("hostname could not be read");
-            return Ok(());
+            bail!("metrics: hostname could not be read")
         };
 
         let mut disk_total = 0;
@@ -292,11 +292,6 @@ impl SystemInfo {
                     .build()
                 {
                     Ok(msg) => {
-                        let Some(tx) = &self.tx_outgoing_message else {
-                            warn!("metrics: skip since tx_outgoing_message is None");
-                            return Ok(());
-                        };
-
                         let _ = tx.send(msg).await;
                         Ok(())
                     }
