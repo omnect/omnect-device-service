@@ -117,65 +117,65 @@ Example of the D2C payload:
 ```
 "body": [
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "cpu_usage",
-      "Value": 0.671448826789856,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "cpu_usage",
+      "value": 0.671448826789856,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "memory_used",
-      "Value": 842010624,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "memory_used",
+      "value": 842010624,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "memory_total",
-      "Value": 2076336128,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "memory_total",
+      "value": 2076336128,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "disk_used",
-      "Value": 2195177472,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "disk_used",
+      "value": 2195177472,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "disk_total",
-      "Value": 29166592000,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "disk_total",
+      "value": 29166592000,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "temp",
-      "Value": 59,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "temp",
+      "value": 59,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service",
         "sensor": "cpu_thermal temp1"
       }
     },
     {
-      "TimeGeneratedUtc": "2024-11-26T16:20:21.084215477Z",
-      "Name": "temp",
-      "Value": 42.0620002746582,
-      "Labels": {
+      "time_generated_utc": "2024-11-26T16:20:21.084215477Z",
+      "name": "temp",
+      "value": 42.0620002746582,
+      "labels": {
         "edge_device": "<hostname>",
         "module_name": "omnect-device-service",
         "sensor": "tmp102 temp1"

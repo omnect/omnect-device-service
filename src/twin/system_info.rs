@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use futures::StreamExt;
 use lazy_static::lazy_static;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::env;
@@ -42,22 +42,16 @@ struct Metric {
     labels: Label,
 }
 
-impl Metric {
-    fn new(
-        time: String,
-        name: String,
-        value: f64,
-        device: String,
-        sensor: Option<String>,
-    ) -> Metric {
+impl Default for Metric {
+    fn default() -> Self {
         Metric {
-            time_generated_utc: time,
-            name,
-            value,
+            time_generated_utc: Default::default(),
+            name: Default::default(),
+            value: Default::default(),
             labels: Label {
-                device_id: device,
+                device_id: Default::default(),
                 module_name: "omnect-device-service".to_string(),
-                sensor,
+                sensor: None,
             },
         }
     }
@@ -118,26 +112,27 @@ impl Feature for SystemInfo {
     }
 
     fn event_stream(&mut self) -> EventStreamResult {
-        if 0 == *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            if self.boot_time.is_none() {
-                Ok(Some(file_created_stream::<SystemInfo>(vec![
+        match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
+            0 => match self.boot_time {
+                None => Ok(Some(file_created_stream::<SystemInfo>(vec![
                     &TIMESYNC_FILE,
-                ])))
-            } else {
-                Ok(None)
+                ]))),
+                Some(_) => Ok(None),
+            },
+            _ => {
+                let interval_stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
+                    *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
+                )));
+                let combined_stream = match self.boot_time {
+                    None => futures::stream::select(
+                        interval_stream,
+                        file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]),
+                    )
+                    .boxed(),
+                    Some(_) => interval_stream,
+                };
+                Ok(Some(combined_stream))
             }
-        } else {
-            let stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
-                *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
-            )));
-            Ok(Some(match self.boot_time {
-                None => futures::stream::select(
-                    stream,
-                    file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]),
-                )
-                .boxed(),
-                _ => stream,
-            }))
         }
     }
 
@@ -205,6 +200,61 @@ impl SystemInfo {
         .context("report: send")
     }
 
+    fn cpu_usage(time: String, value: f64, device_id: String) -> Metric {
+        let mut metric: Metric = Metric::default();
+        metric.time_generated_utc = time;
+        metric.name = "cpu_usage".to_string();
+        metric.value = value;
+        metric.labels.device_id = device_id;
+        metric
+    }
+
+    fn memory_used(time: String, value: f64, device_id: String) -> Metric {
+        let mut metric: Metric = Metric::default();
+        metric.time_generated_utc = time;
+        metric.name = "memory_used".to_string();
+        metric.value = value;
+        metric.labels.device_id = device_id;
+        metric
+    }
+
+    fn memory_total(time: String, value: f64, device_id: String) -> Metric {
+        let mut metric: Metric = Metric::default();
+        metric.time_generated_utc = time;
+        metric.name = "memory_total".to_string();
+        metric.value = value;
+        metric.labels.device_id = device_id;
+        metric
+    }
+
+    fn disk_used(time: String, value: f64, device_id: String) -> Metric {
+        let mut metric: Metric = Metric::default();
+        metric.time_generated_utc = time;
+        metric.name = "disk_used".to_string();
+        metric.value = value;
+        metric.labels.device_id = device_id;
+        metric
+    }
+
+    fn disk_total(time: String, value: f64, device_id: String) -> Metric {
+        let mut metric: Metric = Metric::default();
+        metric.time_generated_utc = time;
+        metric.name = "disk_total".to_string();
+        metric.value = value;
+        metric.labels.device_id = device_id;
+        metric
+    }
+
+    fn temp(time: String, value: f64, device_id: String, sensor: String) -> Metric {
+        let mut metric: Metric = Metric::default();
+        metric.time_generated_utc = time;
+        metric.name = "temp".to_string();
+        metric.value = value;
+        metric.labels.device_id = device_id;
+        metric.labels.sensor = Some(sensor);
+        metric
+    }
+
     async fn metrics(&mut self) -> Result<()> {
         let Some(tx) = &self.tx_outgoing_message else {
             warn!("metrics: skip since tx_outgoing_message is None");
@@ -235,76 +285,50 @@ impl SystemInfo {
         }
 
         let mut metric_list = vec![
-            Metric::new(
+            Self::cpu_usage(
                 time.clone(),
-                "cpu_usage".to_string(),
                 self.sysinfo_memory.global_cpu_usage() as f64,
                 hostname.clone(),
-                None,
             ),
-            Metric::new(
+            Self::memory_used(
                 time.clone(),
-                "memory_used".to_string(),
                 self.sysinfo_memory.used_memory() as f64,
                 hostname.clone(),
-                None,
             ),
-            Metric::new(
+            Self::memory_total(
                 time.clone(),
-                "memory_total".to_string(),
                 self.sysinfo_memory.total_memory() as f64,
                 hostname.clone(),
-                None,
             ),
-            Metric::new(
-                time.clone(),
-                "disk_used".to_string(),
-                disk_used as f64,
-                hostname.clone(),
-                None,
-            ),
-            Metric::new(
-                time.clone(),
-                "disk_total".to_string(),
-                disk_total as f64,
-                hostname.clone(),
-                None,
-            ),
+            Self::disk_used(time.clone(), disk_used as f64, hostname.clone()),
+            Self::disk_total(time.clone(), disk_total as f64, hostname.clone()),
         ];
 
         for component in self.sysinfo_components.iter() {
-            metric_list.push(Metric::new(
+            metric_list.push(Self::temp(
                 time.clone(),
-                "temp".to_string(),
                 component.temperature() as f64,
                 hostname.clone(),
-                Some(format!("{}", component.label())),
+                format!("{}", component.label()),
             ));
         }
 
-        match serde_json::to_vec(&metric_list) {
-            Ok(json) => {
-                match IotMessage::builder()
-                    .set_body(json)
-                    .set_content_type("application/json")
-                    .set_content_encoding("utf-8")
-                    .set_output_queue("metrics")
-                    .build()
-                {
-                    Ok(msg) => {
-                        let _ = tx.send(msg).await;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        warn!("telemetry message could not be transmitted: {e}");
-                        return Ok(());
-                    }
-                }
+        if let Ok(json) = serde_json::to_vec(&metric_list) {
+            if let Ok(msg) = IotMessage::builder()
+                .set_body(json)
+                .set_content_type("application/json")
+                .set_content_encoding("utf-8")
+                .set_output_queue("metrics")
+                .build()
+            {
+                let _ = tx.send(msg).await;
+                info!("metrics: telemetry message transmitted");
+                Ok(())
+            } else {
+                bail!("telemetry message could not be transmitted:")
             }
-            Err(e) => {
-                warn!("metrics list could not be converted to vector: {e}");
-                return Ok(());
-            }
+        } else {
+            bail!("metrics list could not be converted to vector:")
         }
     }
 }
