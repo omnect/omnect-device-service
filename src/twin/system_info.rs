@@ -66,20 +66,20 @@ lazy_static! {
 }
 
 #[derive(Default, Serialize)]
-pub struct SystemInfo {
-    #[serde(skip_serializing)]
-    tx_reported_properties: Option<mpsc::Sender<serde_json::Value>>,
-    #[serde(skip_serializing)]
-    tx_outgoing_message: Option<mpsc::Sender<IotMessage>>,
+pub struct Info {
     os: serde_json::Value,
     azure_sdk_version: String,
     omnect_device_service_version: String,
     boot_time: Option<String>,
-    #[serde(skip_serializing)]
+}
+
+#[derive(Default)]
+pub struct SystemInfo {
+    tx_reported_properties: Option<mpsc::Sender<serde_json::Value>>,
+    tx_outgoing_message: Option<mpsc::Sender<IotMessage>>,
+    info: Info,
     sysinfo_components: Components,
-    #[serde(skip_serializing)]
     sysinfo_disk: Disks,
-    #[serde(skip_serializing)]
     sysinfo_memory: System,
 }
 
@@ -113,7 +113,7 @@ impl Feature for SystemInfo {
 
     fn event_stream(&mut self) -> EventStreamResult {
         match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            0 => match self.boot_time {
+            0 => match self.info.boot_time {
                 None => Ok(Some(file_created_stream::<SystemInfo>(vec![
                     &TIMESYNC_FILE,
                 ]))),
@@ -123,7 +123,7 @@ impl Feature for SystemInfo {
                 let interval_stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
                     *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
                 )));
-                let combined_stream = match self.boot_time {
+                let combined_stream = match self.info.boot_time {
                     None => futures::stream::select(
                         interval_stream,
                         file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]),
@@ -142,7 +142,7 @@ impl Feature for SystemInfo {
                 self.metrics().await?;
             }
             Command::FileCreated(_) => {
-                self.boot_time = Some(system::boot_time()?);
+                self.info.boot_time = Some(system::boot_time()?);
             }
             _ => bail!("unexpected command"),
         }
@@ -167,10 +167,12 @@ impl SystemInfo {
         Ok(SystemInfo {
             tx_reported_properties: None,
             tx_outgoing_message: None,
-            os: system::sw_version()?,
-            azure_sdk_version: IotHubClient::sdk_version_string(),
-            omnect_device_service_version: env!("CARGO_PKG_VERSION").to_string(),
-            boot_time,
+            info: Info {
+                os: system::sw_version()?,
+                azure_sdk_version: IotHubClient::sdk_version_string(),
+                omnect_device_service_version: env!("CARGO_PKG_VERSION").to_string(),
+                boot_time,
+            },
             sysinfo_components: Components::new_with_refreshed_list(),
             sysinfo_disk: Disks::new_with_refreshed_list(),
             sysinfo_memory: System::new_with_specifics(
@@ -184,7 +186,7 @@ impl SystemInfo {
     async fn report(&self) -> Result<()> {
         web_service::publish(
             web_service::PublishChannel::SystemInfo,
-            serde_json::to_value(self).context("connect_web_service: cannot serialize")?,
+            serde_json::to_value(&self.info).context("connect_web_service: cannot serialize")?,
         )
         .await;
 
@@ -194,7 +196,7 @@ impl SystemInfo {
         };
 
         tx.send(json!({
-            "system_info": serde_json::to_value(self).context("report: cannot serialize")?
+            "system_info": serde_json::to_value(&self.info).context("report: cannot serialize")?
         }))
         .await
         .context("report: send")
