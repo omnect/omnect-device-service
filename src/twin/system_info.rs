@@ -42,16 +42,22 @@ struct Metric {
     labels: Label,
 }
 
-impl Default for Metric {
-    fn default() -> Self {
+impl Metric {
+    fn new(
+        time: String,
+        name: String,
+        value: f64,
+        device: String,
+        sensor: Option<String>,
+    ) -> Metric {
         Metric {
-            time_generated_utc: Default::default(),
-            name: Default::default(),
-            value: Default::default(),
+            time_generated_utc: time,
+            name,
+            value,
             labels: Label {
-                device_id: Default::default(),
+                device_id: device,
                 module_name: "omnect-device-service".to_string(),
-                sensor: None,
+                sensor,
             },
         }
     }
@@ -81,6 +87,7 @@ pub struct SystemInfo {
     sysinfo_components: Components,
     sysinfo_disk: Disks,
     sysinfo_memory: System,
+    hostname: String,
 }
 
 #[async_trait(?Send)]
@@ -112,28 +119,26 @@ impl Feature for SystemInfo {
     }
 
     fn event_stream(&mut self) -> EventStreamResult {
-        match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            0 => match self.info.boot_time {
-                None => Ok(Some(file_created_stream::<SystemInfo>(vec![
-                    &TIMESYNC_FILE,
-                ]))),
-                Some(_) => Ok(None),
-            },
+        Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
+            0 if self.info.boot_time.is_none() => {
+                Some(file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]))
+            }
+            0 if self.info.boot_time.is_some() => None,
             _ => {
                 let interval_stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
                     *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
                 )));
-                let combined_stream = match self.info.boot_time {
-                    None => futures::stream::select(
+                Some(if self.info.boot_time.is_none() {
+                    futures::stream::select(
                         interval_stream,
                         file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]),
                     )
-                    .boxed(),
-                    Some(_) => interval_stream,
-                };
-                Ok(Some(combined_stream))
+                    .boxed()
+                } else {
+                    interval_stream
+                })
             }
-        }
+        })
     }
 
     async fn command(&mut self, cmd: Command) -> CommandResult {
@@ -164,6 +169,10 @@ impl SystemInfo {
             None
         };
 
+        let Some(hostname) = System::host_name() else {
+            bail!("metrics: hostname could not be read")
+        };
+
         Ok(SystemInfo {
             tx_reported_properties: None,
             tx_outgoing_message: None,
@@ -173,6 +182,7 @@ impl SystemInfo {
                 omnect_device_service_version: env!("CARGO_PKG_VERSION").to_string(),
                 boot_time,
             },
+            hostname,
             sysinfo_components: Components::new_with_refreshed_list(),
             sysinfo_disk: Disks::new_with_refreshed_list(),
             sysinfo_memory: System::new_with_specifics(
@@ -202,59 +212,64 @@ impl SystemInfo {
         .context("report: send")
     }
 
-    fn cpu_usage(time: String, value: f64, device_id: String) -> Metric {
-        let mut metric: Metric = Metric::default();
-        metric.time_generated_utc = time;
-        metric.name = "cpu_usage".to_string();
-        metric.value = value;
-        metric.labels.device_id = device_id;
-        metric
+    fn cpu_usage(&self, time: String) -> Metric {
+        Metric::new(
+            time,
+            "cpu_usage".to_string(),
+            self.sysinfo_memory.global_cpu_usage() as f64,
+            self.hostname.clone(),
+            None,
+        )
     }
 
-    fn memory_used(time: String, value: f64, device_id: String) -> Metric {
-        let mut metric: Metric = Metric::default();
-        metric.time_generated_utc = time;
-        metric.name = "memory_used".to_string();
-        metric.value = value;
-        metric.labels.device_id = device_id;
-        metric
+    fn memory_used(&self, time: String) -> Metric {
+        Metric::new(
+            time,
+            "memory_used".to_string(),
+            self.sysinfo_memory.used_memory() as f64,
+            self.hostname.clone(),
+            None,
+        )
     }
 
-    fn memory_total(time: String, value: f64, device_id: String) -> Metric {
-        let mut metric: Metric = Metric::default();
-        metric.time_generated_utc = time;
-        metric.name = "memory_total".to_string();
-        metric.value = value;
-        metric.labels.device_id = device_id;
-        metric
+    fn memory_total(&self, time: String) -> Metric {
+        Metric::new(
+            time,
+            "memory_total".to_string(),
+            self.sysinfo_memory.total_memory() as f64,
+            self.hostname.clone(),
+            None,
+        )
     }
 
-    fn disk_used(time: String, value: f64, device_id: String) -> Metric {
-        let mut metric: Metric = Metric::default();
-        metric.time_generated_utc = time;
-        metric.name = "disk_used".to_string();
-        metric.value = value;
-        metric.labels.device_id = device_id;
-        metric
+    fn disk_used(&self, time: String, value: f64) -> Metric {
+        Metric::new(
+            time,
+            "disk_used".to_string(),
+            value,
+            self.hostname.clone(),
+            None,
+        )
     }
 
-    fn disk_total(time: String, value: f64, device_id: String) -> Metric {
-        let mut metric: Metric = Metric::default();
-        metric.time_generated_utc = time;
-        metric.name = "disk_total".to_string();
-        metric.value = value;
-        metric.labels.device_id = device_id;
-        metric
+    fn disk_total(&self, time: String, value: f64) -> Metric {
+        Metric::new(
+            time,
+            "disk_total".to_string(),
+            value,
+            self.hostname.clone(),
+            None,
+        )
     }
 
-    fn temp(time: String, value: f64, device_id: String, sensor: String) -> Metric {
-        let mut metric: Metric = Metric::default();
-        metric.time_generated_utc = time;
-        metric.name = "temp".to_string();
-        metric.value = value;
-        metric.labels.device_id = device_id;
-        metric.labels.sensor = Some(sensor);
-        metric
+    fn temp(&self, time: String, value: f64, sensor: String) -> Metric {
+        Metric::new(
+            time,
+            "temp".to_string(),
+            value,
+            self.hostname.clone(),
+            Some(sensor),
+        )
     }
 
     async fn metrics(&mut self) -> Result<()> {
@@ -272,10 +287,6 @@ impl SystemInfo {
         self.sysinfo_memory.refresh_memory();
         self.sysinfo_disk.refresh();
 
-        let Some(hostname) = System::host_name() else {
-            bail!("metrics: hostname could not be read")
-        };
-
         let mut disk_total = 0;
         let mut disk_used = 0;
         for disk in self.sysinfo_disk.list() {
@@ -287,50 +298,37 @@ impl SystemInfo {
         }
 
         let mut metric_list = vec![
-            Self::cpu_usage(
-                time.clone(),
-                self.sysinfo_memory.global_cpu_usage() as f64,
-                hostname.clone(),
-            ),
-            Self::memory_used(
-                time.clone(),
-                self.sysinfo_memory.used_memory() as f64,
-                hostname.clone(),
-            ),
-            Self::memory_total(
-                time.clone(),
-                self.sysinfo_memory.total_memory() as f64,
-                hostname.clone(),
-            ),
-            Self::disk_used(time.clone(), disk_used as f64, hostname.clone()),
-            Self::disk_total(time.clone(), disk_total as f64, hostname.clone()),
+            Self::cpu_usage(self, time.clone()),
+            Self::memory_used(self, time.clone()),
+            Self::memory_total(self, time.clone()),
+            Self::disk_used(self, time.clone(), disk_used as f64),
+            Self::disk_total(self, time.clone(), disk_total as f64),
         ];
 
         for component in self.sysinfo_components.iter() {
             metric_list.push(Self::temp(
+                self,
                 time.clone(),
                 component.temperature() as f64,
-                hostname.clone(),
                 format!("{}", component.label()),
             ));
         }
 
-        if let Ok(json) = serde_json::to_vec(&metric_list) {
-            if let Ok(msg) = IotMessage::builder()
-                .set_body(json)
-                .set_content_type("application/json")
-                .set_content_encoding("utf-8")
-                .set_output_queue("metrics")
-                .build()
-            {
-                let _ = tx.send(msg).await;
-                info!("metrics: telemetry message transmitted");
-                Ok(())
-            } else {
-                bail!("telemetry message could not be transmitted:")
-            }
-        } else {
-            bail!("metrics list could not be converted to vector:")
-        }
+        let json = serde_json::to_vec(&metric_list)
+            .context("metrics list could not be converted to vector:")?;
+
+        let msg = IotMessage::builder()
+            .set_body(json)
+            .set_content_type("application/json")
+            .set_content_encoding("utf-8")
+            .set_output_queue("metrics")
+            .build()
+            .context("telemetry message could not be transmitted")?;
+
+        tx.send(msg).await?;
+
+        info!("metrics: telemetry message transmitted");
+
+        Ok(())
     }
 }
