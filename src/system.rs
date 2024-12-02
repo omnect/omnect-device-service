@@ -59,34 +59,3 @@ pub fn sw_version() -> Result<serde_json::Value> {
         "version": sw_versions[1],
     }))
 }
-
-#[cfg(not(feature = "mock"))]
-pub fn boot_time() -> Result<String> {
-    use std::io::Read;
-    use time::{format_description::well_known::Rfc3339, OffsetDateTime};
-
-    let mut s = String::new();
-    std::fs::File::open("/proc/uptime")?.read_to_string(&mut s)?;
-    let boot_time = s
-        .trim()
-        .split(' ')
-        .take(1)
-        .next()
-        .context("boot_time: get uptime")?;
-
-    let boot_time = OffsetDateTime::now_utc()
-        - std::time::Duration::from_secs_f64(
-            boot_time
-                .parse::<f64>()
-                .context("boot_time: parse uptime")?,
-        );
-
-    boot_time
-        .format(&Rfc3339)
-        .context("boot_time: format uptime")
-}
-
-#[cfg(feature = "mock")]
-pub fn boot_time() -> Result<String> {
-    Ok("2024-10-10T05:27:52.804875461Z".to_string())
-}
