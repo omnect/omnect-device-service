@@ -1,6 +1,5 @@
 use anyhow::{bail, Context, Result};
 use log::info;
-use serde_json::json;
 use std::fs;
 use std::path::Path;
 
@@ -36,26 +35,4 @@ pub fn infos() -> Result<()> {
     info!("bootloader was updated: {}", bootloader_updated());
     info!("device booted from root {}.", current_root()?);
     Ok(())
-}
-
-pub fn sw_version() -> Result<serde_json::Value> {
-    let path = if cfg!(feature = "mock") {
-        "testfiles/positive/sw-versions"
-    } else {
-        "/etc/sw-versions"
-    };
-
-    let sw_versions =
-        std::fs::read_to_string(path).context("sw_version: cannot read sw-versions")?;
-    let sw_versions: Vec<&str> = sw_versions.trim_end().split(' ').collect();
-
-    anyhow::ensure!(
-        sw_versions.len() == 2,
-        "sw-versions: unexpected number of entries"
-    );
-
-    Ok(json!( {
-        "name": sw_versions[0],
-        "version": sw_versions[1],
-    }))
 }
