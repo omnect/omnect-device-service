@@ -1,6 +1,5 @@
 use super::web_service;
 use super::{feature::*, Feature};
-use crate::system;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
@@ -74,8 +73,14 @@ lazy_static! {
 }
 
 #[derive(Default, Serialize)]
+struct OsInfo {
+    name: String,
+    version: String,
+}
+
+#[derive(Default, Serialize)]
 struct SoftwareInfo {
-    os: serde_json::Value,
+    os: OsInfo,
     azure_sdk_version: String,
     omnect_device_service_version: String,
     boot_time: Option<String>,
@@ -180,11 +185,23 @@ impl SystemInfo {
             bail!("metrics: hostname could not be read")
         };
 
+        let name = if cfg!(feature = "mock") {
+            "OMNECT-gateway-devel".to_string()
+        } else {
+            sysinfo::System::name().context("metrics: os_name could not be read")?
+        };
+
+        let version = if cfg!(feature = "mock") {
+            "4.0.17.123456".to_string()
+        } else {
+            sysinfo::System::os_version().context("metrics: os_version could not be read")?
+        };
+
         Ok(SystemInfo {
             tx_reported_properties: None,
             tx_outgoing_message: None,
             software_info: SoftwareInfo {
-                os: system::sw_version()?,
+                os: OsInfo { name, version },
                 azure_sdk_version: IotHubClient::sdk_version_string(),
                 omnect_device_service_version: env!("CARGO_PKG_VERSION").to_string(),
                 boot_time,
