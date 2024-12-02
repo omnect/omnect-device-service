@@ -13,8 +13,10 @@ use std::env;
 use std::path::Path;
 use sysinfo::{Components, CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use time::format_description::well_known::Rfc3339;
-use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
+use tokio::{
+    sync::mpsc,
+    time::{interval, Duration},
+};
 
 lazy_static! {
     static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
