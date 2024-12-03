@@ -59,7 +59,7 @@ async fn main() {
     info!("azure sdk version: {}", IotHubClient::sdk_version_string());
 
     #[cfg(not(feature = "mock"))]
-    if let Err(e) = Self::infos() {
+    if let Err(e) = infos() {
         error!("application error: {e:#}");
     }
 
