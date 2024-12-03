@@ -9,7 +9,7 @@ mod network;
 mod provisioning_config;
 mod reboot;
 mod ssh_tunnel;
-mod system_info;
+pub mod system_info;
 mod wifi_commissioning;
 
 cfg_if::cfg_if! {

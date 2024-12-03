@@ -9,6 +9,7 @@ use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::env;
+use std::fs;
 use std::path::Path;
 use sysinfo;
 use time::format_description::well_known::Rfc3339;
@@ -16,6 +17,9 @@ use tokio::{
     sync::mpsc,
     time::{interval, Duration},
 };
+
+static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
+static DEV_OMNECT: &str = "/dev/omnect/";
 
 lazy_static! {
     static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
@@ -372,5 +376,32 @@ impl SystemInfo {
         info!("metrics: telemetry message transmitted");
 
         Ok(())
+    }
+
+    pub fn current_root() -> Result<&'static str> {
+        let current_root = fs::read_link(DEV_OMNECT.to_owned() + "rootCurrent")
+            .context("current_root: getting current root device")?;
+
+        if current_root
+            == fs::read_link(DEV_OMNECT.to_owned() + "rootA")
+                .context("current_root: getting rootA")?
+        {
+            return Ok("a");
+        }
+
+        if current_root
+            == fs::read_link(DEV_OMNECT.to_owned() + "rootB")
+                .context("current_root: getting rootB")?
+        {
+            return Ok("b");
+        }
+
+        bail!("current_root: device booted from unknown root")
+    }
+
+    pub fn bootloader_updated() -> bool {
+        Path::new(BOOTLOADER_UPDATED_FILE)
+            .try_exists()
+            .is_ok_and(|res| res)
     }
 }
