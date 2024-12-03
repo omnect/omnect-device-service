@@ -185,23 +185,11 @@ impl SystemInfo {
             bail!("metrics: hostname could not be read")
         };
 
-        let name = if cfg!(feature = "mock") {
-            "OMNECT-gateway-devel".to_string()
-        } else {
-            sysinfo::System::name().context("metrics: os_name could not be read")?
-        };
-
-        let version = if cfg!(feature = "mock") {
-            "4.0.17.123456".to_string()
-        } else {
-            sysinfo::System::os_version().context("metrics: os_version could not be read")?
-        };
-
         Ok(SystemInfo {
             tx_reported_properties: None,
             tx_outgoing_message: None,
             software_info: SoftwareInfo {
-                os: OsInfo { name, version },
+                os: Self::os_info()?,
                 azure_sdk_version: IotHubClient::sdk_version_string(),
                 omnect_device_service_version: env!("CARGO_PKG_VERSION").to_string(),
                 boot_time,
@@ -238,6 +226,25 @@ impl SystemInfo {
         }))
         .await
         .context("report: send")
+    }
+
+    #[cfg(not(feature = "mock"))]
+    fn os_info() -> Result<OsInfo> {
+        let os_info = OsInfo {
+            name: sysinfo::System::name().context("metrics: os_name could not be read")?,
+            version: sysinfo::System::os_version()
+                .context("metrics: os_version could not be read")?,
+        };
+        Ok(os_info)
+    }
+
+    #[cfg(feature = "mock")]
+    fn os_info() -> Result<OsInfo> {
+        let os_info = OsInfo {
+            name: "OMNECT-gateway-devel".to_string(),
+            version: "4.0.17.123456".to_string(),
+        };
+        Ok(os_info)
     }
 
     fn boot_time() -> Result<String> {
