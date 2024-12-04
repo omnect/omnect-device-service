@@ -4,14 +4,12 @@ pub mod twin;
 pub mod update_validation;
 pub mod web_service;
 
-use crate::twin::system_info::SystemInfo;
 use anyhow::Result;
 use azure_iot_sdk::client::*;
 use env_logger::{Builder, Env, Target};
 use log::{error, info};
-use std::io::Write;
-use std::process;
-use twin::Twin;
+use std::{io::Write, process};
+use twin::{system_info::SystemInfo, Twin};
 
 #[tokio::main]
 async fn main() {
