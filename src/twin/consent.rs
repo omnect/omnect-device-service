@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -41,9 +41,17 @@ pub(crate) struct UserConsentCommand {
     pub user_consent: HashMap<String, String>,
 }
 
+type GeneralConsents = Vec<String>;
+
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct DesiredGeneralConsentCommand {
-    pub general_consent: Vec<String>,
+    pub general_consent: GeneralConsents,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub struct ConsentConfig {
+    general_consent: GeneralConsents,
+    reset_consent_on_fail: bool,
 }
 
 #[derive(Default)]
@@ -159,7 +167,7 @@ impl DeviceUpdateConsent {
         new_consents.sort_by_key(|name| name.to_string());
         new_consents.dedup();
 
-        let mut current_config: DesiredGeneralConsentCommand = serde_json::from_reader(
+        let mut current_config: ConsentConfig = serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
                 .create(false)
@@ -178,6 +186,8 @@ impl DeviceUpdateConsent {
             return Ok(None);
         }
 
+        current_config.general_consent = new_consents;
+
         serde_json::to_writer_pretty(
             OpenOptions::new()
                 .write(true)
@@ -185,7 +195,7 @@ impl DeviceUpdateConsent {
                 .truncate(true)
                 .open(format!("{}/consent_conf.json", consent_path!()))
                 .context("update_general_consent: open consent_conf.json for write")?,
-            &json!({"general_consent": new_consents}),
+            &current_config,
         )
         .context("update_general_consent: serde_json::to_writer_pretty")?;
 
@@ -309,13 +319,10 @@ mod tests {
             .starts_with("update_general_consent: open consent_conf.json for read")));
 
         let tmp_dir = tempfile::tempdir().unwrap();
+        let consent_conf_file = tmp_dir.path().join("consent_conf.json");
         std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
 
-        std::fs::copy(
-            "testfiles/negative/consent_conf.json",
-            tmp_dir.path().join("consent_conf.json"),
-        )
-        .unwrap();
+        std::fs::copy("testfiles/negative/consent_conf.json", &consent_conf_file).unwrap();
 
         assert!(block_on(async {
             consent
@@ -332,11 +339,7 @@ mod tests {
             .to_string()
             .starts_with("update_general_consent: serde_json::from_reader")));
 
-        std::fs::copy(
-            "testfiles/positive/consent_conf.json",
-            tmp_dir.path().join("consent_conf.json"),
-        )
-        .unwrap();
+        std::fs::copy("testfiles/positive/consent_conf.json", &consent_conf_file).unwrap();
 
         assert!(block_on(async {
             consent
@@ -351,7 +354,28 @@ mod tests {
 
         assert_eq!(
             rx_reported_properties.blocking_recv(),
-            Some(json!({"device_update_consent":  {"general_consent":  []}}))
+            Some(json!({
+                "device_update_consent": {
+                    "general_consent": [],
+                    "reset_consent_on_fail": false
+                }}))
+        );
+
+        let consent_conf: ConsentConfig = serde_json::from_reader(
+            OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open(&consent_conf_file)
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            consent_conf,
+            ConsentConfig {
+                general_consent: vec![],
+                reset_consent_on_fail: false,
+            }
         );
 
         assert!(block_on(async {
@@ -367,7 +391,11 @@ mod tests {
 
         assert_eq!(
             rx_reported_properties.blocking_recv(),
-            Some(json!({"device_update_consent":  {"general_consent":  ["bar", "foo"]}}))
+            Some(json!({
+                "device_update_consent": {
+                    "general_consent": ["bar", "foo"],
+                    "reset_consent_on_fail": false
+                }}))
         );
     }
 
