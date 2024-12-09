@@ -121,7 +121,7 @@ Example of the D2C payload:
       "name": "cpu_usage",
       "value": 0.671448826789856,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
@@ -130,7 +130,7 @@ Example of the D2C payload:
       "name": "memory_used",
       "value": 842010624,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
@@ -139,7 +139,7 @@ Example of the D2C payload:
       "name": "memory_total",
       "value": 2076336128,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
@@ -148,7 +148,7 @@ Example of the D2C payload:
       "name": "disk_used",
       "value": 2195177472,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
@@ -157,7 +157,7 @@ Example of the D2C payload:
       "name": "disk_total",
       "value": 29166592000,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service"
       }
     },
@@ -166,7 +166,7 @@ Example of the D2C payload:
       "name": "temp",
       "value": 59,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service",
         "sensor": "cpu_thermal temp1"
       }
@@ -176,7 +176,7 @@ Example of the D2C payload:
       "name": "temp",
       "value": 42.0620002746582,
       "labels": {
-        "edge_device": "<hostname>",
+        "device_id": "<hostname>",
         "module_name": "omnect-device-service",
         "sensor": "tmp102 temp1"
       }
