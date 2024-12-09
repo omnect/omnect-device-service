@@ -336,6 +336,8 @@ impl Twin {
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
 
+        systemd::sd_notify_ready();
+
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
             let trigger_watchdog = match systemd::watchdog::WatchdogManager::init(){
@@ -348,8 +350,6 @@ impl Twin {
                 .filter_map(|f| if f.is_enabled() { f.event_stream().unwrap() } else { None }
             ));
         };
-
-        systemd::sd_notify_ready();
 
         let guard = Mutex::new(());
 
