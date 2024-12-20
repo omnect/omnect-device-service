@@ -26,10 +26,14 @@ async fn main() {
             mio=error, \
             notify=error, \
             reqwest=error, \
-            tracing=error",
+            tracing=error, \
+            zbus=error",
         ))
     } else {
-        Builder::from_env(Env::default().default_filter_or("info"))
+        Builder::from_env(Env::default().default_filter_or(
+            "info, \
+            zbus=warning",
+        ))
     };
 
     builder.format(|buf, record| match record.level() {
