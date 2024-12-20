@@ -8,12 +8,30 @@ use log::{debug, error, info, warn};
 use reqwest::{header, Client};
 use serde::Deserialize;
 use serde_json::json;
-use std::{str::FromStr, sync::OnceLock};
+use std::{str::FromStr, sync::LazyLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-static PUBLISH_CHANNEL_MAP: OnceLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
-    OnceLock::new();
-static PUBLISH_ENDPOINTS: OnceLock<Mutex<Vec<PublishEndpoint>>> = OnceLock::new();
+macro_rules! publish_endpoints_path {
+    () => {{
+        static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str = "/etc/omnect/publish_endpoints.json";
+        std::env::var("PUBLISH_ENDPOINTS_PATH")
+            .unwrap_or(PUBLISH_ENDPOINTS_PATH_DEFAULT.to_string())
+    }};
+}
+
+static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
+    LazyLock::new(|| Mutex::new(serde_json::Map::default()));
+static PUBLISH_ENDPOINTS: LazyLock<Mutex<Vec<PublishEndpoint>>> =
+    LazyLock::new(|| match std::fs::File::open(publish_endpoints_path!()) {
+        Ok(file) => Mutex::new(serde_json::from_reader(file).expect("cannot parse endpoints file")),
+        Err(kind) if kind.kind() == std::io::ErrorKind::NotFound => {
+            info!("run: no endpoint file present");
+            Mutex::new(vec![])
+        }
+        Err(_) => {
+            panic!("cannot open endpoints file")
+        }
+    });
 
 #[derive(Debug)]
 pub struct Request {
@@ -52,14 +70,6 @@ lazy_static! {
     };
 }
 
-macro_rules! publish_endpoints_path {
-    () => {{
-        static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str = "/etc/omnect/publish_endpoints.json";
-        std::env::var("PUBLISH_ENDPOINTS_PATH")
-            .unwrap_or(PUBLISH_ENDPOINTS_PATH_DEFAULT.to_string())
-    }};
-}
-
 pub struct WebService {
     srv_handle: ServerHandle,
 }
@@ -73,24 +83,6 @@ impl WebService {
         };
 
         info!("WebService is enabled");
-
-        PUBLISH_CHANNEL_MAP.get_or_init(|| Mutex::new(serde_json::Map::default()));
-
-        PUBLISH_ENDPOINTS.get_or_init(|| {
-            let Ok(true) = std::path::Path::new(&publish_endpoints_path!()).try_exists() else {
-                info!("run: no endpoint file present");
-
-                return Mutex::new(vec![]);
-            };
-
-            Mutex::new(
-                serde_json::from_reader(std::io::BufReader::new(
-                    std::fs::File::open(publish_endpoints_path!())
-                        .expect("cannot open endpoints file"),
-                ))
-                .expect("cannot parse endpoints file"),
-            )
-        });
 
         let srv = HttpServer::new(move || {
             App::new()
@@ -212,13 +204,7 @@ impl WebService {
     async fn republish(_tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService republish");
 
-        for (channel, value) in PUBLISH_CHANNEL_MAP
-            .get()
-            .expect("PUBLISH_CHANNEL_MAP not available")
-            .lock()
-            .await
-            .iter()
-        {
+        for (channel, value) in PUBLISH_CHANNEL_MAP.lock().await.iter() {
             let msg = json!({"channel": channel, "data": value});
 
             if let Err(e) = publish_to_endpoints(msg).await {
@@ -232,11 +218,7 @@ impl WebService {
     async fn status(_tx_request: web::Data<mpsc::Sender<Request>>) -> HttpResponse {
         debug!("WebService status");
 
-        let pubs = PUBLISH_CHANNEL_MAP
-            .get()
-            .expect("PUBLISH_CHANNEL_MAP not available")
-            .lock()
-            .await;
+        let pubs = PUBLISH_CHANNEL_MAP.lock().await;
 
         let pubs = pubs.to_owned();
 
@@ -286,8 +268,6 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
         let msg = json!({"channel": channel.to_string(), "data": value});
 
         PUBLISH_CHANNEL_MAP
-            .get()
-            .expect("PUBLISH_CHANNEL_MAP not available")
             .lock()
             .await
             .insert(channel.to_string(), value.clone());
@@ -299,13 +279,7 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
 }
 
 async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
-    for endpoint in PUBLISH_ENDPOINTS
-        .get()
-        .expect("PUBLISH_ENDPOINTS not available")
-        .lock()
-        .await
-        .iter()
-    {
+    for endpoint in PUBLISH_ENDPOINTS.lock().await.iter() {
         let mut headers = header::HeaderMap::new();
 
         for h in &endpoint.headers {

@@ -41,16 +41,16 @@ pub(crate) struct UserConsentCommand {
     pub user_consent: HashMap<String, String>,
 }
 
-type GeneralConsents = Vec<String>;
+type GeneralConsent = Vec<String>;
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct DesiredGeneralConsentCommand {
-    pub general_consent: GeneralConsents,
+    pub general_consent: GeneralConsent,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ConsentConfig {
-    general_consent: GeneralConsents,
+    general_consent: GeneralConsent,
     reset_consent_on_fail: bool,
 }
 
