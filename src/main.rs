@@ -18,18 +18,35 @@ async fn main() {
     let mut builder = if cfg!(debug_assertions) {
         Builder::from_env(Env::default().default_filter_or(
             "trace, \
-            actix_server=error, \
+            actix_server=warn, \
+            async_io=warn, \
             azure_iot_sdk=info, \
             eis_utils=info, \
-            hyper=error, \
-            hyper_util=error, \
-            mio=error, \
-            notify=error, \
-            reqwest=error, \
-            tracing=error",
+            hyper=warn, \
+            hyper_util=warn, \
+            mio=warn, \
+            notify=warn, \
+            polling=warn, \
+            reqwest=warn, \
+            tracing=warn, \
+            zbus=warn",
         ))
     } else {
-        Builder::from_env(Env::default().default_filter_or("info"))
+        Builder::from_env(Env::default().default_filter_or(
+            "info, \
+            actix_server=warn, \
+            async_io=warn, \
+            azure_iot_sdk=info, \
+            eis_utils=info, \
+            hyper=warn, \
+            hyper_util=warn, \
+            mio=warn, \
+            notify=warn, \
+            polling=warn, \
+            reqwest=warn, \
+            tracing=warn, \
+            zbus=warn",
+        ))
     };
 
     builder.format(|buf, record| match record.level() {
