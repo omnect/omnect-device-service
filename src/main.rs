@@ -19,12 +19,14 @@ async fn main() {
         Builder::from_env(Env::default().default_filter_or(
             "trace, \
             actix_server=error, \
+            async_io=error, \
             azure_iot_sdk=info, \
             eis_utils=info, \
             hyper=error, \
             hyper_util=error, \
             mio=error, \
             notify=error, \
+            polling=error, \
             reqwest=error, \
             tracing=error, \
             zbus=error",
@@ -32,7 +34,18 @@ async fn main() {
     } else {
         Builder::from_env(Env::default().default_filter_or(
             "info, \
-            zbus=warning",
+            actix_server=error, \
+            async_io=error, \
+            azure_iot_sdk=info, \
+            eis_utils=info, \
+            hyper=error, \
+            hyper_util=error, \
+            mio=error, \
+            notify=error, \
+            polling=error, \
+            reqwest=error, \
+            tracing=error, \
+            zbus=error",
         ))
     };
 
