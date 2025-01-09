@@ -1,6 +1,5 @@
 use super::{feature::*, Feature};
 use anyhow::{bail, ensure, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
@@ -120,17 +119,16 @@ pub struct ProvisioningConfig {
     hostname: String,
 }
 
-#[async_trait(?Send)]
 impl Feature for ProvisioningConfig {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::PROVISIONING_CONFIG_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_PROVISIONING_CONFIG") != Ok("true".to_string())
     }
 
@@ -143,8 +141,8 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
+    async fn event_stream(&mut self) -> EventStreamResult {
+        if !self.is_enabled().await || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
             match &self.method {

@@ -3,7 +3,6 @@ use super::super::systemd;
 use super::{feature::*, Feature};
 use crate::web_service;
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
@@ -59,17 +58,16 @@ pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
-#[async_trait(?Send)]
 impl Feature for FactoryReset {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::FACTORY_RESET_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
     }
 
