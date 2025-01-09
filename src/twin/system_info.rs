@@ -1,7 +1,6 @@
 use super::web_service;
 use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use futures::StreamExt;
 use lazy_static::lazy_static;
@@ -105,18 +104,16 @@ pub struct SystemInfo {
     software_info: SoftwareInfo,
     hardware_info: HardwareInfo,
 }
-
-#[async_trait(?Send)]
 impl Feature for SystemInfo {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::SYSTEM_INFO_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_SYSTEM_INFO") != Ok("true".to_string())
     }
 
@@ -134,7 +131,7 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    async fn event_stream(&mut self) -> EventStreamResult {
         Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
             0 if self.software_info.boot_time.is_none() => {
                 Some(file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]))

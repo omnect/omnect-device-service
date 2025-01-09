@@ -1,6 +1,5 @@
 use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
@@ -341,17 +340,16 @@ lazy_static! {
     };
 }
 
-#[async_trait(?Send)]
 impl Feature for ModemInfo {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         MODEM_INFO_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         match env::var("DISTRO_FEATURES") {
             Ok(features) => features.split_whitespace().any(|feature| feature == "3g"),
             _ => false,
@@ -367,8 +365,8 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
+    async fn event_stream(&mut self) -> EventStreamResult {
+        if !self.is_enabled().await || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
             Ok(Some(interval_stream::<ModemInfo>(interval(

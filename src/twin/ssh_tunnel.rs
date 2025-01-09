@@ -127,17 +127,16 @@ pub struct SshTunnel {
     ssh_tunnel_semaphore: Arc<Semaphore>,
 }
 
-#[async_trait(?Send)]
 impl Feature for SshTunnel {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::SSH_TUNNEL_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_SSH_TUNNEL") != Ok("true".to_string())
     }
 

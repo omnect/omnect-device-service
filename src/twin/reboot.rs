@@ -2,7 +2,6 @@ use super::super::systemd;
 use super::web_service;
 use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info};
 use serde::Deserialize;
@@ -20,17 +19,16 @@ pub struct Reboot {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
-#[async_trait(?Send)]
 impl Feature for Reboot {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::REBOOT_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_REBOOT") != Ok("true".to_string())
     }
 
