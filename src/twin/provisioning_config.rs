@@ -1,6 +1,5 @@
 use crate::twin::{feature::*, Feature};
 use anyhow::{bail, ensure, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
@@ -120,7 +119,6 @@ pub struct ProvisioningConfig {
     hostname: String,
 }
 
-#[async_trait(?Send)]
 impl Feature for ProvisioningConfig {
     fn name(&self) -> String {
         Self::ID.to_string()

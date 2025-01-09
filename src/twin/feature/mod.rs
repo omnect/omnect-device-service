@@ -3,7 +3,6 @@ use crate::twin::{
     TwinUpdateState,
 };
 use anyhow::{bail, ensure, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
 use futures::StreamExt;
@@ -165,8 +164,8 @@ pub type CommandResult = Result<Option<serde_json::Value>>;
 pub type CommandRequestStream = Pin<Box<dyn Stream<Item = CommandRequest> + Send>>;
 pub type CommandRequestStreamResult = Result<Option<CommandRequestStream>>;
 
-#[async_trait(?Send)]
-pub trait Feature {
+#[dynosaur::dynosaur(pub DynFeature)]
+pub(crate) trait Feature {
     fn name(&self) -> String;
     fn version(&self) -> u8;
     fn is_enabled(&self) -> bool;
