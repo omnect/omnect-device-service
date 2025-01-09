@@ -3,7 +3,6 @@ use super::web_service;
 use super::{feature::*, Feature};
 use super::{systemd, systemd::unit::UnitAction};
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
@@ -53,17 +52,16 @@ pub struct Network {
     interfaces: Vec<Interface>,
 }
 
-#[async_trait(?Send)]
 impl Feature for Network {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::NETWORK_STATUS_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_NETWORK_STATUS") != Ok("true".to_string())
     }
 
@@ -77,8 +75,8 @@ impl Feature for Network {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
+    async fn event_stream(&mut self) -> EventStreamResult {
+        if !self.is_enabled().await || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
             Ok(Some(interval_stream::<Network>(interval(

@@ -1,19 +1,16 @@
-use crate::twin::network;
-
-use super::{consent, factory_reset, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
+use super::{consent, factory_reset, network, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
 use anyhow::{bail, ensure, Result};
-use async_trait::async_trait;
-use azure_iot_sdk::client::DirectMethod;
-use azure_iot_sdk::client::IotMessage;
-use futures::Stream;
-use futures::StreamExt;
+use azure_iot_sdk::client::{DirectMethod, IotMessage};
+use futures::{Stream, StreamExt};
 use log::{debug, error, info, warn};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
-use std::any::TypeId;
-use std::path::Path;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::time::Duration;
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    pin::Pin,
+    time::Duration,
+};
 use tokio::{
     sync::mpsc,
     time::{Instant, Interval},
@@ -144,11 +141,12 @@ pub type CommandResult = Result<Option<serde_json::Value>>;
 pub type EventStream = Pin<Box<dyn Stream<Item = Command> + Send>>;
 pub type EventStreamResult = Result<Option<EventStream>>;
 
-#[async_trait(?Send)]
+#[dynosaur::dynosaur(DynFeature)]
 pub(crate) trait Feature {
-    fn name(&self) -> String;
-    fn version(&self) -> u8;
-    fn is_enabled(&self) -> bool;
+    // ToDo: make non async when fixed: https://github.com/spastorino/dynosaur/issues/39
+    async fn name(&self) -> String;
+    async fn version(&self) -> u8;
+    async fn is_enabled(&self) -> bool;
 
     async fn connect_twin(
         &mut self,
@@ -162,7 +160,7 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    async fn event_stream(&mut self) -> EventStreamResult {
         Ok(None)
     }
 
@@ -170,6 +168,10 @@ pub(crate) trait Feature {
         unimplemented!();
     }
 }
+
+pub use _dynosaur_macro_dynfeature::DynFeature as MyDynFeature;
+
+pub type FeatureMap<'a> = HashMap<TypeId, Box<DynFeature<'a>>>;
 
 #[derive(Debug, PartialEq)]
 pub struct FileCommand {

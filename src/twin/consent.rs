@@ -1,7 +1,6 @@
 use super::{feature::*, Feature};
 use crate::consent_path;
 use anyhow::{bail, ensure, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
@@ -60,17 +59,16 @@ pub struct DeviceUpdateConsent {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
-#[async_trait(?Send)]
 impl Feature for DeviceUpdateConsent {
-    fn name(&self) -> String {
+    async fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    fn version(&self) -> u8 {
+    async fn version(&self) -> u8 {
         Self::USER_CONSENT_VERSION
     }
 
-    fn is_enabled(&self) -> bool {
+    async fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_DEVICE_UPDATE_USER_CONSENT") != Ok("true".to_string())
     }
 
@@ -86,7 +84,7 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(&history_consent_path!()).await
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    async fn event_stream(&mut self) -> EventStreamResult {
         let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),

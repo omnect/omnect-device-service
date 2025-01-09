@@ -50,7 +50,7 @@ pub struct Twin {
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     state: TwinState,
-    features: HashMap<TypeId, Box<dyn Feature>>,
+    features: HashMap<TypeId, Box<MyDynFeature<'static>>>,
     update_validation: update_validation::UpdateValidation,
 }
 
@@ -66,43 +66,27 @@ impl Twin {
         let web_service = web_service::WebService::run(tx_web_service.clone()).await?;
         let state = TwinState::Uninitialized;
 
+        // create features
+        let consent = feature::MyDynFeature::boxed(consent::DeviceUpdateConsent::default());
+        let factory_reset = feature::MyDynFeature::boxed(factory_reset::FactoryReset::new());
+        let modem_info = feature::MyDynFeature::boxed(modem_info::ModemInfo::new());
+        let network = feature::MyDynFeature::boxed(network::Network::default());
+        let provisioning_config = feature::MyDynFeature::boxed(provisioning_config::ProvisioningConfig::new()?);
+        let reboot: Box<MyDynFeature<'_>> = feature::MyDynFeature::boxed(reboot::Reboot::default());
+        let ssh_tunnel = feature::MyDynFeature::boxed(ssh_tunnel::SshTunnel::new());
+        let system_info = feature::MyDynFeature::boxed(system_info::SystemInfo::new()?);
+        let wifi_commissioning = feature::MyDynFeature::boxed(wifi_commissioning::WifiCommissioning::default());
+
         let features = HashMap::from([
-            (
-                TypeId::of::<consent::DeviceUpdateConsent>(),
-                Box::<consent::DeviceUpdateConsent>::default() as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<factory_reset::FactoryReset>(),
-                Box::new(factory_reset::FactoryReset::new()) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<modem_info::ModemInfo>(),
-                Box::new(modem_info::ModemInfo::new()) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<network::Network>(),
-                Box::<network::Network>::default() as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<provisioning_config::ProvisioningConfig>(),
-                Box::new(provisioning_config::ProvisioningConfig::new()?) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<reboot::Reboot>(),
-                Box::<reboot::Reboot>::default() as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<ssh_tunnel::SshTunnel>(),
-                Box::new(ssh_tunnel::SshTunnel::new()) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<system_info::SystemInfo>(),
-                Box::new(system_info::SystemInfo::new()?) as Box<dyn Feature>,
-            ),
-            (
-                TypeId::of::<wifi_commissioning::WifiCommissioning>(),
-                Box::<wifi_commissioning::WifiCommissioning>::default() as Box<dyn Feature>,
-            ),
+             (TypeId::of::<consent::DeviceUpdateConsent>(), consent),
+             (TypeId::of::<factory_reset::FactoryReset>(), factory_reset),
+             (TypeId::of::<modem_info::ModemInfo>(), modem_info),
+             (TypeId::of::<network::Network>(), network),
+             (TypeId::of::<provisioning_config::ProvisioningConfig>(), provisioning_config),
+             (TypeId::of::<reboot::Reboot>(), reboot),
+             (TypeId::of::<ssh_tunnel::SshTunnel>(), ssh_tunnel),
+             (TypeId::of::<system_info::SystemInfo>(), system_info),
+             (TypeId::of::<wifi_commissioning::WifiCommissioning>(), wifi_commissioning),
         ]);
 
         let twin = Twin {
@@ -125,18 +109,18 @@ impl Twin {
 
         // report feature availability
         for f in self.features.values() {
-            let value = if f.is_enabled() {
-                json!({ "version": f.version() })
+            let value = if f.is_enabled().await {
+                json!({ "version": f.version().await })
             } else {
                 json!(null)
             };
 
-            client.twin_report(json!({ f.name(): value }))?;
+            client.twin_report(json!({ f.name().await: value }))?;
         }
 
         // connect twin channels
         for f in self.features.values_mut() {
-            if f.is_enabled() {
+            if f.is_enabled().await {
                 f.connect_twin(
                     self.tx_reported_properties.clone(),
                     self.tx_outgoing_message.clone(),
@@ -157,7 +141,7 @@ impl Twin {
 
         // connect twin channels
         for f in self.features.values() {
-            if f.is_enabled() {
+            if f.is_enabled().await {
                 f.connect_web_service().await?;
             }
         }
@@ -243,12 +227,12 @@ impl Twin {
             .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
 
         ensure!(
-            feature.is_enabled(),
+            feature.is_enabled().await,
             "handle_command: feature is disabled {}",
-            feature.name()
+            feature.name().await
         );
 
-        info!("handle_command: {}({cmd_string})", feature.name());
+        info!("handle_command: {}({cmd_string})", feature.name().await);
 
         let result = feature.command(cmd).await;
 
@@ -344,11 +328,11 @@ impl Twin {
                 None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
                 Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
             };
-            let refresh_features = futures::stream::select_all::select_all(twin
+/*             let refresh_features = futures::stream::select_all::select_all(twin
                 .features
                 .values_mut()
                 .filter_map(|f| if f.is_enabled() { f.event_stream().unwrap() } else { None }
-            ));
+            )); */
         };
 
         let guard = Mutex::new(());
@@ -430,17 +414,17 @@ impl Twin {
                             let _guard = guard.lock();
                             twin.handle_command(request.command, Some(request.reply)).await?
                         },
-                        command = refresh_features.select_next_some() => {
-                            let _guard = guard.lock();
+/*                        command = refresh_features.select_next_some() => {
+                             let _guard = guard.lock();
                             let feature = twin
                                 .features
                                 .get_mut(&command.feature_id())
                                 .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
 
-                            ensure!(feature.is_enabled(), "event stream: feature is disabled {}", feature.name());
-                            info!("event stream: {}({command:?})", feature.name());
+                            ensure!(feature.is_enabled().await, "event stream: feature is disabled {}", feature.name().await);
+                            info!("event stream: {}({command:?})", feature.name().await);
                             feature.command(command).await?;
-                        },
+                        },*/
                     );
 
                     Ok::<(), anyhow::Error>(())
