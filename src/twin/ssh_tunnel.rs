@@ -14,9 +14,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::{
+    fs::OpenOptions,
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+};
 use uuid::Uuid;
 
 static MAX_ACTIVE_TUNNELS: usize = 5;
@@ -47,6 +50,16 @@ macro_rules! priv_key_path {
 macro_rules! control_socket_path {
     ($name:expr) => {{
         PathBuf::from(&format!(r"{}/{}-socket", ssh_tunnel_data!(), $name))
+    }};
+}
+
+macro_rules! device_cert_file {
+    () => {{
+        if cfg!(feature = "mock") {
+            std::env::var("DEVICE_CERT_FILE").unwrap()
+        } else {
+            "/mnt/cert/ssh/root_ca".to_string()
+        }
     }};
 }
 
@@ -83,6 +96,11 @@ where
         .map_err(D::Error::custom)?
         .as_hyphenated()
         .to_string())
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct UpdateDeviceSshCaCommand {
+    pub new_device_certificate: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -137,6 +155,7 @@ impl Feature for SshTunnel {
 
     async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
         match cmd {
+            FeatureCommand::DesiredUpdateDeviceSshCa(cmd) => self.update_device_ssh_ca(cmd).await,
             FeatureCommand::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
             FeatureCommand::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,
             FeatureCommand::OpenSshTunnel(cmd) => self.open_ssh_tunnel(cmd).await,
@@ -154,6 +173,25 @@ impl SshTunnel {
             tx_outgoing_message: None,
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         }
+    }
+
+    async fn update_device_ssh_ca(&self, args: UpdateDeviceSshCaCommand) -> CommandResult {
+        info!("update device ssh cert requested");
+
+        let mut ca_file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(device_cert_file!())
+            .await
+            .context("update_device_ssh_ca")?;
+
+        ca_file
+            .write_all(args.new_device_certificate.as_bytes())
+            .await
+            .context("update_device_ssh_ca")?;
+        ca_file.flush().await.context("update_device_ssh_ca")?;
+
+        Ok(None)
     }
 
     async fn get_ssh_pub_key(&self, args: GetSshPubKeyCommand) -> CommandResult {
@@ -599,6 +637,34 @@ mod tests {
         assert!(!priv_key_path.exists());
         assert!(!pub_key_path.exists());
         assert!(!cert_path.exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn update_device_ssh_ca_should_update_ca_file() {
+        const CERTIFICATE_DATA: &str = "Some Device Certificate Content";
+
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let mut ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
+
+        let _response = block_on(async {
+            ssh_tunnel
+                .command(FeatureCommand::DesiredUpdateDeviceSshCa(
+                    UpdateDeviceSshCaCommand {
+                        new_device_certificate: CERTIFICATE_DATA.to_string(),
+                    },
+                ))
+                .await
+        })
+        .unwrap();
+
+        let result = std::fs::read_to_string(&tmp_file.path()).unwrap();
+
+        assert_eq!(CERTIFICATE_DATA, result);
     }
 
     #[tokio::test(flavor = "multi_thread")]

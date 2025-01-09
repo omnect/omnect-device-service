@@ -23,6 +23,7 @@ use tokio::{
 pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
+    DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
     FactoryReset(factory_reset::FactoryResetCommand),
     FileCreated(FileCommand),
     FileModified(FileCommand),
@@ -42,6 +43,7 @@ impl Command {
         match self {
             CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
             FileCreated(cmd) => cmd.feature_id,
             FileModified(cmd) => cmd.feature_id,
