@@ -126,6 +126,12 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
+                    "ssh_tunnel_ca_pub" => match serde_json::from_value(value.clone()) {
+                        Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
+                        Err(e) => error!(
+                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
+                        ),
+                    },
                     "general_consent" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
                         Err(e) => error!(
