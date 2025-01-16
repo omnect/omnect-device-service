@@ -318,7 +318,7 @@ pub mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
-                .times(2)
+                .times(4)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -493,7 +493,7 @@ pub mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":1}})))
-                .times(1)
+                .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
@@ -653,7 +653,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(18).returning(|_| Ok(()));
+            mock.expect_twin_report().times(19).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -729,7 +729,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(18).returning(|_| Ok(()));
+            mock.expect_twin_report().times(19).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {

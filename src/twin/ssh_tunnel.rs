@@ -666,6 +666,64 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn reported_property_no_ca_file_available() {
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            tx_reported_properties: Some(tx_reported_properties),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_file = tmp_dir.path().join("some-ca-file");
+        env::set_var("DEVICE_CERT_FILE", &tmp_file);
+
+        let _response = block_on(async { ssh_tunnel.report().await }).unwrap();
+
+        let reported_properties = rx_reported_properties.try_recv().unwrap();
+
+        assert_eq!(
+            reported_properties,
+            json!({
+                "ssh_tunnel": {
+                    "version": 1,
+                }
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reported_property_trailing_whitespaces_and_newlines_are_stripped_from_ca_file() {
+        const CERTIFICATE_DATA: &str = "Some Device Certificate Content";
+
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            tx_reported_properties: Some(tx_reported_properties),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
+
+        std::fs::write(&tmp_file, format!("{CERTIFICATE_DATA}\n")).unwrap();
+
+        let _response = block_on(async { ssh_tunnel.report().await }).unwrap();
+
+        let reported_properties = rx_reported_properties.try_recv().unwrap();
+
+        assert_eq!(
+            reported_properties,
+            json!({
+                "ssh_tunnel": {
+                    "version": 1,
+                    "ca_pub": CERTIFICATE_DATA,
+                }
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_device_ssh_ca_should_update_ca_file() {
         const CERTIFICATE_DATA: &str = "Some Device Certificate Content";
 
