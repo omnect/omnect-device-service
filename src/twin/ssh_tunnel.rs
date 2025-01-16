@@ -56,7 +56,7 @@ macro_rules! control_socket_path {
 macro_rules! device_cert_file {
     () => {{
         if cfg!(feature = "mock") {
-            std::env::var("DEVICE_CERT_FILE").unwrap()
+            std::env::var("DEVICE_CERT_FILE").unwrap_or("/mnt/cert/ssh/root_ca".to_string())
         } else {
             "/mnt/cert/ssh/root_ca".to_string()
         }
@@ -492,17 +492,19 @@ impl SshTunnel {
             return Ok(());
         };
 
-        let device_ca_path = device_cert_file!();
-        let device_ca = std::fs::read_to_string(&device_ca_path).unwrap();
-
-        tx.send(json!({
+        let mut response = json!({
             "ssh_tunnel": {
                 "version": self.version(),
-                "ca_pub": device_ca,
             }
-        }))
-        .await
-        .context("report: send")
+        });
+
+        let device_ca_path = device_cert_file!();
+
+        if let Ok(ca_data) = std::fs::read_to_string(&device_ca_path) {
+            response["ssh_tunnel"]["ca_pub"] = json!(ca_data.trim_end().to_string());
+        };
+
+        tx.send(response).await.context("report: send")
     }
 }
 
