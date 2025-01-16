@@ -125,6 +125,7 @@ pub(crate) struct CloseSshTunnelCommand {
 }
 
 pub struct SshTunnel {
+    tx_reported_properties: Option<Sender<serde_json::Value>>,
     tx_outgoing_message: Option<Sender<IotMessage>>,
     ssh_tunnel_semaphore: Arc<Semaphore>,
 }
@@ -145,10 +146,13 @@ impl Feature for SshTunnel {
 
     async fn connect_twin(
         &mut self,
-        _tx_reported_properties: Sender<serde_json::Value>,
+        tx_reported_properties: Sender<serde_json::Value>,
         tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
+        self.tx_reported_properties = Some(tx_reported_properties);
         self.tx_outgoing_message = Some(tx_outgoing_message);
+
+        self.report().await?;
 
         Ok(())
     }
@@ -170,6 +174,7 @@ impl SshTunnel {
 
     pub fn new() -> Self {
         SshTunnel {
+            tx_reported_properties: None,
             tx_outgoing_message: None,
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         }
@@ -190,6 +195,8 @@ impl SshTunnel {
             .await
             .context("update_device_ssh_ca")?;
         ca_file.flush().await.context("update_device_ssh_ca")?;
+
+        self.report().await?;
 
         Ok(None)
     }
@@ -478,6 +485,25 @@ impl SshTunnel {
 
         Ok(())
     }
+
+    async fn report(&self) -> Result<()> {
+        let Some(tx) = &self.tx_reported_properties else {
+            warn!("report: skip since tx_reported_properties is None");
+            return Ok(());
+        };
+
+        let device_ca_path = device_cert_file!();
+        let device_ca = std::fs::read_to_string(&device_ca_path).unwrap();
+
+        tx.send(json!({
+            "ssh_tunnel": {
+                "version": self.version(),
+                "ca_pub": device_ca,
+            }
+        }))
+        .await
+        .context("report: send")
+    }
 }
 
 async fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
@@ -644,8 +670,10 @@ mod tests {
         const CERTIFICATE_DATA: &str = "Some Device Certificate Content";
 
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
             tx_outgoing_message: Some(tx_outgoing_message),
+            tx_reported_properties: Some(tx_reported_properties),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
@@ -665,12 +693,26 @@ mod tests {
         let result = std::fs::read_to_string(&tmp_file.path()).unwrap();
 
         assert_eq!(CERTIFICATE_DATA, result);
+
+        let reported_properties = rx_reported_properties.try_recv().unwrap();
+
+        assert_eq!(
+            reported_properties,
+            json!({
+                "ssh_tunnel": {
+                    "version": 1,
+                    "ca_pub": CERTIFICATE_DATA,
+                }
+            })
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn get_ssh_pub_key_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
+            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
@@ -726,7 +768,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn open_ssh_tunnel_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
+            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
