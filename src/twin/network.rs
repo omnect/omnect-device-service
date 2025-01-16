@@ -166,19 +166,32 @@ impl Network {
                 let mut dns_server: Vec<String> = vec![];
 
                 let Some(name) = i["Name"].as_str() else {
-                    error!("parse Name");
+                    error!("parse_interfaces: skip interface ('Name' missing)");
                     continue;
                 };
                 let Some(online) = i["OnlineState"].as_str() else {
-                    error!("parse OnlineState");
+                    error!("parse_interfaces: skip interface ('OnlineState' missing)");
                     continue;
                 };
+                let Some(mac: <Vec<Value<u8>>>) = i["HardwareAddress"].as_array() else{continue;};
                 let Ok(mac) =
                     serde_json::from_str::<Vec<u8>>(i["HardwareAddress"].to_string().as_str())
                 else {
-                    error!("parse HardwareAddress");
+                    error!("parse_interfaces: skip interface ('HardwareAddress' missing format: {:?})");
                     continue;
                 };
+                if 6 != mac.len() {
+                    error!(
+                        "parse_interfaces: skip interface ('HardwareAddress' length: {:?})",
+                        mac
+                    );
+                    continue;
+                }
+                let mac = mac
+                    .iter()
+                    .map(|v| format!("{:02x}", v).to_string())
+                    .collect::<Vec<String>>()
+                    .join(":");
 
                 if let Some(addrs) = i["Addresses"].as_array() {
                     addrs_v4 = addrs
@@ -192,15 +205,21 @@ impl Network {
                             let Ok(addr) =
                                 serde_json::from_str::<Vec<u8>>(a["Address"].to_string().as_str())
                             else {
-                                error!("parse Address {:?}", a["Address"]);
+                                error!(
+                                    "parse_interfaces: skip interface ('Address' format: {:?})",
+                                    a["Address"]
+                                );
                                 return None;
                             };
                             let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("convert Address {:?}", addr);
+                                error!(
+                                    "parse_interfaces: skip interface ('Address' length: {:?})",
+                                    addr
+                                );
                                 return None;
                             };
                             let Some(prefix_len) = a["PrefixLength"].as_u64() else {
-                                error!("parse PrefixLength {}", a["PrefixLength"]);
+                                error!("parse_interfaces: skip interface ('PrefixLength' missing)");
                                 return None;
                             };
                             let dhcp = a["ConfigSource"].as_str().is_some_and(|cs| cs.eq("DHCPv4"));
@@ -230,12 +249,12 @@ impl Network {
                             let Ok(addr) =
                                 serde_json::from_str::<Vec<u8>>(r["Gateway"].to_string().as_str())
                             else {
-                                error!("parse gateway {}", r["Gateway"]);
+                                error!("parse_interfaces: skip interface ('Gateway' unexpected format)");
                                 return None;
                             };
 
                             let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("convert gateway {:?}", addr);
+                                error!("parse_interfaces: skip interface ('Gateway' unexpected array)");
                                 return None;
                             };
 
@@ -254,12 +273,14 @@ impl Network {
                             let Ok(addr) =
                                 serde_json::from_str::<Vec<u8>>(d["Address"].to_string().as_str())
                             else {
-                                error!("parse Address {}", d["Address"]);
+                                error!(
+                                    "parse_interfaces: skip interface ('DNS' unexpected format)"
+                                );
                                 return None;
                             };
 
                             let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("convert Address {:?}", addr);
+                                error!("parse_interfaces: skip interface ('DNS' unexpected array)");
                                 return None;
                             };
 
@@ -277,11 +298,7 @@ impl Network {
                 report.push(Interface {
                     name: name.to_string(),
                     online: online.eq("online"),
-                    mac: mac
-                        .iter()
-                        .map(|v| format!("{:02x}", v).to_string())
-                        .collect::<Vec<String>>()
-                        .join(":"),
+                    mac,
                     ipv4,
                 });
             }
