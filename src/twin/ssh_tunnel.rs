@@ -70,14 +70,14 @@ pub(crate) struct BastionConfig {
 }
 
 #[cfg(feature = "mock")]
-fn exec_as_tunnel_user<S: AsRef<str>>(command: S) -> Command {
+fn exec_as<S: AsRef<str>>(_user: &str, command: S) -> Command {
     Command::new(command.as_ref())
 }
 
 #[cfg(not(feature = "mock"))]
-fn exec_as_tunnel_user<S: AsRef<str>>(command: S) -> Command {
+fn exec_as<S: AsRef<str>>(user: &str, command: S) -> Command {
     let mut cmd = Command::new("sudo");
-    cmd.args(["-u", SSH_TUNNEL_USER]);
+    cmd.args(["-u", user]);
     cmd.args([command.as_ref()]);
 
     cmd
@@ -180,7 +180,7 @@ impl SshTunnel {
     async fn update_device_ssh_ca(&self, args: UpdateDeviceSshCaCommand) -> CommandResult {
         info!("update device ssh cert requested");
 
-        let mut child = exec_as_tunnel_user("tee")
+        let mut child = exec_as("root", "tee")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -244,7 +244,7 @@ impl SshTunnel {
     }
 
     fn create_key_pair_command(priv_key_path: PathBuf) -> Result<Child> {
-        exec_as_tunnel_user("ssh-keygen")
+        exec_as(SSH_TUNNEL_USER, "ssh-keygen")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -260,7 +260,7 @@ impl SshTunnel {
     }
 
     async fn get_pub_key(pub_key_path: &Path) -> Result<String> {
-        let child = exec_as_tunnel_user("cat")
+        let child = exec_as(SSH_TUNNEL_USER, "cat")
             .stdout(Stdio::piped())
             .arg(pub_key_path.to_string_lossy().as_ref())
             .spawn()
@@ -339,7 +339,7 @@ impl SshTunnel {
             bastion_config.user
         );
 
-        exec_as_tunnel_user("ssh")
+        exec_as(SSH_TUNNEL_USER, "ssh")
             // closing stdin is functionally not necessary but fixes issues with logging
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -470,7 +470,7 @@ impl SshTunnel {
     }
 
     async fn close_tunnel_command(control_socket_path: &Path) -> Result<()> {
-        let result = exec_as_tunnel_user("ssh")
+        let result = exec_as(SSH_TUNNEL_USER, "ssh")
             .stdout(Stdio::piped())
             .args(["-O", "exit"])
             .args(["-S", control_socket_path.to_string_lossy().as_ref()])
@@ -512,7 +512,7 @@ impl SshTunnel {
 }
 
 async fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
-    let mut child = exec_as_tunnel_user("tee")
+    let mut child = exec_as(SSH_TUNNEL_USER, "tee")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
