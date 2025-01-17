@@ -129,7 +129,7 @@ impl Command {
                     "ssh_tunnel_ca_pub" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
                         Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
+                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e}"
                         ),
                     },
                     "general_consent" => match serde_json::from_value(value.clone()) {
