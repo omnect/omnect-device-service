@@ -99,8 +99,8 @@ where
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct UpdateDeviceSshCaCommand {
-    pub new_device_certificate: String,
+pub(crate) struct UpdateDeviceSshCaCommand{
+    ssh_tunnel_ca_pub: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -191,7 +191,7 @@ impl SshTunnel {
             .context("update_device_ssh_ca")?;
 
         ca_file
-            .write_all(args.new_device_certificate.as_bytes())
+            .write_all(args.ssh_tunnel_ca_pub.as_bytes())
             .await
             .context("update_device_ssh_ca")?;
         ca_file.flush().await.context("update_device_ssh_ca")?;
@@ -743,7 +743,7 @@ mod tests {
             ssh_tunnel
                 .command(FeatureCommand::DesiredUpdateDeviceSshCa(
                     UpdateDeviceSshCaCommand {
-                        new_device_certificate: CERTIFICATE_DATA.to_string(),
+                        ssh_tunnel_ca_pub: CERTIFICATE_DATA.to_string(),
                     },
                 ))
                 .await
