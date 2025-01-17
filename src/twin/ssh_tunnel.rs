@@ -14,12 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::str;
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError};
-use tokio::{
-    fs::OpenOptions,
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-};
 use uuid::Uuid;
 
 static MAX_ACTIVE_TUNNELS: usize = 5;
@@ -99,7 +96,7 @@ where
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct UpdateDeviceSshCaCommand{
+pub(crate) struct UpdateDeviceSshCaCommand {
     ssh_tunnel_ca_pub: String,
 }
 
@@ -183,18 +180,24 @@ impl SshTunnel {
     async fn update_device_ssh_ca(&self, args: UpdateDeviceSshCaCommand) -> CommandResult {
         info!("update device ssh cert requested");
 
-        let mut ca_file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(device_cert_file!())
-            .await
-            .context("update_device_ssh_ca")?;
+        let mut child = exec_as_tunnel_user("tee")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .arg(device_cert_file!())
+            .spawn()
+            .map_err(|_e| anyhow::anyhow!("failed to update ssh ca pub key"))?;
 
-        ca_file
-            .write_all(args.ssh_tunnel_ca_pub.as_bytes())
-            .await
-            .context("update_device_ssh_ca")?;
-        ca_file.flush().await.context("update_device_ssh_ca")?;
+        let data = args.ssh_tunnel_ca_pub.as_bytes();
+
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(data).await?;
+        drop(stdin); // necessary to close stdin
+
+        if !child.wait().await?.success() {
+            error!("failed to update ssh ca pub key");
+            anyhow::bail!("failed to update ssh ca pub key");
+        }
 
         self.report().await?;
 
