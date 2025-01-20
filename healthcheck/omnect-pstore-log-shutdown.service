@@ -1,0 +1,15 @@
+[Unit]
+Description=Log shutdown to pstore
+DefaultDependencies=no
+Requires=poweroff.target halt.target
+
+[Service]
+Type=exec
+ExecStart=/usr/sbin/omnect_log_reboot_reason_to_pmsg.sh shutdown
+RemainAfterExit=yes
+
+User=omnect
+Group=omnect
+
+[Install]
+WantedBy=poweroff.target halt.target

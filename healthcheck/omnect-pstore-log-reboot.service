@@ -1,0 +1,17 @@
+[Unit]
+Description=Log reboot to pstore
+DefaultDependencies=no
+Before=reboot.target
+
+[Service]
+Type=exec
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/sbin/omnect_log_reboot_reason_to_pmsg.sh reboot
+RemainAfterExit=yes
+
+User=omnect
+Group=omnect
+
+[Install]
+WantedBy=reboot.target
