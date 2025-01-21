@@ -110,6 +110,10 @@ PMSG_FILE="${2:-${PSTORE_DFLT_DIR}/${PMSG_DFLT_FILE}}"
 DMESG_DFLT_FILE="dmesg${RAMOOPS_FILENAME_POSTFIX}"
 DMESG_FILE="${3:-${PSTORE_DFLT_DIR}/${DMESG_DFLT_FILE}}"
 
+# we need to treat pmsg content different if ECC is enabled on ramoops, because
+# the last line returned by read from sysfs file contains an ECC status
+ecc_enabled="$(</sys/module/ramoops/parameters/ecc)"
+
 function err() {
     local exitval="${1:-1}"
     shift
@@ -126,14 +130,19 @@ function copy_and_compress_file() {
     local dstpath="$2"
     local del_after_copy="$3"
     local dont_compress="$4"
+    local ecc_quirk="$5"
     local srcfile=$(basename "$srcpath")
     local retval
 
     [ -f "${dstpath}" ] || dstpath=$(realpath "${dstpath}/${srcfile}")
 
-    cp "${srcpath}" "${dstpath}"
+    if [ "${ecc_quirk}" ]; then
+	sed '$d' "${srcpath}" > "${dstpath}"
+    else
+	cp "${srcpath}" "${dstpath}"
+    fi
     retval=$?
-    [ $retval = 0 ] || err 1 "Copying file failed: ${srcpath} -> ${dstpath}"
+    [ $retval = 0 ] || err 1 "Copying file failed: ${srcpath} -> ${dstpath} [ecc_quirk:${ecc_quirk}]"
 
     if [ -z "${dont_compress}" ]; then
 
@@ -188,7 +197,7 @@ del_after_copy=
 [ -r "${DMESG_FILE}"   ] \
     && dmesg_file=$(copy_and_compress_file "${DMESG_FILE}"   "${PWD}" "${del_after_copy}")
 [ -r "${PMSG_FILE}"    ] \
-    && pmsg_file=$(copy_and_compress_file "${PMSG_FILE}"    "${PWD}" "${del_after_copy}")
+    && pmsg_file=$(copy_and_compress_file "${PMSG_FILE}"    "${PWD}" "${del_after_copy}" 1 "${ecc_enabled}")
 
 # start with empty reason structure values later inserted into reason file
 r_datetime=
@@ -198,41 +207,41 @@ r_boot_id=
 r_reason=
 r_extra_info=
 
-if [ -r "${DMESG_FILE}" ]; then
+if [ -r "${dmesg_file}" ]; then
     # highest priority: obviously a panic occured, so report it
     r_reason="system-crash"
     # FFS:
     #   can we obtain some reasonable extra information here?
     #   maybe from dmesg file itself or from console file?
 
-    if [ -z "${r_extra_info}" -a -r "${PMSG_FILE}" ]; then
+    if [ -z "${r_extra_info}" -a -r "${pmsg_file}" ]; then
 	# gather all recorded reboot reasons for extra info
-	no_reasons=$(jq -s 'length' < "${PMSG_FILE}")
+	no_reasons=$(jq -s 'length' < "${pmsg_file}")
 	r_extra_info="pmsg file with multiple (${no_reasons}) reason entries exists: ${all_reasons}"
 
 	# use latest reboot record to fill reason; best approximation available
 	# and at least boot_id is correct!
-	r_datetime=$(jq -r '[ .[] | ."datetime" ] | last' < "${PMSG_FILE}")
-	r_timeepoch=$(jq -r '[ .[] | ."timeepoch" ] | last' < "${PMSG_FILE}")
-	r_uptime=$(jq -r '[ .[] | ."uptime" ] | last' < "${PMSG_FILE}")
-	r_boot_id=$(jq -r '[ .[] | ."boot_id" ] | last' < "${PMSG_FILE}")
+	r_datetime=$(jq -r '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
+	r_timeepoch=$(jq -r '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
+	r_uptime=$(jq -r '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+	r_boot_id=$(jq -r '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
     fi
 elif [ -r "${PMSG_FILE}" ]; then
     # we do have an annotated intentional reboot, so gather information
     #  - how many?
-    no_reasons=$(jq -s 'length' < "${PMSG_FILE}")
+    no_reasons=$(jq -s 'length' < "${pmsg_file}")
     retval=$?
     [ $retval = 0 ] || err 1 "Coudln't determine number of reason logs in pmsg file (corrupted?)"
 
     # now we need to analyze them
     if [ $no_reasons = 1 ]; then
 	# just use PMSG content
-	r_datetime=$(jq -r '."datetime"' < "${PMSG_FILE}")
-	r_timeepoch=$(jq -r '."timeepoch"' < "${PMSG_FILE}")
-	r_uptime=$(jq -r '."uptime"' < "${PMSG_FILE}")
-	r_boot_id=$(jq -r '."boot_id"' < "${PMSG_FILE}")
-	r_reason=$(jq -r '."reason"' < "${PMSG_FILE}")
-	r_extra_info=$(jq -r '."extra-info"' < "${PMSG_FILE}")
+	r_datetime=$(jq -r '."datetime"' < "${pmsg_file}")
+	r_timeepoch=$(jq -r '."timeepoch"' < "${pmsg_file}")
+	r_uptime=$(jq -r '."uptime"' < "${pmsg_file}")
+	r_boot_id=$(jq -r '."boot_id"' < "${pmsg_file}")
+	r_reason=$(jq -r '."reason"' < "${pmsg_file}")
+	r_extra_info=$(jq -r '."extra-info"' < "${pmsg_file}")
     elif [ $no_reasons = 0 ]; then
 	err 1 "Unrecognized pmsg file contents (no reason elements found)"
     else
@@ -256,21 +265,21 @@ elif [ -r "${PMSG_FILE}" ]; then
 	    if [ "$r_reason" ]; then
 		# now that we determined a reboot reason, gather all other info
 		# from last entry
-		r_datetime=$(jq -r '[ .[] | ."datetime" ] | last' < "${PMSG_FILE}")
-		r_timeepoch=$(jq -r '[ .[] | ."timeepoch" ] | last' < "${PMSG_FILE}")
-		r_uptime=$(jq -r '[ .[] | ."uptime" ] | last' < "${PMSG_FILE}")
-		r_boot_id=$(jq -r '[ .[] | ."boot_id" ] | last' < "${PMSG_FILE}")
+		r_datetime=$(jq -r '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
+		r_timeepoch=$(jq -r '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
+		r_uptime=$(jq -r '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+		r_boot_id=$(jq -r '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
 	    fi
 	fi
 
 	# if resulting reason is still not set do it now and provide more info
 	if [ -z "${r_reason}" ]; then
 	    r_reason="unrecognized"
-	    all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${PMSG_FILE}")
+	    all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
 	    r_extra_info="multiple (${no_reasons}) reason entries found in pmsg file: ${all_reasons}"
 	fi
     fi
-elif [ -r "${CONSOLE_FILE}" ]; then
+elif [ -r "${console_file}" ]; then
     r_reason="unrecognized"
     r_extra_info="console file w/o pmsg file"
 else
