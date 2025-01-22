@@ -164,7 +164,7 @@ impl Feature for SshTunnel {
 }
 
 impl SshTunnel {
-    const SSH_TUNNEL_VERSION: u8 = 1;
+    const SSH_TUNNEL_VERSION: u8 = 2;
     const ID: &'static str = "ssh_tunnel";
 
     pub fn new() -> Self {
@@ -693,7 +693,7 @@ mod tests {
             reported_properties,
             json!({
                 "ssh_tunnel": {
-                    "version": 1,
+                    "version": 2,
                     "ca_pub": null,
                 }
             })
@@ -724,7 +724,7 @@ mod tests {
             reported_properties,
             json!({
                 "ssh_tunnel": {
-                    "version": 1,
+                    "version": 2,
                     "ca_pub": CERTIFICATE_DATA,
                 }
             })
@@ -766,7 +766,7 @@ mod tests {
             reported_properties,
             json!({
                 "ssh_tunnel": {
-                    "version": 1,
+                    "version": 2,
                     "ca_pub": CERTIFICATE_DATA,
                 }
             })

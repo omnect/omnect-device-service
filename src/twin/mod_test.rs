@@ -322,14 +322,14 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .with(eq(json!({"ssh_tunnel":{"version":2}})))
                 .times(2)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
-                        "version":1,
+                        "version":2,
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
                     }
                 })))
@@ -507,14 +507,14 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .with(eq(json!({"ssh_tunnel":{"version":2}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
-                        "version":1,
+                        "version":2,
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
                     }
                 })))
