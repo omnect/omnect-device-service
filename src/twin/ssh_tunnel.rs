@@ -178,7 +178,7 @@ impl SshTunnel {
     async fn update_device_ssh_ca(&self, args: UpdateDeviceSshCaCommand) -> CommandResult {
         info!("update device ssh cert requested");
 
-        let mut child = exec_as("root", "tee")
+        let mut child = exec_as(SSH_TUNNEL_USER, "tee")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
