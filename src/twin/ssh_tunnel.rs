@@ -193,7 +193,6 @@ impl SshTunnel {
         drop(stdin); // necessary to close stdin
 
         if !child.wait().await?.success() {
-            error!("failed to update ssh ca pub key");
             anyhow::bail!("failed to update ssh ca pub key");
         }
 
