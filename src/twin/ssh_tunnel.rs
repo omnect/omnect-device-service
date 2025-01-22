@@ -149,9 +149,7 @@ impl Feature for SshTunnel {
         self.tx_reported_properties = Some(tx_reported_properties);
         self.tx_outgoing_message = Some(tx_outgoing_message);
 
-        self.report().await?;
-
-        Ok(())
+        self.report().await
     }
 
     async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
