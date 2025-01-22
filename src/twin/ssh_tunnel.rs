@@ -502,6 +502,11 @@ impl SshTunnel {
 
         if let Ok(ca_data) = std::fs::read_to_string(&device_ca_path) {
             response["ssh_tunnel"]["ca_pub"] = json!(ca_data.trim_end().to_string());
+        } else {
+            warn!("unable to read ssh public ca data");
+
+            // we signal the backend that we don't have a pub ca set.
+            response["ssh_tunnel"]["ca_pub"] = json!(null);
         };
 
         tx.send(response).await.context("report: send")
@@ -689,6 +694,7 @@ mod tests {
             json!({
                 "ssh_tunnel": {
                     "version": 1,
+                    "ca_pub": null,
                 }
             })
         );
