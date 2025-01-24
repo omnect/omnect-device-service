@@ -340,7 +340,7 @@ impl Twin {
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = match systemd::watchdog::WatchdogManager::init(){
+            let trigger_watchdog = match systemd::watchdog::WatchdogManager::init().await {
                 None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
                 Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
             };
@@ -361,7 +361,7 @@ impl Twin {
 
                 Some(_) = trigger_watchdog.next() => {
                     let _guard = guard.lock();
-                    systemd::watchdog::WatchdogManager::notify()?;
+                    systemd::watchdog::WatchdogManager::notify().await?;
                 },
                 _ = signals.next() => {
                     let _guard = guard.lock();
