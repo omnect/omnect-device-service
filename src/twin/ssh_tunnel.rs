@@ -50,6 +50,16 @@ macro_rules! control_socket_path {
     }};
 }
 
+macro_rules! device_cert_file {
+    () => {{
+        if cfg!(feature = "mock") {
+            std::env::var("DEVICE_CERT_FILE").unwrap_or("/mnt/cert/ssh/root_ca".to_string())
+        } else {
+            "/mnt/cert/ssh/root_ca".to_string()
+        }
+    }};
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, PartialEq)]
 pub(crate) struct BastionConfig {
@@ -60,14 +70,14 @@ pub(crate) struct BastionConfig {
 }
 
 #[cfg(feature = "mock")]
-fn exec_as_tunnel_user<S: AsRef<str>>(command: S) -> Command {
+fn exec_as<S: AsRef<str>>(_user: &str, command: S) -> Command {
     Command::new(command.as_ref())
 }
 
 #[cfg(not(feature = "mock"))]
-fn exec_as_tunnel_user<S: AsRef<str>>(command: S) -> Command {
+fn exec_as<S: AsRef<str>>(user: &str, command: S) -> Command {
     let mut cmd = Command::new("sudo");
-    cmd.args(["-u", SSH_TUNNEL_USER]);
+    cmd.args(["-u", user]);
     cmd.args([command.as_ref()]);
 
     cmd
@@ -83,6 +93,11 @@ where
         .map_err(D::Error::custom)?
         .as_hyphenated()
         .to_string())
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub(crate) struct UpdateDeviceSshCaCommand {
+    ssh_tunnel_ca_pub: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -107,6 +122,7 @@ pub(crate) struct CloseSshTunnelCommand {
 }
 
 pub struct SshTunnel {
+    tx_reported_properties: Option<Sender<serde_json::Value>>,
     tx_outgoing_message: Option<Sender<IotMessage>>,
     ssh_tunnel_semaphore: Arc<Semaphore>,
 }
@@ -127,16 +143,18 @@ impl Feature for SshTunnel {
 
     async fn connect_twin(
         &mut self,
-        _tx_reported_properties: Sender<serde_json::Value>,
+        tx_reported_properties: Sender<serde_json::Value>,
         tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
+        self.tx_reported_properties = Some(tx_reported_properties);
         self.tx_outgoing_message = Some(tx_outgoing_message);
 
-        Ok(())
+        self.report().await
     }
 
     async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
         match cmd {
+            FeatureCommand::DesiredUpdateDeviceSshCa(cmd) => self.update_device_ssh_ca(cmd).await,
             FeatureCommand::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
             FeatureCommand::GetSshPubKey(cmd) => self.get_ssh_pub_key(cmd).await,
             FeatureCommand::OpenSshTunnel(cmd) => self.open_ssh_tunnel(cmd).await,
@@ -146,14 +164,41 @@ impl Feature for SshTunnel {
 }
 
 impl SshTunnel {
-    const SSH_TUNNEL_VERSION: u8 = 1;
+    const SSH_TUNNEL_VERSION: u8 = 2;
     const ID: &'static str = "ssh_tunnel";
 
     pub fn new() -> Self {
         SshTunnel {
+            tx_reported_properties: None,
             tx_outgoing_message: None,
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         }
+    }
+
+    async fn update_device_ssh_ca(&self, args: UpdateDeviceSshCaCommand) -> CommandResult {
+        info!("update device ssh cert requested");
+
+        let mut child = exec_as(SSH_TUNNEL_USER, "tee")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .arg(device_cert_file!())
+            .spawn()
+            .map_err(|_e| anyhow::anyhow!("failed to update ssh ca pub key"))?;
+
+        let data = args.ssh_tunnel_ca_pub.as_bytes();
+
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(data).await?;
+        drop(stdin); // necessary to close stdin
+
+        if !child.wait().await?.success() {
+            anyhow::bail!("failed to update ssh ca pub key");
+        }
+
+        self.report().await?;
+
+        Ok(None)
     }
 
     async fn get_ssh_pub_key(&self, args: GetSshPubKeyCommand) -> CommandResult {
@@ -196,7 +241,7 @@ impl SshTunnel {
     }
 
     fn create_key_pair_command(priv_key_path: PathBuf) -> Result<Child> {
-        exec_as_tunnel_user("ssh-keygen")
+        exec_as(SSH_TUNNEL_USER, "ssh-keygen")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -212,7 +257,7 @@ impl SshTunnel {
     }
 
     async fn get_pub_key(pub_key_path: &Path) -> Result<String> {
-        let child = exec_as_tunnel_user("cat")
+        let child = exec_as(SSH_TUNNEL_USER, "cat")
             .stdout(Stdio::piped())
             .arg(pub_key_path.to_string_lossy().as_ref())
             .spawn()
@@ -291,7 +336,7 @@ impl SshTunnel {
             bastion_config.user
         );
 
-        exec_as_tunnel_user("ssh")
+        exec_as(SSH_TUNNEL_USER, "ssh")
             // closing stdin is functionally not necessary but fixes issues with logging
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -422,7 +467,7 @@ impl SshTunnel {
     }
 
     async fn close_tunnel_command(control_socket_path: &Path) -> Result<()> {
-        let result = exec_as_tunnel_user("ssh")
+        let result = exec_as(SSH_TUNNEL_USER, "ssh")
             .stdout(Stdio::piped())
             .args(["-O", "exit"])
             .args(["-S", control_socket_path.to_string_lossy().as_ref()])
@@ -440,10 +485,36 @@ impl SshTunnel {
 
         Ok(())
     }
+
+    async fn report(&self) -> Result<()> {
+        let Some(tx) = &self.tx_reported_properties else {
+            warn!("report: skip since tx_reported_properties is None");
+            return Ok(());
+        };
+
+        let mut response = json!({
+            "ssh_tunnel": {
+                "version": self.version(),
+            }
+        });
+
+        let device_ca_path = device_cert_file!();
+
+        if let Ok(ca_data) = std::fs::read_to_string(&device_ca_path) {
+            response["ssh_tunnel"]["ca_pub"] = json!(ca_data.trim_end().to_string());
+        } else {
+            warn!("unable to read ssh public ca data");
+
+            // we signal the backend that we don't have a pub ca set.
+            response["ssh_tunnel"]["ca_pub"] = json!(null);
+        };
+
+        tx.send(response).await.context("report: send")
+    }
 }
 
 async fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
-    let mut child = exec_as_tunnel_user("tee")
+    let mut child = exec_as(SSH_TUNNEL_USER, "tee")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -602,9 +673,112 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn reported_property_no_ca_file_available() {
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            tx_reported_properties: Some(tx_reported_properties),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let tmp_file = tmp_dir.path().join("some-ca-file");
+        env::set_var("DEVICE_CERT_FILE", &tmp_file);
+
+        let _response = block_on(async { ssh_tunnel.report().await }).unwrap();
+
+        let reported_properties = rx_reported_properties.try_recv().unwrap();
+
+        assert_eq!(
+            reported_properties,
+            json!({
+                "ssh_tunnel": {
+                    "version": 2,
+                    "ca_pub": null,
+                }
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reported_property_trailing_whitespaces_and_newlines_are_stripped_from_ca_file() {
+        const CERTIFICATE_DATA: &str = "Some Device Certificate Content";
+
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            tx_reported_properties: Some(tx_reported_properties),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
+
+        std::fs::write(&tmp_file, format!("{CERTIFICATE_DATA}\n")).unwrap();
+
+        let _response = block_on(async { ssh_tunnel.report().await }).unwrap();
+
+        let reported_properties = rx_reported_properties.try_recv().unwrap();
+
+        assert_eq!(
+            reported_properties,
+            json!({
+                "ssh_tunnel": {
+                    "version": 2,
+                    "ca_pub": CERTIFICATE_DATA,
+                }
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn update_device_ssh_ca_should_update_ca_file() {
+        const CERTIFICATE_DATA: &str = "Some Device Certificate Content";
+
+        let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let mut ssh_tunnel = SshTunnel {
+            tx_outgoing_message: Some(tx_outgoing_message),
+            tx_reported_properties: Some(tx_reported_properties),
+            ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
+        };
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
+
+        let _response = block_on(async {
+            ssh_tunnel
+                .command(FeatureCommand::DesiredUpdateDeviceSshCa(
+                    UpdateDeviceSshCaCommand {
+                        ssh_tunnel_ca_pub: CERTIFICATE_DATA.to_string(),
+                    },
+                ))
+                .await
+        })
+        .unwrap();
+
+        let result = std::fs::read_to_string(&tmp_file.path()).unwrap();
+
+        assert_eq!(CERTIFICATE_DATA, result);
+
+        let reported_properties = rx_reported_properties.try_recv().unwrap();
+
+        assert_eq!(
+            reported_properties,
+            json!({
+                "ssh_tunnel": {
+                    "version": 2,
+                    "ca_pub": CERTIFICATE_DATA,
+                }
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn get_ssh_pub_key_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
+            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
@@ -660,7 +834,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn open_ssh_tunnel_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
+            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };

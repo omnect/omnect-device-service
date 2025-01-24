@@ -355,10 +355,10 @@ mod tests {
         assert_eq!(
             rx_reported_properties.blocking_recv(),
             Some(json!({
-                "device_update_consent": {
-                    "general_consent": [],
-                    "reset_consent_on_fail": false
-                }}))
+            "device_update_consent": {
+                "general_consent": [],
+                "reset_consent_on_fail": false
+            }}))
         );
 
         let consent_conf: ConsentConfig = serde_json::from_reader(
@@ -392,10 +392,10 @@ mod tests {
         assert_eq!(
             rx_reported_properties.blocking_recv(),
             Some(json!({
-                "device_update_consent": {
-                    "general_consent": ["bar", "foo"],
-                    "reset_consent_on_fail": false
-                }}))
+            "device_update_consent": {
+                "general_consent": ["bar", "foo"],
+                "reset_consent_on_fail": false
+            }}))
         );
     }
 

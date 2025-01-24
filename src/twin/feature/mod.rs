@@ -23,6 +23,7 @@ use tokio::{
 pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
+    DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
     FactoryReset(factory_reset::FactoryResetCommand),
     FileCreated(FileCommand),
     FileModified(FileCommand),
@@ -42,6 +43,7 @@ impl Command {
         match self {
             CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
             FileCreated(cmd) => cmd.feature_id,
             FileModified(cmd) => cmd.feature_id,
@@ -124,6 +126,12 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
+                    "ssh_tunnel_ca_pub" => match serde_json::from_value(value.clone()) {
+                        Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
+                        Err(e) => error!(
+                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e}"
+                        ),
+                    },
                     "general_consent" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
                         Err(e) => error!(
