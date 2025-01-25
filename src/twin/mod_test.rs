@@ -165,6 +165,7 @@ pub mod mod_test {
             test_env.copy_file("testfiles/positive/factory-reset-status_succeeded");
             test_env.copy_file("testfiles/positive/config.toml.est");
             test_env.copy_file("testfiles/positive/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer");
+            test_env.copy_file("testfiles/positive/ssh_root_ca.pub");
             test_files.iter().for_each(|file| {
                 test_env.copy_file(file);
             });
@@ -207,6 +208,10 @@ pub mod mod_test {
             env::set_var(
                 "EST_CERT_FILE_PATH",
                 format!("{}/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
+            );
+            env::set_var(
+                "DEVICE_CERT_FILE",
+                format!("{}/ssh_root_ca.pub", test_env.dirpath()),
             );
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
@@ -317,7 +322,17 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .with(eq(json!({"ssh_tunnel":{"version":2}})))
+                .times(2)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({
+                    "ssh_tunnel":{
+                        "version":2,
+                        "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
+                    }
+                })))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -492,7 +507,17 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"ssh_tunnel":{"version":1}})))
+                .with(eq(json!({"ssh_tunnel":{"version":2}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({
+                    "ssh_tunnel":{
+                        "version":2,
+                        "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
+                    }
+                })))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -653,7 +678,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(18).returning(|_| Ok(()));
+            mock.expect_twin_report().times(19).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -729,7 +754,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(18).returning(|_| Ok(()));
+            mock.expect_twin_report().times(19).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {

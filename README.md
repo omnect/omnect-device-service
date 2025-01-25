@@ -654,6 +654,29 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_SSH_TUNNEL=true
 ```
 
+#### Current reported ssh tunnel feature status
+
+The module reports the certificate used to authenticate users in the status for
+ssh tunnels. For this purpose the module sends this reported property to the
+cloud.
+
+```
+"ssh_tunnel": {
+  "version": 2,
+  "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp user@Host"
+}
+```
+
+#### Configure the ssh certificate
+
+The certificate used to authenticate ssh logins can be configured via the desired property:
+
+```
+"ssh_tunnel_ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+CGoRCDE+liBbAqfr1190RcTwXzS77Al user@Host"
+```
+
+This way one can facilitate provisioning and rotation for the ssh ca public keys on devices.
+
 #### Access to Device SSH Public Key
 
 This creates a single-use ssh key pair and retrieves the public key of the key pair. A signed certificate for this public key is then expected as an argument with a subsequent `open_ssh_tunnel` call.
