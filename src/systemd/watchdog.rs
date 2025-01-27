@@ -56,7 +56,7 @@ impl WatchdogManager {
         Ok(())
     }
 
-    pub async  fn interval(timeout: Duration) -> Result<Option<Duration>> {
+    pub async fn interval(timeout: Duration) -> Result<Option<Duration>> {
         info!("set interval {}µs", timeout.as_micros());
 
         let mut old_timeout = None;
