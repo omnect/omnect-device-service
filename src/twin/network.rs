@@ -173,25 +173,10 @@ impl Network {
                     error!("parse_interfaces: skip interface ('OnlineState' missing)");
                     continue;
                 };
-                let Some(mac: <Vec<Value<u8>>>) = i["HardwareAddress"].as_array() else{continue;};
-                let Ok(mac) =
-                    serde_json::from_str::<Vec<u8>>(i["HardwareAddress"].to_string().as_str())
-                else {
-                    error!("parse_interfaces: skip interface ('HardwareAddress' missing format: {:?})");
+
+                let Some(mac) = Self::parse_mac(i, "HardwareAddress") else {
                     continue;
                 };
-                if 6 != mac.len() {
-                    error!(
-                        "parse_interfaces: skip interface ('HardwareAddress' length: {:?})",
-                        mac
-                    );
-                    continue;
-                }
-                let mac = mac
-                    .iter()
-                    .map(|v| format!("{:02x}", v).to_string())
-                    .collect::<Vec<String>>()
-                    .join(":");
 
                 if let Some(addrs) = i["Addresses"].as_array() {
                     addrs_v4 = addrs
@@ -202,22 +187,11 @@ impl Network {
                             {
                                 return None;
                             }
-                            let Ok(addr) =
-                                serde_json::from_str::<Vec<u8>>(a["Address"].to_string().as_str())
-                            else {
-                                error!(
-                                    "parse_interfaces: skip interface ('Address' format: {:?})",
-                                    a["Address"]
-                                );
+
+                            let Some(addr) = Self::parse_ipv4(a, "Address") else {
                                 return None;
                             };
-                            let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!(
-                                    "parse_interfaces: skip interface ('Address' length: {:?})",
-                                    addr
-                                );
-                                return None;
-                            };
+
                             let Some(prefix_len) = a["PrefixLength"].as_u64() else {
                                 error!("parse_interfaces: skip interface ('PrefixLength' missing)");
                                 return None;
@@ -225,7 +199,7 @@ impl Network {
                             let dhcp = a["ConfigSource"].as_str().is_some_and(|cs| cs.eq("DHCPv4"));
 
                             Some(Address {
-                                addr: std::net::IpAddr::from(addr).to_string(),
+                                addr,
                                 prefix_len,
                                 dhcp,
                             })
@@ -246,19 +220,8 @@ impl Network {
                             {
                                 return None;
                             }
-                            let Ok(addr) =
-                                serde_json::from_str::<Vec<u8>>(r["Gateway"].to_string().as_str())
-                            else {
-                                error!("parse_interfaces: skip interface ('Gateway' unexpected format)");
-                                return None;
-                            };
 
-                            let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("parse_interfaces: skip interface ('Gateway' unexpected array)");
-                                return None;
-                            };
-
-                            Some(std::net::IpAddr::from(addr).to_string())
+                            Self::parse_ipv4(r, "Gateway")
                         })
                         .collect();
                 }
@@ -270,21 +233,8 @@ impl Network {
                             if !d["Family"].as_u64().is_some_and(|f| f.eq(&2)) {
                                 return None;
                             }
-                            let Ok(addr) =
-                                serde_json::from_str::<Vec<u8>>(d["Address"].to_string().as_str())
-                            else {
-                                error!(
-                                    "parse_interfaces: skip interface ('DNS' unexpected format)"
-                                );
-                                return None;
-                            };
 
-                            let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("parse_interfaces: skip interface ('DNS' unexpected array)");
-                                return None;
-                            };
-
-                            Some(std::net::IpAddr::from(addr).to_string())
+                            Self::parse_ipv4(d, "Address")
                         })
                         .collect();
                 }
@@ -308,6 +258,44 @@ impl Network {
         report.sort_by_key(|k| k.name.clone());
 
         Ok(report)
+    }
+
+    fn parse_mac(value: &serde_json::Value, field: &str) -> Option<String> {
+        let mac = value[field].to_string();
+        if mac.is_empty() {
+            error!("parse_interfaces: skip interface ('{field}' missing)");
+            return None;
+        };
+        let Ok(mac) = serde_json::from_str::<[u8; 6]>(&mac) else {
+            error!(
+                "parse_interfaces: skip interface ('{field}' invalid format: {:?})",
+                mac
+            );
+            return None;
+        };
+        Some(
+            mac.iter()
+                .map(|v| format!("{:02x}", v).to_string())
+                .collect::<Vec<String>>()
+                .join(":"),
+        )
+    }
+
+    fn parse_ipv4(value: &serde_json::Value, field: &str) -> Option<String> {
+        let addr = value[field].to_string();
+        if addr.is_empty() {
+            error!("parse_interfaces: skip interface ('{field}' missing)");
+            return None;
+        };
+        let Ok(addr) = serde_json::from_str::<[u8; 4]>(&addr) else {
+            error!(
+                "parse_interfaces: skip interface ('{field}' invalid format: {:?})",
+                addr
+            );
+            return None;
+        };
+
+        Some(std::net::IpAddr::from(addr).to_string())
     }
 }
 
