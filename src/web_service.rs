@@ -221,7 +221,7 @@ impl WebService {
         let pubs = PUBLISH_CHANNEL_MAP.lock().await;
 
         HttpResponse::Ok().body(
-            serde_json::to_string(&pubs.to_owned()).expect("cannot convert publish map to string"),
+            serde_json::to_string(&pubs.clone()).expect("cannot convert publish map to string"),
         )
     }
 

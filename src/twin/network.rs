@@ -188,9 +188,7 @@ impl Network {
                                 return None;
                             }
 
-                            let Some(addr) = Self::parse_ipv4(a, "Address") else {
-                                return None;
-                            };
+                            let addr = Self::parse_ipv4(a, "Address")?;
 
                             let Some(prefix_len) = a["PrefixLength"].as_u64() else {
                                 error!("parse_interfaces: skip interface ('PrefixLength' missing)");
