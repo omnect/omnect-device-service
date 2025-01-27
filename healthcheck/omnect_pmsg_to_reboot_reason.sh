@@ -221,10 +221,10 @@ if [ -r "${dmesg_file}" ]; then
 
 	# use latest reboot record to fill reason; best approximation available
 	# and at least boot_id is correct!
-	r_datetime=$(jq -r '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
-	r_timeepoch=$(jq -r '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
-	r_uptime=$(jq -r '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
-	r_boot_id=$(jq -r '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
+	r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
+	r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
+	r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+	r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
     fi
 elif [ -r "${PMSG_FILE}" ]; then
     # we do have an annotated intentional reboot, so gather information
@@ -245,14 +245,14 @@ elif [ -r "${PMSG_FILE}" ]; then
     elif [ $no_reasons = 0 ]; then
 	err 1 "Unrecognized pmsg file contents (no reason elements found)"
     else
-	# that's tricky, we face several PMSG entries so let's see what we
-	# could have here ...
+	# that might become tricky: we face several PMSG entries so let's see
+	# what we could have here ...
 
 	# 1. having reboot as last reason
 	# here we assume the real reason to be contained in the next-to-last
 	# entry
-	last_reason=$(jq -rs  '[ .[] | .reason ] | last)' < pstore/pmsg-ramoops-0)
-	next_to_last_reason=$(jq -rs  '[ .[] | .reason ] | nth('$((no_reasons - 2))')' < pstore/pmsg-ramoops-0)
+	last_reason=$(jq -rs  '[ .[] | .reason ] | last' < "${pmsg_file}")
+	next_to_last_reason=$(jq -rs  '[ .[] | .reason ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
 
 	if [ "${last_reason}" = "reboot" ]; then
 	    # FIXME: what cases do we need to sort out here?
@@ -265,10 +265,10 @@ elif [ -r "${PMSG_FILE}" ]; then
 	    if [ "$r_reason" ]; then
 		# now that we determined a reboot reason, gather all other info
 		# from last entry
-		r_datetime=$(jq -r '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
-		r_timeepoch=$(jq -r '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
-		r_uptime=$(jq -r '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
-		r_boot_id=$(jq -r '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
+		r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
+		r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
+		r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+		r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
 	    fi
 	fi
 
