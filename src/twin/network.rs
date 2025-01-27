@@ -177,18 +177,6 @@ impl Network {
                 let Some(mac) = Self::parse_mac(i, "HardwareAddress") else {
                     continue;
                 };
-                if 6 != mac.len() {
-                    error!(
-                        "parse_interfaces: skip interface ('HardwareAddress' length: {:?})",
-                        mac
-                    );
-                    continue;
-                }
-                let mac = mac
-                    .iter()
-                    .map(|v| format!("{:02x}", v).to_string())
-                    .collect::<Vec<String>>()
-                    .join(":");
 
                 if let Some(addrs) = i["Addresses"].as_array() {
                     addrs_v4 = addrs
