@@ -260,13 +260,9 @@ impl Network {
 
     fn parse_mac(value: &serde_json::Value, field: &str) -> Option<String> {
         let mac = value[field].to_string();
-        if mac.is_empty() {
-            error!("parse_interfaces: skip interface ('{field}' missing)");
-            return None;
-        };
         let Ok(mac) = serde_json::from_str::<[u8; 6]>(&mac) else {
             error!(
-                "parse_interfaces: skip interface ('{field}' invalid format: {:?})",
+                "parse_interfaces: skip interface ('{field}' missing or invalid format: {:?})",
                 mac
             );
             return None;
@@ -281,13 +277,9 @@ impl Network {
 
     fn parse_ipv4(value: &serde_json::Value, field: &str) -> Option<String> {
         let addr = value[field].to_string();
-        if addr.is_empty() {
-            error!("parse_interfaces: skip interface ('{field}' missing)");
-            return None;
-        };
         let Ok(addr) = serde_json::from_str::<[u8; 4]>(&addr) else {
             error!(
-                "parse_interfaces: skip interface ('{field}' invalid format: {:?})",
+                "parse_interfaces: skip interface ('{field}' missing or invalid format: {:?})",
                 addr
             );
             return None;
@@ -314,5 +306,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 2)
+    }
+
+    #[test]
+    fn networkd_parse_interfaces_missing_mac() {
+        let json: serde_json::Value = serde_json::from_reader(
+            OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open("testfiles/negative/systemd-networkd-link-description-missing-mac.json")
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 1)
     }
 }
