@@ -25,11 +25,12 @@ static PUBLISH_ENDPOINTS: LazyLock<Mutex<Vec<PublishEndpoint>>> =
     LazyLock::new(|| match std::fs::File::open(publish_endpoints_path!()) {
         Ok(file) => Mutex::new(serde_json::from_reader(file).expect("cannot parse endpoints file")),
         Err(kind) if kind.kind() == std::io::ErrorKind::NotFound => {
-            info!("run: no endpoint file present");
+            info!("no endpoint file present");
             Mutex::new(vec![])
         }
         Err(_) => {
-            panic!("cannot open endpoints file")
+            error!("cannot open endpoints file");
+            Mutex::new(vec![])
         }
     });
 
