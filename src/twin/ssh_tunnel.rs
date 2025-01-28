@@ -184,17 +184,30 @@ impl SshTunnel {
             .stderr(Stdio::null())
             .arg(device_cert_file!())
             .spawn()
-            .context("failed to spawn update ssh ca pub key command")?;
+            .context("update_device_ssh_ca: failed to spawn update ssh ca pub key command")?;
 
         let data = args.ssh_tunnel_ca_pub.as_bytes();
 
-        let mut stdin = child.stdin.take().unwrap();
-        stdin.write_all(data).await?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("update_device_ssh_ca: failed to get stdin")?;
+
+        stdin
+            .write_all(data)
+            .await
+            .context("update_device_ssh_ca: failed to write to stdin")?;
+
         drop(stdin); // necessary to close stdin
 
-        if !child.wait().await?.success() {
-            bail!("failed to update ssh ca pub key");
-        }
+        ensure!(
+            child
+                .wait()
+                .await
+                .context("update_device_ssh_ca: failed to wait for command")?
+                .success(),
+            "update_device_ssh_ca: failed to update ssh ca pub key"
+        );
 
         self.report().await?;
 
@@ -208,9 +221,7 @@ impl SshTunnel {
             priv_key_path!(args.tunnel_id),
             pub_key_path!(args.tunnel_id),
         );
-        Self::create_key_pair(priv_key_path)
-            .await
-            .context("get_ssh_pub_key: {e}")?;
+        Self::create_key_pair(priv_key_path).await?;
 
         Ok(Some(
             json!({ "key": Self::get_pub_key(&pub_key_path).await? }),
@@ -227,16 +238,21 @@ impl SshTunnel {
         let Some(mut stdin) = child.stdin.take() else {
             bail!("create_key_pair: failed to get stdin")
         };
-        stdin.write_all("y\n".as_bytes()).await?;
+        stdin
+            .write_all("y\n".as_bytes())
+            .await
+            .context("create_key_pair: failed to write to stdin")?;
 
-        let output = child.wait_with_output().await?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("create_key_pair: failed to wait for output")?;
 
-        if !output.status.success() {
-            bail!(
-                "create_key_pair: failed to create ssh key pair: {}",
-                str::from_utf8(&output.stderr)?
-            );
-        }
+        ensure!(
+            output.status.success(),
+            "create_key_pair: failed to create ssh key pair: {}",
+            str::from_utf8(&output.stderr)?
+        );
 
         Ok(())
     }
@@ -251,7 +267,7 @@ impl SshTunnel {
             .args(["-t", SSH_KEY_TYPE])
             .args(["-N", ""])
             .spawn()
-            .context("Failed to create ssh key pair")
+            .context("create_key_pair_command: failed to spawn create ssh key pair command")
     }
 
     async fn get_pub_key(pub_key_path: &Path) -> Result<String> {
@@ -259,13 +275,17 @@ impl SshTunnel {
             .stdout(Stdio::piped())
             .arg(pub_key_path.to_string_lossy().as_ref())
             .spawn()
-            .context("Failed to get pub key")?;
+            .context("get_pub_key: failed to spawn get pub key command")?;
 
-        let output = child.wait_with_output().await?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("get_pub_key: failed to wait for output")?;
 
-        if !output.status.success() {
-            bail!("Failed to retrieve ssh public key.");
-        }
+        ensure!(
+            output.status.success(),
+            "get_pub_key: failed to retrieve ssh public key."
+        );
 
         Ok(str::from_utf8(&output.stdout)?.to_string())
     }
@@ -276,15 +296,14 @@ impl SshTunnel {
         let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(TryAcquireError::NoPermits) => {
-                bail!("ssh_tunnel: maximum number of active ssh connections is reached")
+                bail!("open_ssh_tunnel: maximum number of active ssh connections is reached")
             }
-            Err(_other) => bail!("ssh_tunnel: failed to lock tunnel"),
+            Err(_other) => bail!("open_ssh_tunnel: failed to lock tunnel"),
         };
 
         // ensure our ssh keys and certificate are cleaned up properly when
         // leaving this function
-        let ssh_creds = SshCredentialsGuard::new(&priv_key_path!(&args.tunnel_id))
-            .context("Failed to open ssh tunnel")?;
+        let ssh_creds = SshCredentialsGuard::new(&priv_key_path!(&args.tunnel_id))?;
 
         // store the certificate so that ssh can use it for login on the bastion host
         store_ssh_cert(&ssh_creds.cert(), &args.certificate).await?;
@@ -361,7 +380,7 @@ impl SshTunnel {
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
             .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
-            .context("open_ssh_tunnel: failed setting up tunnel to bastion host")
+            .context("start_tunnel_command: failed to spawn command")
     }
 
     #[cfg(feature = "mock")]
@@ -380,7 +399,7 @@ impl SshTunnel {
                 &format!("echo established && cat < {} || true", &bastion_config.host),
             ])
             .spawn()
-            .context("start_tunnel_command: failed")
+            .context("start_tunnel_command: failed to spawn command")
     }
 
     async fn await_tunnel_termination(
@@ -393,14 +412,17 @@ impl SshTunnel {
         let output = match ssh_process.wait_with_output().await {
             Ok(output) => output,
             Err(err) => {
-                error!("Could not retrieve output from ssh process: {}", err);
+                error!(
+                    "await_tunnel_termination: could not retrieve output from ssh process: {}",
+                    err
+                );
                 return;
             }
         };
 
         if !output.status.success() {
             warn!(
-                "SSH command exited with errors: {}",
+                "await_tunnel_termination: SSH command exited with errors: {}",
                 str::from_utf8(&output.stderr).unwrap()
             );
         }
@@ -426,27 +448,24 @@ impl SshTunnel {
                 if msg == "established" {
                     Ok(())
                 } else {
-                    bail!("open_ssh_tunnel: Failed to establish ssh tunnel due to unexpected response from ssh server: {}", msg);
+                    bail!("await_tunnel_creation: failed to establish ssh tunnel due to unexpected response from ssh server: {}", msg);
                 }
             }
             Ok(None) => {
-                bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
+                bail!("await_tunnel_creation: failed to establish ssh tunnel");
             }
             Err(err) => {
-                bail!("open_ssh_tunnel: Failed to establish ssh tunnel since unable to read from ssh process: {}", err);
+                bail!("await_tunnel_creation: failed to establish ssh tunnel since unable to read from ssh process: {}", err);
             }
         }
     }
 
     async fn close_ssh_tunnel(&self, args: CloseSshTunnelCommand) -> CommandResult {
-        info!("close ssh tunnel requested");
-
         let control_socket_path = control_socket_path!(&args.tunnel_id);
 
-        debug!(
-            "Closing ssh tunnel \"{}\", socket path: \"{}\"",
-            args.tunnel_id,
-            control_socket_path.display()
+        info!(
+            "close_ssh_tunnel: \"{}\", socket path: \"{:?}\"",
+            args.tunnel_id, control_socket_path
         );
 
         Self::close_tunnel_command(&control_socket_path).await?;
@@ -462,12 +481,12 @@ impl SshTunnel {
             .args(["bastion_host"]) // the destination host name is not used but necessary for the ssh command here
             .output()
             .await
-            .context("close_ssh_tunnel: failed")?;
+            .context("close_tunnel_command: failed")?;
 
         if !result.status.success() {
             warn!(
-                "Unexpected error upon closing tunnel: {}",
-                str::from_utf8(&result.stderr).unwrap()
+                "close_tunnel_command: unexpected error upon closing tunnel: {}",
+                str::from_utf8(&result.stderr)?
             );
         }
 
@@ -491,7 +510,7 @@ impl SshTunnel {
         if let Ok(ca_data) = std::fs::read_to_string(&device_ca_path) {
             response["ssh_tunnel"]["ca_pub"] = json!(ca_data.trim_end().to_string());
         } else {
-            warn!("unable to read ssh public ca data");
+            warn!("report: unable to read ssh public ca data");
 
             // we signal the backend that we don't have a pub ca set.
             response["ssh_tunnel"]["ca_pub"] = json!(null);
@@ -519,14 +538,14 @@ async fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
         .context("store_ssh_cert: failed to write to stdin")?;
     drop(stdin); // necessary to close stdin
 
-    if !child
-        .wait()
-        .await
-        .context("store_ssh_cert: failed to wait for command")?
-        .success()
-    {
-        bail!("store_ssh_cert: command failed");
-    }
+    ensure!(
+        child
+            .wait()
+            .await
+            .context("store_ssh_cert: failed to wait for command")?
+            .success(),
+        "store_ssh_cert: command failed",
+    );
 
     Ok(())
 }
@@ -538,7 +557,10 @@ struct SshCredentialsGuard {
 
 impl SshCredentialsGuard {
     fn new(key_path: &Path) -> Result<SshCredentialsGuard> {
-        ensure!(key_path.parent().is_some());
+        ensure!(
+            key_path.parent().is_some(),
+            "SshCredentialsGuard new: parent key path missing"
+        );
 
         Ok(SshCredentialsGuard {
             key_path: key_path.into(),
@@ -562,12 +584,13 @@ impl SshCredentialsGuard {
 
 fn remove_file(file: &PathBuf) -> Result<()> {
     if cfg!(feature = "mock") {
-        std::fs::remove_file(file)?;
+        std::fs::remove_file(file).context("remove_file: failed")?;
     } else {
         std::process::Command::new("sudo")
             .args(["-u", SSH_TUNNEL_USER])
             .args(["rm", &*file.to_string_lossy()])
-            .output()?;
+            .output()
+            .context("remove_file: failed")?;
     };
 
     Ok(())
@@ -772,7 +795,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn get_ssh_pub_key_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
+            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
@@ -828,7 +853,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn open_ssh_tunnel_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
+        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
+            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
