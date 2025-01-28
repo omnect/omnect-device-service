@@ -72,6 +72,10 @@
 #  - shutdown
 #    -> shutdown; unlikely to be seen unless an external reset mechanism
 #       exists which leaves pstore intact
+#  - ods-reboot
+#    -> reboot initiated by means of omnect-device-service
+#  - factory-reset
+#    -> reboot after initiating factory reset
 #  - swupdate
 #    -> reboot after SW update installation
 #  - swupdate-validation-failed
@@ -257,7 +261,7 @@ elif [ -r "${PMSG_FILE}" ]; then
 	if [ "${last_reason}" = "reboot" ]; then
 	    # FIXME: what cases do we need to sort out here?
 	    case "${next_to_last_reason}" in
-		swupdate | swupdate-validation-failed)
+		swupdate | swupdate-validation-failed | factory-reset | portal-reboot)
 		    r_reason="${next_to_last_reason}"
 		    r_extra_info="reboot after ${next_to_last_reason}"
 		    ;;
