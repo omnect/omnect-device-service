@@ -1,3 +1,4 @@
+use crate::{reboot_reason};
 use super::super::bootloader_env;
 use super::super::systemd;
 use super::{feature::*, Feature};
@@ -167,6 +168,9 @@ impl FactoryReset {
 
         bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
         self.report_factory_reset_status("in_progress").await?;
+	let _ = reboot_reason::reboot_reason(
+	    "factory-reset", "")
+            .context("factory_reset: couldn't initiate writing reboot reason");
         systemd::reboot().await?;
         Ok(None)
     }

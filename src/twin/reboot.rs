@@ -1,3 +1,4 @@
+use crate::{reboot_reason};
 use super::super::systemd;
 use super::web_service;
 use super::{feature::*, Feature};
@@ -63,6 +64,10 @@ impl Reboot {
 
     async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
+
+	let _ = reboot_reason::reboot_reason(
+	    "ods-reboot", "initiated by portal")
+	    .context(": couldn't initiate writing reboot reason");
 
         systemd::reboot().await?;
 

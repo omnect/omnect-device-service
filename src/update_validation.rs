@@ -1,5 +1,6 @@
 use crate::{
     bootloader_env, systemd, systemd::unit::UnitAction, systemd::watchdog::WatchdogManager,
+    reboot_reason,
 };
 use anyhow::{bail, ensure, Context, Result};
 use log::{debug, error, info};
@@ -116,13 +117,16 @@ impl UpdateValidation {
             let validation_timeout = new_self.validation_timeout;
 
             new_self.join_handle = Some(tokio::spawn(async move {
+		let timeout_ms = validation_timeout.as_millis();
                 info!(
-                    "reboot timer started ({} ms).",
-                    validation_timeout.as_millis()
+                    "reboot timer started ({timeout_ms} ms)."
                 );
                 match timeout(validation_timeout, rx).await {
                     Err(_) => {
-                        error!("update validation: timeout. rebooting ...");
+                        error!("update validation: timeout; write reboot reason and reboot ...");
+			let _ = reboot_reason::reboot_reason(
+			    "systemd-networkd-wait-online", "timer ({timeout_ms} ms) expired")
+                            .context("update validation: timer couldn't initiate writing reboot reason");
                         let _ = systemd::reboot()
                             .await
                             .context("update validation: timer couldn't trigger reboot");
