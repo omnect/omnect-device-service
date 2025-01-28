@@ -14,7 +14,7 @@
 # that means, we need to prioritize what to report:
 # 1. a crash is a crash, whatever the circumstances
 #    -> existence of dmesg file wins!
-#    -> extra-info can be provided for pmsg info
+#    -> extra info can be provided for pmsg info
 # 2. intentional reboots
 #   -> existence of pmsg file tells us more
 #   -> analyze pmsg file and deduce reboot reason
@@ -91,7 +91,7 @@
 #          deduced regardless of the reboot circumstances!
 #  - unrecognized
 #    if examination of files didn't yield something unambiguous, this reason
-#    is used, together with additional hints in extra-info field
+#    is used, together with additional hints in extra_info field
 #
 
 RAMOOPS_FILENAME_POSTFIX=-ramoops-0
@@ -245,7 +245,7 @@ elif [ -r "${PMSG_FILE}" ]; then
 	r_uptime=$(jq -r '."uptime"' < "${pmsg_file}")
 	r_boot_id=$(jq -r '."boot_id"' < "${pmsg_file}")
 	r_reason=$(jq -r '."reason"' < "${pmsg_file}")
-	r_extra_info=$(jq -r '."extra-info"' < "${pmsg_file}")
+	r_extra_info=$(jq -r '."extra_info"' < "${pmsg_file}")
     elif [ $no_reasons = 0 ]; then
 	err 1 "Unrecognized pmsg file contents (no reason elements found)"
     else
@@ -257,13 +257,14 @@ elif [ -r "${PMSG_FILE}" ]; then
 	# entry
 	last_reason=$(jq -rs  '[ .[] | .reason ] | last' < "${pmsg_file}")
 	next_to_last_reason=$(jq -rs  '[ .[] | .reason ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
+	next_to_last_extra_info=$(jq -rs  '[ .[] | .extra_info ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
 
 	if [ "${last_reason}" = "reboot" ]; then
 	    # FIXME: what cases do we need to sort out here?
 	    case "${next_to_last_reason}" in
-		swupdate | swupdate-validation-failed | factory-reset | portal-reboot)
+		swupdate | swupdate-validation-failed | factory-reset | portal-reboot | ods-reboot)
 		    r_reason="${next_to_last_reason}"
-		    r_extra_info="reboot after ${next_to_last_reason}"
+		    r_extra_info="${next_to_last_extra_info:-reboot after ${next_to_last_reason}}"
 		    ;;
 	    esac
 	    if [ "$r_reason" ]; then

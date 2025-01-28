@@ -20,7 +20,7 @@ data="
             \"uptime\":     \"$(set -- $(</proc/uptime); echo $1)\",
             \"boot_id\":    \"$(</proc/sys/kernel/random/boot_id)\",
             \"reason\":     \"${reason}\",
-            \"extra-info\": \"${extra}\"
+            \"extra_info\": \"${extra}\"
         }
 "
 out=$(echo "$data" 2>&1 > ${DEV_PMSG})
