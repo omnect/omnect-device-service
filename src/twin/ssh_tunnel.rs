@@ -2,10 +2,10 @@ use super::{
     feature::{Command as FeatureCommand, CommandResult},
     Feature,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
 use std::env;
@@ -184,7 +184,7 @@ impl SshTunnel {
             .stderr(Stdio::null())
             .arg(device_cert_file!())
             .spawn()
-            .map_err(|_e| anyhow::anyhow!("failed to update ssh ca pub key"))?;
+            .context("failed to spawn update ssh ca pub key command")?;
 
         let data = args.ssh_tunnel_ca_pub.as_bytes();
 
@@ -193,7 +193,7 @@ impl SshTunnel {
         drop(stdin); // necessary to close stdin
 
         if !child.wait().await?.success() {
-            anyhow::bail!("failed to update ssh ca pub key");
+            bail!("failed to update ssh ca pub key");
         }
 
         self.report().await?;
@@ -210,7 +210,7 @@ impl SshTunnel {
         );
         Self::create_key_pair(priv_key_path)
             .await
-            .map_err(|e| anyhow::anyhow!("get_ssh_pub_key: {e}"))?;
+            .context("get_ssh_pub_key: {e}")?;
 
         Ok(Some(
             json!({ "key": Self::get_pub_key(&pub_key_path).await? }),
@@ -224,17 +224,18 @@ impl SshTunnel {
         // we do get conflicts, ssh-keygen will hang indefinitely. We therefore
         // tell it to overwrite any existing keys. Removing the key beforehand
         // could lead to TOCTOU bugs.
-        let mut stdin = child.stdin.take().unwrap();
+        let Some(mut stdin) = child.stdin.take() else {
+            bail!("create_key_pair: failed to get stdin")
+        };
         stdin.write_all("y\n".as_bytes()).await?;
 
         let output = child.wait_with_output().await?;
 
         if !output.status.success() {
-            error!(
-                "Failed to create ssh key pair: {}",
+            bail!(
+                "create_key_pair: failed to create ssh key pair: {}",
                 str::from_utf8(&output.stderr)?
             );
-            anyhow::bail!("Error on ssh key creation.");
         }
 
         Ok(())
@@ -250,10 +251,7 @@ impl SshTunnel {
             .args(["-t", SSH_KEY_TYPE])
             .args(["-N", ""])
             .spawn()
-            .map_err(|err| {
-                error!("Failed to create ssh key pair: {}", err);
-                anyhow::anyhow!("Error on ssh key creation.")
-            })
+            .context("Failed to create ssh key pair")
     }
 
     async fn get_pub_key(pub_key_path: &Path) -> Result<String> {
@@ -261,12 +259,12 @@ impl SshTunnel {
             .stdout(Stdio::piped())
             .arg(pub_key_path.to_string_lossy().as_ref())
             .spawn()
-            .map_err(|err| anyhow::anyhow!("get_ssh_pub_key: {err}"))?;
+            .context("Failed to get pub key")?;
 
         let output = child.wait_with_output().await?;
 
         if !output.status.success() {
-            anyhow::bail!("Failed to retrieve ssh public key.");
+            bail!("Failed to retrieve ssh public key.");
         }
 
         Ok(str::from_utf8(&output.stdout)?.to_string())
@@ -278,25 +276,28 @@ impl SshTunnel {
         let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(TryAcquireError::NoPermits) => {
-                anyhow::bail!("ssh_tunnel: maximum number of active ssh connections is reached")
+                bail!("ssh_tunnel: maximum number of active ssh connections is reached")
             }
-            Err(_other) => anyhow::bail!("ssh_tunnel: failed to lock tunnel"),
+            Err(_other) => bail!("ssh_tunnel: failed to lock tunnel"),
         };
 
         // ensure our ssh keys and certificate are cleaned up properly when
         // leaving this function
         let ssh_creds = SshCredentialsGuard::new(&priv_key_path!(&args.tunnel_id))
-            .map_err(|e| anyhow::anyhow!("open_ssh_tunnel: {e}"))?;
+            .context("Failed to open ssh tunnel")?;
 
         // store the certificate so that ssh can use it for login on the bastion host
         store_ssh_cert(&ssh_creds.cert(), &args.certificate).await?;
 
         let mut ssh_process =
             Self::start_tunnel_command(&args.tunnel_id, &ssh_creds, &args.bastion_config)?;
-        let stdout = ssh_process.stdout.take().unwrap();
+
+        let Some(stdout) = ssh_process.stdout.take() else {
+            bail!("open_ssh_tunnel: stdout is None");
+        };
 
         let Some(tx) = &self.tx_outgoing_message else {
-            anyhow::bail!("open_ssh_tunnel: tx_outgoing_message is None")
+            bail!("open_ssh_tunnel: tx_outgoing_message is None")
         };
 
         // report tunnel termination once it completes
@@ -308,15 +309,11 @@ impl SshTunnel {
             ssh_creds,
         ));
 
-        if let Err(err) = Self::await_tunnel_creation(stdout).await {
-            Err(err)?
-        }
+        Self::await_tunnel_creation(stdout).await?;
 
-        log::debug!(
+        debug!(
             "Successfully established connection \"{}\" to \"{}:{}\"",
-            args.tunnel_id,
-            args.bastion_config.host,
-            args.bastion_config.port
+            args.tunnel_id, args.bastion_config.host, args.bastion_config.port
         );
 
         Ok(None)
@@ -328,12 +325,9 @@ impl SshTunnel {
         ssh_creds: &SshCredentialsGuard,
         bastion_config: &BastionConfig,
     ) -> Result<Child> {
-        log::debug!(
+        debug!(
             "Starting ssh tunnel \"{}\" bastion host: \"{}:{}\", bastion user: \"{}\"",
-            tunnel_id,
-            bastion_config.host,
-            bastion_config.port,
-            bastion_config.user
+            tunnel_id, bastion_config.host, bastion_config.port, bastion_config.user
         );
 
         exec_as(SSH_TUNNEL_USER, "ssh")
@@ -367,11 +361,7 @@ impl SshTunnel {
             .args(["-o", "StrictHostKeyChecking=no"]) // allow bastion host to be redeployed
             .args(["-o", "UserKnownHostsFile=/dev/null"])
             .spawn()
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "open_ssh_tunnel: failed setting up tunnel to bastion host with: {e}"
-                )
-            })
+            .context("open_ssh_tunnel: failed setting up tunnel to bastion host")
     }
 
     #[cfg(feature = "mock")]
@@ -380,7 +370,7 @@ impl SshTunnel {
         _ssh_creds: &SshCredentialsGuard,
         bastion_config: &BastionConfig,
     ) -> Result<Child> {
-        Ok(Command::new("bash")
+        Command::new("bash")
             .stderr(Stdio::piped())
             .stdout(Stdio::piped())
             // hacky workaround to get the named pipe path. With the named
@@ -390,7 +380,7 @@ impl SshTunnel {
                 &format!("echo established && cat < {} || true", &bastion_config.host),
             ])
             .spawn()
-            .unwrap())
+            .context("start_tunnel_command: failed")
     }
 
     async fn await_tunnel_termination(
@@ -436,16 +426,14 @@ impl SshTunnel {
                 if msg == "established" {
                     Ok(())
                 } else {
-                    warn!("Got unexpected response from ssh server: {}", msg);
-                    anyhow::bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
+                    bail!("open_ssh_tunnel: Failed to establish ssh tunnel due to unexpected response from ssh server: {}", msg);
                 }
             }
             Ok(None) => {
-                anyhow::bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
+                bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
             }
             Err(err) => {
-                error!("Could not read from ssh process: {}", err);
-                anyhow::bail!("open_ssh_tunnel: Failed to establish ssh tunnel");
+                bail!("open_ssh_tunnel: Failed to establish ssh tunnel since unable to read from ssh process: {}", err);
             }
         }
     }
@@ -455,7 +443,7 @@ impl SshTunnel {
 
         let control_socket_path = control_socket_path!(&args.tunnel_id);
 
-        log::debug!(
+        debug!(
             "Closing ssh tunnel \"{}\", socket path: \"{}\"",
             args.tunnel_id,
             control_socket_path.display()
@@ -474,7 +462,7 @@ impl SshTunnel {
             .args(["bastion_host"]) // the destination host name is not used but necessary for the ssh command here
             .output()
             .await
-            .map_err(|e| anyhow::anyhow!("close_ssh_tunnel: {e}"))?;
+            .context("close_ssh_tunnel: failed")?;
 
         if !result.status.success() {
             warn!(
@@ -520,15 +508,24 @@ async fn store_ssh_cert(cert_path: &Path, data: &str) -> Result<()> {
         .stderr(Stdio::null())
         .arg(&*cert_path.to_string_lossy())
         .spawn()
-        .map_err(|_e| anyhow::anyhow!("failed to store ssh certificate"))?;
+        .context("store_ssh_cert: failed to spawn command")?;
 
-    let mut stdin = child.stdin.take().unwrap();
-    stdin.write_all(data.as_bytes()).await?;
+    let Some(mut stdin) = child.stdin.take() else {
+        bail!("store_ssh_cert: failed to get stdin")
+    };
+    stdin
+        .write_all(data.as_bytes())
+        .await
+        .context("store_ssh_cert: failed to write to stdin")?;
     drop(stdin); // necessary to close stdin
 
-    if !child.wait().await?.success() {
-        error!("failed to store ssh certificate");
-        anyhow::bail!("Error on storing ssh certificate");
+    if !child
+        .wait()
+        .await
+        .context("store_ssh_cert: failed to wait for command")?
+        .success()
+    {
+        bail!("store_ssh_cert: command failed");
     }
 
     Ok(())
@@ -541,7 +538,7 @@ struct SshCredentialsGuard {
 
 impl SshCredentialsGuard {
     fn new(key_path: &Path) -> Result<SshCredentialsGuard> {
-        anyhow::ensure!(key_path.parent().is_some());
+        ensure!(key_path.parent().is_some());
 
         Ok(SshCredentialsGuard {
             key_path: key_path.into(),
@@ -603,18 +600,17 @@ async fn notify_tunnel_termination(
                 "tunnel_id": tunnel_id,
                 "error": error.unwrap_or("none"),
             }))
-            .unwrap(),
+            .context("notify_tunnel_termination: build body")?,
         )
         .set_content_type("application/json")
         .set_content_encoding("utf-8")
         .build()
-        .unwrap();
+        .context("notify_tunnel_termination: build message")?;
 
     tx_outgoing_message
         .send(msg)
         .await
-        .context("notify_tunnel_termination")
-        .map_err(|e| anyhow::anyhow!("{e}"))
+        .context("notify_tunnel_termination: send message")
 }
 
 #[cfg(test)]
@@ -776,9 +772,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn get_ssh_pub_key_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
-        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
-            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
@@ -834,9 +828,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn open_ssh_tunnel_test() {
         let (tx_outgoing_message, _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
-        let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut ssh_tunnel = SshTunnel {
-            tx_reported_properties: Some(tx_reported_properties),
             tx_outgoing_message: Some(tx_outgoing_message),
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
