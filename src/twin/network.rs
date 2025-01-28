@@ -166,17 +166,15 @@ impl Network {
                 let mut dns_server: Vec<String> = vec![];
 
                 let Some(name) = i["Name"].as_str() else {
-                    error!("parse Name");
+                    error!("parse_interfaces: skip interface ('Name' missing)");
                     continue;
                 };
                 let Some(online) = i["OnlineState"].as_str() else {
-                    error!("parse OnlineState");
+                    error!("parse_interfaces: skip interface ('OnlineState' missing)");
                     continue;
                 };
-                let Ok(mac) =
-                    serde_json::from_str::<Vec<u8>>(i["HardwareAddress"].to_string().as_str())
-                else {
-                    error!("parse HardwareAddress");
+
+                let Some(mac) = Self::parse_mac(i, "HardwareAddress") else {
                     continue;
                 };
 
@@ -189,24 +187,17 @@ impl Network {
                             {
                                 return None;
                             }
-                            let Ok(addr) =
-                                serde_json::from_str::<Vec<u8>>(a["Address"].to_string().as_str())
-                            else {
-                                error!("parse Address {:?}", a["Address"]);
-                                return None;
-                            };
-                            let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("convert Address {:?}", addr);
-                                return None;
-                            };
+
+                            let addr = Self::parse_ipv4(a, "Address")?;
+
                             let Some(prefix_len) = a["PrefixLength"].as_u64() else {
-                                error!("parse PrefixLength {}", a["PrefixLength"]);
+                                error!("parse_interfaces: skip interface ('PrefixLength' missing)");
                                 return None;
                             };
                             let dhcp = a["ConfigSource"].as_str().is_some_and(|cs| cs.eq("DHCPv4"));
 
                             Some(Address {
-                                addr: std::net::IpAddr::from(addr).to_string(),
+                                addr,
                                 prefix_len,
                                 dhcp,
                             })
@@ -227,19 +218,8 @@ impl Network {
                             {
                                 return None;
                             }
-                            let Ok(addr) =
-                                serde_json::from_str::<Vec<u8>>(r["Gateway"].to_string().as_str())
-                            else {
-                                error!("parse gateway {}", r["Gateway"]);
-                                return None;
-                            };
 
-                            let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("convert gateway {:?}", addr);
-                                return None;
-                            };
-
-                            Some(std::net::IpAddr::from(addr).to_string())
+                            Self::parse_ipv4(r, "Gateway")
                         })
                         .collect();
                 }
@@ -251,19 +231,8 @@ impl Network {
                             if !d["Family"].as_u64().is_some_and(|f| f.eq(&2)) {
                                 return None;
                             }
-                            let Ok(addr) =
-                                serde_json::from_str::<Vec<u8>>(d["Address"].to_string().as_str())
-                            else {
-                                error!("parse Address {}", d["Address"]);
-                                return None;
-                            };
 
-                            let Ok(addr) = TryInto::<[u8; 4]>::try_into(addr.as_slice()) else {
-                                error!("convert Address {:?}", addr);
-                                return None;
-                            };
-
-                            Some(std::net::IpAddr::from(addr).to_string())
+                            Self::parse_ipv4(d, "Address")
                         })
                         .collect();
                 }
@@ -277,11 +246,7 @@ impl Network {
                 report.push(Interface {
                     name: name.to_string(),
                     online: online.eq("online"),
-                    mac: mac
-                        .iter()
-                        .map(|v| format!("{:02x}", v).to_string())
-                        .collect::<Vec<String>>()
-                        .join(":"),
+                    mac,
                     ipv4,
                 });
             }
@@ -291,6 +256,36 @@ impl Network {
         report.sort_by_key(|k| k.name.clone());
 
         Ok(report)
+    }
+
+    fn parse_mac(value: &serde_json::Value, field: &str) -> Option<String> {
+        let mac = value[field].to_string();
+        let Ok(mac) = serde_json::from_str::<[u8; 6]>(&mac) else {
+            error!(
+                "parse_interfaces: skip interface ('{field}' missing or invalid format: {:?})",
+                mac
+            );
+            return None;
+        };
+        Some(
+            mac.iter()
+                .map(|v| format!("{:02x}", v).to_string())
+                .collect::<Vec<String>>()
+                .join(":"),
+        )
+    }
+
+    fn parse_ipv4(value: &serde_json::Value, field: &str) -> Option<String> {
+        let addr = value[field].to_string();
+        let Ok(addr) = serde_json::from_str::<[u8; 4]>(&addr) else {
+            error!(
+                "parse_interfaces: skip interface ('{field}' missing or invalid format: {:?})",
+                addr
+            );
+            return None;
+        };
+
+        Some(std::net::IpAddr::from(addr).to_string())
     }
 }
 
@@ -311,5 +306,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 2)
+    }
+
+    #[test]
+    fn networkd_parse_interfaces_missing_mac() {
+        let json: serde_json::Value = serde_json::from_reader(
+            OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open("testfiles/negative/systemd-networkd-link-description-missing-mac.json")
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 1)
     }
 }

@@ -215,7 +215,7 @@ impl UpdateValidation {
 
     pub async fn check(&mut self) -> Result<()> {
         // prolong watchdog interval for update validation phase
-        let saved_interval = WatchdogManager::interval(self.validation_timeout)?;
+        let saved_interval = WatchdogManager::interval(self.validation_timeout).await?;
 
         if let Err(e) = self.validate().await {
             systemd::reboot().await?;
@@ -227,7 +227,7 @@ impl UpdateValidation {
         }
 
         if let Some(interval) = saved_interval {
-            let _ = WatchdogManager::interval(interval)?;
+            let _ = WatchdogManager::interval(interval).await?;
         }
 
         Ok(())

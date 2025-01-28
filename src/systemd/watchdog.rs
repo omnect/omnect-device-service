@@ -1,13 +1,14 @@
 use anyhow::{Context, Result};
 use log::{info, trace};
 use sd_notify::NotifyState;
-use std::{
-    sync::{Mutex, OnceLock},
-    time::Duration,
+use std::{sync::LazyLock, time::Duration};
+use tokio::{
+    sync::Mutex,
+    time::{Instant, Interval},
 };
-use tokio::time::{Instant, Interval};
 
-static WATCHDOG_MANAGER: OnceLock<Mutex<Option<WatchdogSettings>>> = OnceLock::new();
+static WATCHDOG_MANAGER: LazyLock<Mutex<Option<WatchdogSettings>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 struct WatchdogSettings {
     timeout: Duration,
@@ -17,11 +18,8 @@ struct WatchdogSettings {
 pub struct WatchdogManager {}
 
 impl WatchdogManager {
-    pub fn init() -> Option<Interval> {
-        let mut settings = WATCHDOG_MANAGER
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap();
+    pub async fn init() -> Option<Interval> {
+        let mut settings = WATCHDOG_MANAGER.lock().await;
 
         if let Some(settings) = settings.as_ref() {
             // return double sample rate
@@ -46,8 +44,8 @@ impl WatchdogManager {
         }
     }
 
-    pub fn notify() -> Result<()> {
-        let mut settings = WATCHDOG_MANAGER.get().unwrap().lock().unwrap();
+    pub async fn notify() -> Result<()> {
+        let mut settings = WATCHDOG_MANAGER.lock().await;
 
         if let Some(settings) = settings.as_mut() {
             trace!("notify watchdog=1");
@@ -58,11 +56,11 @@ impl WatchdogManager {
         Ok(())
     }
 
-    pub fn interval(timeout: Duration) -> Result<Option<Duration>> {
+    pub async fn interval(timeout: Duration) -> Result<Option<Duration>> {
         info!("set interval {}µs", timeout.as_micros());
 
         let mut old_timeout = None;
-        let mut settings = WATCHDOG_MANAGER.get().unwrap().lock().unwrap();
+        let mut settings = WATCHDOG_MANAGER.lock().await;
 
         // notify new interval
         sd_notify::notify(
