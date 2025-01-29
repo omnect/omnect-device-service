@@ -238,7 +238,9 @@ elif [ -r "${PMSG_FILE}" ]; then
     [ $retval = 0 ] || err 1 "Coudln't determine number of reason logs in pmsg file (corrupted?)"
 
     # now we need to analyze them
-    if [ $no_reasons = 1 ]; then
+    if [ $no_reasons = 0 ]; then
+	err 1 "Unrecognized pmsg file contents (no reason elements found)"
+    elif [ $no_reasons = 1 ]; then
 	# just use PMSG content
 	r_datetime=$(jq -r '."datetime"' < "${pmsg_file}")
 	r_timeepoch=$(jq -r '."timeepoch"' < "${pmsg_file}")
@@ -246,8 +248,6 @@ elif [ -r "${PMSG_FILE}" ]; then
 	r_boot_id=$(jq -r '."boot_id"' < "${pmsg_file}")
 	r_reason=$(jq -r '."reason"' < "${pmsg_file}")
 	r_extra_info=$(jq -r '."extra_info"' < "${pmsg_file}")
-    elif [ $no_reasons = 0 ]; then
-	err 1 "Unrecognized pmsg file contents (no reason elements found)"
     else
 	# that might become tricky: we face several PMSG entries so let's see
 	# what we could have here ...
@@ -264,7 +264,10 @@ elif [ -r "${PMSG_FILE}" ]; then
 	    case "${next_to_last_reason}" in
 		swupdate | swupdate-validation-failed | factory-reset | portal-reboot | ods-reboot)
 		    r_reason="${next_to_last_reason}"
-		    r_extra_info="${next_to_last_extra_info:-reboot after ${next_to_last_reason}}"
+		    r_extra_info="${next_to_last_extra_info}"
+		    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
+			r_extra_info="reboot after ${next_to_last_reason}"
+		    fi
 		    ;;
 	    esac
 	    if [ "$r_reason" ]; then
@@ -280,6 +283,8 @@ elif [ -r "${PMSG_FILE}" ]; then
 	# if resulting reason is still not set do it now and provide more info
 	if [ -z "${r_reason}" ]; then
 	    r_reason="unrecognized"
+	fi
+	if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
 	    all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
 	    r_extra_info="multiple (${no_reasons}) reason entries found in pmsg file: ${all_reasons}"
 	fi
