@@ -12,7 +12,12 @@ if ! echo "$VALID_REASONS" | grep -q "|$reason|"; then
     echo "WARNING: unrecognized reboot reason \"$reason\""
 fi
 
-IFS=, time=( $(date +%F\ %T,%s) )
+# get consistent timestamp
+remIfs="${IFS}"
+IFS=,
+time=( $(date +%F\ %T,%s) )
+IFS="${remIFS}"
+
 data="
         {
             \"datetime\":   \"${time[0]}\",
