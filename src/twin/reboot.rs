@@ -66,7 +66,7 @@ impl Reboot {
         info!("reboot requested");
 
 	let _ = reboot_reason::reboot_reason(
-	    "ods-reboot", "initiated by portal")
+	    "ods-reboot", "initiated by portal or API")
 	    .context(": couldn't initiate writing reboot reason");
 
         systemd::reboot().await?;
