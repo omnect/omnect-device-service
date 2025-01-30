@@ -356,10 +356,8 @@ impl SystemInfo {
             .components
             .iter()
             .filter_map(|c| {
-                if let Some(t) = c.temperature() {
-                    return Some((t, c.label().to_string()));
-                }
-                None
+                c.temperature()
+                    .and_then(|t| Some((t, c.label().to_string())))
             })
             .for_each(|(t, n)| {
                 metric_list.push(self.temp(time.clone(), t.into(), n));
