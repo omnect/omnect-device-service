@@ -129,7 +129,7 @@ function err() {
     exit $exitval
 }
 
-function copy_and_compress_file() {
+function copy_file() {
     local srcpath="$1"
     local dstpath="$2"
     local del_after_copy="$3"
@@ -195,13 +195,13 @@ retval=$?
 cd "${reason_path}"
 
 # at first, copy over all available pstore files
-del_after_copy=
+del_after_copy=1
 [ -r "${CONSOLE_FILE}" ] \
-    && console_file=$(copy_and_compress_file "${CONSOLE_FILE}" "${PWD}" "${del_after_copy}")
+    && console_file=$(copy_file "${CONSOLE_FILE}" "${PWD}" "${del_after_copy}")
 [ -r "${DMESG_FILE}"   ] \
-    && dmesg_file=$(copy_and_compress_file "${DMESG_FILE}"   "${PWD}" "${del_after_copy}")
+    && dmesg_file=$(copy_file "${DMESG_FILE}"   "${PWD}" "${del_after_copy}")
 [ -r "${PMSG_FILE}"    ] \
-    && pmsg_file=$(copy_and_compress_file "${PMSG_FILE}"    "${PWD}" "${del_after_copy}" 1 "${ecc_enabled}")
+    && pmsg_file=$(copy_file "${PMSG_FILE}"    "${PWD}" "${del_after_copy}" 1 "${ecc_enabled}")
 
 # start with empty reason structure values later inserted into reason file
 r_datetime=
