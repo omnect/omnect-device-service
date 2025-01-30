@@ -3,7 +3,6 @@ use super::{
     Feature,
 };
 use anyhow::{bail, ensure, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, error, info, warn};
 use serde::{de::Error, Deserialize, Deserializer};
