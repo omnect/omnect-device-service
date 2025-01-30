@@ -125,7 +125,7 @@ impl UpdateValidation {
                     Err(_) => {
                         error!("update validation: timeout; write reboot reason and reboot ...");
 			let _ = reboot_reason::reboot_reason(
-			    "systemd-networkd-wait-online", "timer ({timeout_ms} ms) expired")
+			    "swupdate-validation-failed", &format!("timer ({timeout_ms} ms) expired"))
                             .context("update validation: timer couldn't initiate writing reboot reason");
                         let _ = systemd::reboot()
                             .await
@@ -223,14 +223,14 @@ impl UpdateValidation {
 
         if let Err(e) = self.validate().await {
 	    let _ = reboot_reason::reboot_reason(
-		"systemd-networkd-wait-online", "validate error: {e:#}")
+		"swupdate-validation-failed", &format!("validate error: {e:#}"))
                 .context("update validation: timer couldn't initiate writing reboot reason");
             systemd::reboot().await?;
             bail!("update validation: validate error: {e:#}");
         }
         if let Err(e) = self.finalize().await {
 	    let _ = reboot_reason::reboot_reason(
-		"systemd-networkd-wait-online", "finalize error: {e:#}")
+		"swupdate-validation-failed", &format!("finalize error: {e:#}"))
                 .context("update validation: timer couldn't initiate writing reboot reason");
             systemd::reboot().await?;
             bail!("update validation: finalize error: {e:#}");
