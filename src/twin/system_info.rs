@@ -352,16 +352,11 @@ impl SystemInfo {
             self.disk_total(time.clone(), disk_total as f64),
         ];
 
-        self.hardware_info
-            .components
-            .iter()
-            .filter_map(|c| {
-                c.temperature()
-                    .and_then(|t| Some((t, c.label().to_string())))
-            })
-            .for_each(|(t, n)| {
-                metric_list.push(self.temp(time.clone(), t.into(), n));
-            });
+        self.hardware_info.components.iter().for_each(|c| {
+            if let Some(t) = c.temperature() {
+                metric_list.push(self.temp(time.clone(), t.into(), c.label().to_string()))
+            };
+        });
 
         let json = serde_json::to_vec(&metric_list)
             .context("metrics list could not be converted to vector:")?;
