@@ -222,10 +222,16 @@ impl UpdateValidation {
         let saved_interval = WatchdogManager::interval(self.validation_timeout).await?;
 
         if let Err(e) = self.validate().await {
+	    let _ = reboot_reason::reboot_reason(
+		"systemd-networkd-wait-online", "validate error: {e:#}")
+                .context("update validation: timer couldn't initiate writing reboot reason");
             systemd::reboot().await?;
             bail!("update validation: validate error: {e:#}");
         }
         if let Err(e) = self.finalize().await {
+	    let _ = reboot_reason::reboot_reason(
+		"systemd-networkd-wait-online", "finalize error: {e:#}")
+                .context("update validation: timer couldn't initiate writing reboot reason");
             systemd::reboot().await?;
             bail!("update validation: finalize error: {e:#}");
         }
