@@ -49,6 +49,7 @@
 #         "timeepoch":     "<seconds-since-1970>",
 #         "uptime":        "<uptime-of-report>",
 #         "boot_id":       "<current-boot_id>",
+#         "os_version":    "<current-os-version>",
 #         "console_file:"  "<console-file-name-if-any>",
 #         "dmesg_file:"    "<dmesg-file-name-if-any>",
 #         "pmsg_file:"     "<pmsg-file-name-if-any>"
@@ -58,6 +59,7 @@
 #         "timeepoch":     "<timeepoch-of-logged-reboot-event-if-any>",
 #         "uptime":        "<uptime-of-logged-reboot-event-if-any>",
 #         "boot_id":       "<boot_id-of-logged-reboot-event-if-any>",
+#         "os_version":    "<os-version-of-logged-reboot>",
 #         "reason":        "<deduced-reason>",
 #         "extra_info":    "<extra-info-of-logged-reboot-event-if-any>"
 #     }
@@ -175,6 +177,7 @@ function copy_file() {
 # determine current time, uptime and other stuff for the first part of
 # the reboot reason JSON file
 boot_id="$(</proc/sys/kernel/random/boot_id)"
+os_version=$(. /etc/os-release; echo "${VERSION}")
 remIFS="${IFS}"
 IFS=, time=( $(date +%F\ %T,%s) )
 IFS="${remIFS}"
@@ -208,6 +211,7 @@ r_datetime=
 r_timeepoch=
 r_uptime=
 r_boot_id=
+r_os_version=
 r_reason=
 r_extra_info=
 
@@ -228,6 +232,7 @@ if [ -r "${dmesg_file}" ]; then
 	r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
 	r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
 	r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+	r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
 	r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
     fi
 elif [ -r "${PMSG_FILE}" ]; then
@@ -246,6 +251,7 @@ elif [ -r "${PMSG_FILE}" ]; then
 	r_timeepoch=$(jq -r '."timeepoch"' < "${pmsg_file}")
 	r_uptime=$(jq -r '."uptime"' < "${pmsg_file}")
 	r_boot_id=$(jq -r '."boot_id"' < "${pmsg_file}")
+	r_os_version=$(jq -r '."os_version"' < "${pmsg_file}")
 	r_reason=$(jq -r '."reason"' < "${pmsg_file}")
 	r_extra_info=$(jq -r '."extra_info"' < "${pmsg_file}")
     else
@@ -277,6 +283,7 @@ elif [ -r "${PMSG_FILE}" ]; then
 		r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
 		r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
 		r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
+		r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
 	    fi
 	fi
 
@@ -300,6 +307,7 @@ fi
 jq \
     -n \
     --arg report_boot_id "${boot_id}" \
+    --arg report_os_version "${os_version}" \
     --arg report_datetime "${datetime}" \
     --arg report_uptime "${uptime}" \
     --arg report_timeepoch "${timeepoch}" \
@@ -310,6 +318,7 @@ jq \
     --arg r_timeepoch "${r_timeepoch}" \
     --arg r_uptime "${r_uptime}" \
     --arg r_boot_id "${r_boot_id}" \
+    --arg r_os_version "${r_os_version}" \
     --arg r_reason "${r_reason}" \
     --arg r_extra_info "${r_extra_info}" \
     '{
@@ -318,6 +327,7 @@ jq \
             "timeepoch":    $report_timeepoch,
             "uptime":       $report_uptime,
             "boot_id":      $report_boot_id,
+            "os_version":   $report_os_version,
             "console_file": $report_console_file,
             "dmesg_file":   $report_dmesg_file,
             "pmsg_file":    $report_pmsg_file,
@@ -327,6 +337,7 @@ jq \
             "timeepoch":   $r_timeepoch,
             "uptime":      $r_uptime,
             "boot_id":     $r_boot_id,
+            "os_version":  $r_os_version,
             "reason":      $r_reason,
             "extra_info":  $r_extra_info,
         }

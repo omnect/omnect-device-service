@@ -17,6 +17,7 @@ remIfs="${IFS}"
 IFS=,
 time=( $(date +%F\ %T,%s) )
 IFS="${remIFS}"
+os_version=$(. /etc/os-release; echo "${VERSION}" )
 
 data="
         {
@@ -24,6 +25,7 @@ data="
 	    \"timeepoch\":  \"${time[1]}\",
             \"uptime\":     \"$(set -- $(</proc/uptime); echo $1)\",
             \"boot_id\":    \"$(</proc/sys/kernel/random/boot_id)\",
+            \"os_version\": \"${os_version}\",
             \"reason\":     \"${reason}\",
             \"extra_info\": \"${extra}\"
         }
