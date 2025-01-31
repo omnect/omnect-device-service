@@ -13,7 +13,7 @@ if ! echo "$VALID_REASONS" | grep -q "|$reason|"; then
 fi
 
 # get consistent timestamp
-remIfs="${IFS}"
+remIFS="${IFS}"
 IFS=,
 time=( $(date +%F\ %T,%s) )
 IFS="${remIFS}"

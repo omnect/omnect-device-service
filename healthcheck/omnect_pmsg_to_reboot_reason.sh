@@ -235,7 +235,7 @@ if [ -r "${dmesg_file}" ]; then
 	r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
 	r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
     fi
-elif [ -r "${PMSG_FILE}" ]; then
+elif [ -r "${pmsg_file}" ]; then
     # we do have an annotated intentional reboot, so gather information
     #  - how many?
     no_reasons=$(jq -s 'length' < "${pmsg_file}")
