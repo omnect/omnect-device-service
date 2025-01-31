@@ -67,7 +67,8 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 uuid = { version = "1.4", default-features = false }
 x509-parser = { version = "0.16", default-features = false }
-zbus = { version = "5.3", default-features = false, features = ["tokio"] }
+zbus = { version = "5.0", default-features = false, features = ["tokio"] }
+#zbus = { version = "5.3", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 actix-web = "4"
