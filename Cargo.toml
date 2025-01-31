@@ -58,8 +58,9 @@ sysinfo = { version = "0.33", default-features = false, features = [
   "disk",
   "system",
 ] }
-systemd-zbus = { version = "5.1", default-features = false }
-time = { version = "=0.3", default-features = false, features = ["formatting"] }
+#systemd-zbus = { version = "5.1", default-features = false }
+systemd-zbus = { version = "5.1" }
+time = { version = "0.3", default-features = false, features = ["formatting"] }
 tokio = { version = "1", default-features = false }
 tokio-stream = { version = "0.1", default-features = false, features = [
   "time",
@@ -67,7 +68,7 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 uuid = { version = "1.4", default-features = false }
 x509-parser = { version = "0.16", default-features = false }
-zbus = { version = "5.0", default-features = false, features = ["tokio"] }
+zbus = { version = "5.3" }
 #zbus = { version = "5.3", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
