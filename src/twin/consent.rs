@@ -1,7 +1,6 @@
 use super::{feature::*, Feature};
 use crate::consent_path;
 use anyhow::{bail, ensure, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
@@ -60,7 +59,6 @@ pub struct DeviceUpdateConsent {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
-#[async_trait(?Send)]
 impl Feature for DeviceUpdateConsent {
     fn name(&self) -> String {
         Self::ID.to_string()

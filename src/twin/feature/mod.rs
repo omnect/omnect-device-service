@@ -1,19 +1,15 @@
-use crate::twin::network;
-
-use super::{consent, factory_reset, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
+use super::{consent, factory_reset, network, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
 use anyhow::{bail, ensure, Result};
-use async_trait::async_trait;
-use azure_iot_sdk::client::DirectMethod;
-use azure_iot_sdk::client::IotMessage;
-use futures::Stream;
-use futures::StreamExt;
+use azure_iot_sdk::client::{DirectMethod, IotMessage};
+use futures::{Stream, StreamExt};
 use log::{debug, error, info, warn};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
-use std::any::TypeId;
-use std::path::Path;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::time::Duration;
+use std::{
+    any::TypeId,
+    path::{Path, PathBuf},
+    pin::Pin,
+    time::Duration,
+};
 use tokio::{
     sync::mpsc,
     time::{Instant, Interval},
@@ -152,7 +148,7 @@ pub type CommandResult = Result<Option<serde_json::Value>>;
 pub type EventStream = Pin<Box<dyn Stream<Item = Command> + Send>>;
 pub type EventStreamResult = Result<Option<EventStream>>;
 
-#[async_trait(?Send)]
+#[dynosaur::dynosaur(DynFeature)]
 pub(crate) trait Feature {
     fn name(&self) -> String;
     fn version(&self) -> u8;
