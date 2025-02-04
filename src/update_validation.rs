@@ -128,9 +128,9 @@ impl UpdateValidation {
 			    "swupdate-validation-failed", &format!("timer ({timeout_ms} ms) expired")) {
                             error!("update validation: timer: failed to write reboot reason [{e}]");
 			}
-                        let _ = systemd::reboot()
-                            .await
-                            .context("update validation: timer couldn't trigger reboot");
+                        if let Err(_e) = systemd::reboot() {
+                            error!("update validation: timer couldn't trigger reboot");
+			}
                     }
                     _ => info!("reboot timer canceled."),
                 }
