@@ -6,7 +6,7 @@ shift
 extra="$*"
 
 DEV_PMSG=/dev/pmsg0
-VALID_REASONS="|reboot|shutdown|swupdate|swupdate-validation-failed|systemd-networkd-wait-online|system-crash|power-loss|"
+VALID_REASONS="|reboot|shutdown|swupdate|swupdate-validation-failed|systemd-networkd-wait-online|factory-reset|system-crash|power-loss|"
 
 if ! echo "$VALID_REASONS" | grep -q "|$reason|"; then
     echo "WARNING: unrecognized reboot reason \"$reason\""
