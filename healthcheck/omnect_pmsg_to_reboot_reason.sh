@@ -167,7 +167,7 @@ function copy_file() {
     realpath "${dstpath}"
 }
 
-# three possible command line arguments ware already processed above, so
+# three possible command line arguments were already processed above, so
 # start looking for input files ...
 
 [ -r "${CONSOLE_FILE}" ] || CONOSLE_FILE=

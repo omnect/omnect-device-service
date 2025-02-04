@@ -6,7 +6,7 @@ use crate::web_service;
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, info, warn};
+use log::{debug, info, warn, error};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::*;
@@ -168,9 +168,10 @@ impl FactoryReset {
 
         bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
         self.report_factory_reset_status("in_progress").await?;
-	let _ = reboot_reason::reboot_reason(
-	    "factory-reset", "initiated by portal or API")
-            .context("factory_reset: couldn't initiate writing reboot reason");
+	if let Err(e) = reboot_reason::reboot_reason(
+	    "factory-reset", "initiated by portal or API") {
+            error!("factory_reset: failed to write reboot reason [{e}]");
+	}
         systemd::reboot().await?;
         Ok(None)
     }
