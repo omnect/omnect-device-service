@@ -177,8 +177,6 @@ pub(crate) trait Feature {
     }
 }
 
-pub use _dynosaur_macro_dynfeature::DynFeature as MyDynFeature;
-
 pub type FeatureMap<'a> = HashMap<TypeId, Box<DynFeature<'a>>>;
 
 #[derive(Debug, PartialEq)]

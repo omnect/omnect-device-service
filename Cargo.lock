@@ -1037,8 +1037,7 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 [[package]]
 name = "dynosaur"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92fac44672fabad44990176319b9e94393f3a38b960b5ca2af6cd90f5ecd1497"
+source = "git+https://github.com/spastorino/dynosaur?branch=main#810973e173d2192a6c00e5ef973bbef1ca9ba47d"
 dependencies = [
  "dynosaur_derive",
  "trait-variant",
@@ -1047,8 +1046,7 @@ dependencies = [
 [[package]]
 name = "dynosaur_derive"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16c187d1e575ef546d24f0fcd7701cc04abfe6b5e7e2758aabc450b99e835ac3"
+source = "git+https://github.com/spastorino/dynosaur?branch=main#810973e173d2192a6c00e5ef973bbef1ca9ba47d"
 dependencies = [
  "proc-macro2",
  "quote",

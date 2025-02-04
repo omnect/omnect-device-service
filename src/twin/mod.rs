@@ -50,7 +50,7 @@ pub struct Twin {
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     state: TwinState,
-    features: HashMap<TypeId, Box<MyDynFeature<'static>>>,
+    features: HashMap<TypeId, Box<DynFeature<'static>>>,
     update_validation: update_validation::UpdateValidation,
 }
 
@@ -67,26 +67,34 @@ impl Twin {
         let state = TwinState::Uninitialized;
 
         // create features
-        let consent = feature::MyDynFeature::boxed(consent::DeviceUpdateConsent::default());
-        let factory_reset = feature::MyDynFeature::boxed(factory_reset::FactoryReset::new());
-        let modem_info = feature::MyDynFeature::boxed(modem_info::ModemInfo::new());
-        let network = feature::MyDynFeature::boxed(network::Network::default());
-        let provisioning_config = feature::MyDynFeature::boxed(provisioning_config::ProvisioningConfig::new()?);
-        let reboot: Box<MyDynFeature<'_>> = feature::MyDynFeature::boxed(reboot::Reboot::default());
-        let ssh_tunnel = feature::MyDynFeature::boxed(ssh_tunnel::SshTunnel::new());
-        let system_info = feature::MyDynFeature::boxed(system_info::SystemInfo::new()?);
-        let wifi_commissioning = feature::MyDynFeature::boxed(wifi_commissioning::WifiCommissioning::default());
+        let consent = feature::DynFeature::boxed(consent::DeviceUpdateConsent::default());
+        let factory_reset = feature::DynFeature::boxed(factory_reset::FactoryReset::new());
+        let modem_info = feature::DynFeature::boxed(modem_info::ModemInfo::new());
+        let network = feature::DynFeature::boxed(network::Network::default());
+        let provisioning_config =
+            feature::DynFeature::boxed(provisioning_config::ProvisioningConfig::new()?);
+        let reboot: Box<DynFeature<'_>> = feature::DynFeature::boxed(reboot::Reboot::default());
+        let ssh_tunnel = feature::DynFeature::boxed(ssh_tunnel::SshTunnel::new());
+        let system_info = feature::DynFeature::boxed(system_info::SystemInfo::new()?);
+        let wifi_commissioning =
+            feature::DynFeature::boxed(wifi_commissioning::WifiCommissioning::default());
 
         let features = HashMap::from([
-             (TypeId::of::<consent::DeviceUpdateConsent>(), consent),
-             (TypeId::of::<factory_reset::FactoryReset>(), factory_reset),
-             (TypeId::of::<modem_info::ModemInfo>(), modem_info),
-             (TypeId::of::<network::Network>(), network),
-             (TypeId::of::<provisioning_config::ProvisioningConfig>(), provisioning_config),
-             (TypeId::of::<reboot::Reboot>(), reboot),
-             (TypeId::of::<ssh_tunnel::SshTunnel>(), ssh_tunnel),
-             (TypeId::of::<system_info::SystemInfo>(), system_info),
-             (TypeId::of::<wifi_commissioning::WifiCommissioning>(), wifi_commissioning),
+            (TypeId::of::<consent::DeviceUpdateConsent>(), consent),
+            (TypeId::of::<factory_reset::FactoryReset>(), factory_reset),
+            (TypeId::of::<modem_info::ModemInfo>(), modem_info),
+            (TypeId::of::<network::Network>(), network),
+            (
+                TypeId::of::<provisioning_config::ProvisioningConfig>(),
+                provisioning_config,
+            ),
+            (TypeId::of::<reboot::Reboot>(), reboot),
+            (TypeId::of::<ssh_tunnel::SshTunnel>(), ssh_tunnel),
+            (TypeId::of::<system_info::SystemInfo>(), system_info),
+            (
+                TypeId::of::<wifi_commissioning::WifiCommissioning>(),
+                wifi_commissioning,
+            ),
         ]);
 
         let twin = Twin {
@@ -323,113 +331,113 @@ impl Twin {
         systemd::sd_notify_ready();
 
         tokio::pin! {
-            let client_created = Self::connect_iothub_client(&client_builder);
-            let trigger_watchdog = match systemd::watchdog::WatchdogManager::init().await {
-                None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
-                Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
-            };
-/*             let refresh_features = futures::stream::select_all::select_all(twin
-                .features
-                .values_mut()
-                .filter_map(|f| if f.is_enabled() { f.event_stream().unwrap() } else { None }
-            )); */
-        };
+                    let client_created = Self::connect_iothub_client(&client_builder);
+                    let trigger_watchdog = match systemd::watchdog::WatchdogManager::init().await {
+                        None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
+                        Some(interval) => tokio_stream::wrappers::IntervalStream::new(interval).boxed(),
+                    };
+        /*             let refresh_features = futures::stream::select_all::select_all(twin
+                        .features
+                        .values_mut()
+                        .filter_map(|f| if f.is_enabled() { f.event_stream().unwrap() } else { None }
+                    )); */
+                };
 
         let guard = Mutex::new(());
 
         loop {
             select! (
-                // we enforce top down order in 1st select! macro to handle sd-notify, signals and connections status
-                // with priority over events in the 2nd select!
-                biased;
+                            // we enforce top down order in 1st select! macro to handle sd-notify, signals and connections status
+                            // with priority over events in the 2nd select!
+                            biased;
 
-                Some(_) = trigger_watchdog.next() => {
-                    let _guard = guard.lock();
-                    systemd::watchdog::WatchdogManager::notify().await?;
-                },
-                _ = signals.next() => {
-                    let _guard = guard.lock();
-                    twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
-                    signals.handle().close();
-                    return Ok(())
-                },
-                result = &mut client_created, if twin.client.is_none() => {
-                    let _guard = guard.lock();
-                    match result {
-                        Ok(client) => {
-                            info!("iothub client created");
-                            twin.client = Some(client);
-                        },
-                        Err(e) => {
-                            error!("couldn't create iothub client: {e:#}");
-                            twin.reset_client_with_delay(Some(time::Duration::from_secs(10))).await;
-                            client_created.set(Self::connect_iothub_client(&client_builder));
-                        }
-                    }
-                },
-                Some(status) = rx_connection_status.recv() => {
-                    let _guard = guard.lock();
-                    if twin.handle_connection_status(status).await? {
-                        twin.reset_client_with_delay(Some(time::Duration::from_secs(1))).await;
-                        client_created.set(Self::connect_iothub_client(&client_builder));
-                    };
-                },
-                result = async {
-                    select! (
-                        // random access order in 2nd select! macro
-                        Some(update_desired) = rx_twin_desired.recv() => {
-                            let _guard = guard.lock();
-                            for cmd in Command::from_desired_property(update_desired) {
-                                twin.handle_command(cmd, None).await?
-                            }
-                        },
-                        Some(reported) = rx_reported_properties.recv() => {
-                            let _guard = guard.lock();
-                            twin.client
-                                .as_ref()
-                                .context("couldn't report properties since client not present")?
-                                .twin_report(reported)?
-                        },
-                        Some(direct_method) = rx_direct_method.recv() => {
-                            let _guard = guard.lock();
-                            match Command::from_direct_method(&direct_method) {
-                                Ok(cmd) => twin.handle_command(cmd, Some(direct_method.responder)).await?,
-                                Err(e) => {
-                                    error!("parsing direct method: {} with payload: {} failed with error: {e}",
-                                        direct_method.name, direct_method.payload);
-                                    if direct_method.responder.send(Err(e)).is_err() {
-                                        error!("direct method response receiver dropped")
+                            Some(_) = trigger_watchdog.next() => {
+                                let _guard = guard.lock();
+                                systemd::watchdog::WatchdogManager::notify().await?;
+                            },
+                            _ = signals.next() => {
+                                let _guard = guard.lock();
+                                twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
+                                signals.handle().close();
+                                return Ok(())
+                            },
+                            result = &mut client_created, if twin.client.is_none() => {
+                                let _guard = guard.lock();
+                                match result {
+                                    Ok(client) => {
+                                        info!("iothub client created");
+                                        twin.client = Some(client);
+                                    },
+                                    Err(e) => {
+                                        error!("couldn't create iothub client: {e:#}");
+                                        twin.reset_client_with_delay(Some(time::Duration::from_secs(10))).await;
+                                        client_created.set(Self::connect_iothub_client(&client_builder));
                                     }
-                                },
-                            }
-                        },
-                        Some(message) = rx_outgoing_message.recv() => {
-                            let _guard = guard.lock();
-                            twin.client
-                                .as_ref()
-                                .context("couldn't send msg since client not present")?
-                                .send_d2c_message(message)?
-                        },
-                        Some(request) = rx_web_service.recv() => {
-                            let _guard = guard.lock();
-                            twin.handle_command(request.command, Some(request.reply)).await?
-                        },
-/*                        command = refresh_features.select_next_some() => {
-                             let _guard = guard.lock();
-                            let feature = twin
-                                .features
-                                .get_mut(&command.feature_id())
-                                .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
+                                }
+                            },
+                            Some(status) = rx_connection_status.recv() => {
+                                let _guard = guard.lock();
+                                if twin.handle_connection_status(status).await? {
+                                    twin.reset_client_with_delay(Some(time::Duration::from_secs(1))).await;
+                                    client_created.set(Self::connect_iothub_client(&client_builder));
+                                };
+                            },
+                            result = async {
+                                select! (
+                                    // random access order in 2nd select! macro
+                                    Some(update_desired) = rx_twin_desired.recv() => {
+                                        let _guard = guard.lock();
+                                        for cmd in Command::from_desired_property(update_desired) {
+                                            twin.handle_command(cmd, None).await?
+                                        }
+                                    },
+                                    Some(reported) = rx_reported_properties.recv() => {
+                                        let _guard = guard.lock();
+                                        twin.client
+                                            .as_ref()
+                                            .context("couldn't report properties since client not present")?
+                                            .twin_report(reported)?
+                                    },
+                                    Some(direct_method) = rx_direct_method.recv() => {
+                                        let _guard = guard.lock();
+                                        match Command::from_direct_method(&direct_method) {
+                                            Ok(cmd) => twin.handle_command(cmd, Some(direct_method.responder)).await?,
+                                            Err(e) => {
+                                                error!("parsing direct method: {} with payload: {} failed with error: {e}",
+                                                    direct_method.name, direct_method.payload);
+                                                if direct_method.responder.send(Err(e)).is_err() {
+                                                    error!("direct method response receiver dropped")
+                                                }
+                                            },
+                                        }
+                                    },
+                                    Some(message) = rx_outgoing_message.recv() => {
+                                        let _guard = guard.lock();
+                                        twin.client
+                                            .as_ref()
+                                            .context("couldn't send msg since client not present")?
+                                            .send_d2c_message(message)?
+                                    },
+                                    Some(request) = rx_web_service.recv() => {
+                                        let _guard = guard.lock();
+                                        twin.handle_command(request.command, Some(request.reply)).await?
+                                    },
+            /*                        command = refresh_features.select_next_some() => {
+                                         let _guard = guard.lock();
+                                        let feature = twin
+                                            .features
+                                            .get_mut(&command.feature_id())
+                                            .ok_or_else(|| anyhow::anyhow!("failed to get feature mutable"))?;
 
-                            ensure!(feature.is_enabled().await, "event stream: feature is disabled {}", feature.name().await);
-                            info!("event stream: {}({command:?})", feature.name().await);
-                            feature.command(command).await?;
-                        },*/
-                    );
+                                        ensure!(feature.is_enabled().await, "event stream: feature is disabled {}", feature.name().await);
+                                        info!("event stream: {}({command:?})", feature.name().await);
+                                        feature.command(command).await?;
+                                    },*/
+                                );
 
-                    Ok::<(), anyhow::Error>(())
-                } => result?,
-            );
+                                Ok::<(), anyhow::Error>(())
+                            } => result?,
+                        );
         }
     }
 
