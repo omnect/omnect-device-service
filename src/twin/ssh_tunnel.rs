@@ -127,15 +127,15 @@ pub struct SshTunnel {
 }
 
 impl Feature for SshTunnel {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::SSH_TUNNEL_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_SSH_TUNNEL") != Ok("true".to_string())
     }
 

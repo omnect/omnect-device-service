@@ -105,15 +105,15 @@ pub struct SystemInfo {
     hardware_info: HardwareInfo,
 }
 impl Feature for SystemInfo {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::SYSTEM_INFO_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_SYSTEM_INFO") != Ok("true".to_string())
     }
 
@@ -131,7 +131,7 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    async fn event_stream(&mut self) -> EventStreamResult {
+    fn event_stream(&mut self) -> EventStreamResult {
         Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
             0 if self.software_info.boot_time.is_none() => {
                 Some(file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE]))

@@ -59,15 +59,15 @@ pub struct FactoryReset {
 }
 
 impl Feature for FactoryReset {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::FACTORY_RESET_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_FACTORY_RESET") != Ok("true".to_string())
     }
 

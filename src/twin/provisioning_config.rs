@@ -120,15 +120,15 @@ pub struct ProvisioningConfig {
 }
 
 impl Feature for ProvisioningConfig {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::PROVISIONING_CONFIG_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_PROVISIONING_CONFIG") != Ok("true".to_string())
     }
 
@@ -141,8 +141,8 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    async fn event_stream(&mut self) -> EventStreamResult {
-        if !self.is_enabled().await || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
+    fn event_stream(&mut self) -> EventStreamResult {
+        if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
             match &self.method {

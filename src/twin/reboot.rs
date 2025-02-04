@@ -20,15 +20,15 @@ pub struct Reboot {
 }
 
 impl Feature for Reboot {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::REBOOT_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_REBOOT") != Ok("true".to_string())
     }
 

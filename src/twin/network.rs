@@ -53,15 +53,15 @@ pub struct Network {
 }
 
 impl Feature for Network {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         Self::ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         Self::NETWORK_STATUS_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         env::var("SUPPRESS_NETWORK_STATUS") != Ok("true".to_string())
     }
 
@@ -75,8 +75,8 @@ impl Feature for Network {
         Ok(())
     }
 
-    async fn event_stream(&mut self) -> EventStreamResult {
-        if !self.is_enabled().await || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
+    fn event_stream(&mut self) -> EventStreamResult {
+        if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
             Ok(Some(interval_stream::<Network>(interval(

@@ -341,15 +341,15 @@ lazy_static! {
 }
 
 impl Feature for ModemInfo {
-    async fn name(&self) -> String {
+    fn name(&self) -> String {
         ID.to_string()
     }
 
-    async fn version(&self) -> u8 {
+    fn version(&self) -> u8 {
         MODEM_INFO_VERSION
     }
 
-    async fn is_enabled(&self) -> bool {
+    fn is_enabled(&self) -> bool {
         match env::var("DISTRO_FEATURES") {
             Ok(features) => features.split_whitespace().any(|feature| feature == "3g"),
             _ => false,
@@ -365,8 +365,8 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    async fn event_stream(&mut self) -> EventStreamResult {
-        if !self.is_enabled().await || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
+    fn event_stream(&mut self) -> EventStreamResult {
+        if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
             Ok(Some(interval_stream::<ModemInfo>(interval(

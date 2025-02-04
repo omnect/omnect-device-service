@@ -6,7 +6,6 @@ use log::{debug, error, info, warn};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
 use std::{
     any::TypeId,
-    collections::HashMap,
     path::{Path, PathBuf},
     pin::Pin,
     time::Duration,
@@ -151,10 +150,9 @@ pub type EventStreamResult = Result<Option<EventStream>>;
 
 #[dynosaur::dynosaur(DynFeature)]
 pub(crate) trait Feature {
-    // ToDo: make non async when fixed: https://github.com/spastorino/dynosaur/issues/39
-    async fn name(&self) -> String;
-    async fn version(&self) -> u8;
-    async fn is_enabled(&self) -> bool;
+    fn name(&self) -> String;
+    fn version(&self) -> u8;
+    fn is_enabled(&self) -> bool;
 
     async fn connect_twin(
         &mut self,
@@ -168,7 +166,7 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    async fn event_stream(&mut self) -> EventStreamResult {
+    fn event_stream(&mut self) -> EventStreamResult {
         Ok(None)
     }
 
@@ -176,8 +174,6 @@ pub(crate) trait Feature {
         unimplemented!();
     }
 }
-
-pub type FeatureMap<'a> = HashMap<TypeId, Box<DynFeature<'a>>>;
 
 #[derive(Debug, PartialEq)]
 pub struct FileCommand {
