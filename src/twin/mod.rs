@@ -423,7 +423,7 @@ impl Twin {
                             twin.handle_command(request.command, Some(request.reply)).await?
                         },
                         command = refresh_features.select_next_some() => {
-                             let _guard = guard.lock();
+                            let _guard = guard.lock();
                             let feature = twin
                                 .features
                                 .get_mut(&command.feature_id())
