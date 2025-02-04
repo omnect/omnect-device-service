@@ -5,7 +5,7 @@ use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, info};
+use log::{debug, info, error};
 use serde::Deserialize;
 use serde_json::json;
 use std::{env, time::Duration};
@@ -65,9 +65,10 @@ impl Reboot {
     async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
 
-	let _ = reboot_reason::reboot_reason(
-	    "ods-reboot", "initiated by portal or API")
-	    .context(": couldn't initiate writing reboot reason");
+	if let Err(e) = reboot_reason::reboot_reason(
+	    "ods-reboot", "initiated by portal or API") {
+	    error!(": failed to write reboot reason [{e}]");
+	}
 
         systemd::reboot().await?;
 
