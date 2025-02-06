@@ -202,7 +202,7 @@ impl SystemInfo {
                 components: sysinfo::Components::new_with_refreshed_list(),
                 disk: sysinfo::Disks::new_with_refreshed_list(),
                 system: sysinfo::System::new_with_specifics(
-                    sysinfo::RefreshKind::new()
+                    sysinfo::RefreshKind::nothing()
                         .with_cpu(sysinfo::CpuRefreshKind::everything())
                         .with_memory(sysinfo::MemoryRefreshKind::everything()),
                 ),
@@ -329,10 +329,10 @@ impl SystemInfo {
             bail!("metrics: timestamp could not be generated")
         };
 
-        self.hardware_info.components.refresh_list();
+        self.hardware_info.components.refresh(true);
         self.hardware_info.system.refresh_cpu_usage();
         self.hardware_info.system.refresh_memory();
-        self.hardware_info.disk.refresh();
+        self.hardware_info.disk.refresh(true);
 
         let mut disk_total = 0;
         let mut disk_used = 0;
@@ -352,13 +352,11 @@ impl SystemInfo {
             self.disk_total(time.clone(), disk_total as f64),
         ];
 
-        for component in self.hardware_info.components.iter() {
-            metric_list.push(self.temp(
-                time.clone(),
-                component.temperature() as f64,
-                component.label().to_string(),
-            ));
-        }
+        self.hardware_info.components.iter().for_each(|c| {
+            if let Some(t) = c.temperature() {
+                metric_list.push(self.temp(time.clone(), t.into(), c.label().to_string()))
+            };
+        });
 
         let json = serde_json::to_vec(&metric_list)
             .context("metrics list could not be converted to vector:")?;
