@@ -607,7 +607,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk"
 version = "0.13.9"
-source = "git+https://github.com/janzachmann/azure-iot-sdk.git?branch=chore#21d11ae328e32546348ee44edd0cc6f691b509c5"
+source = "git+https://github.com/omnect/azure-iot-sdk.git?tag=0.13.9#0737029513a7a602bc4112523ed3cebafb07985a"
 dependencies = [
  "anyhow",
  "azure-iot-sdk-sys",
@@ -622,7 +622,7 @@ dependencies = [
 [[package]]
 name = "azure-iot-sdk-sys"
 version = "0.6.2"
-source = "git+https://github.com/janzachmann/azure-iot-sdk-sys.git?branch=chore#7af7e1514c9a286e2e2744e7e09ddb6536ee30cb"
+source = "git+https://github.com/omnect/azure-iot-sdk-sys.git?tag=0.6.2#ca9d92d197b32e7597ea654f5542e696ec50499c"
 dependencies = [
  "bindgen",
  "pkg-config",
@@ -2158,7 +2158,7 @@ dependencies = [
 [[package]]
 name = "modemmanager"
 version = "0.3.4"
-source = "git+https://github.com/janzachmann/modemmanager.git?branch=chore#d3869acd9e30d690b12ed7035bff4968c98fafcc"
+source = "git+https://github.com/omnect/modemmanager.git?tag=0.3.4#dfab97416092c71651a8a5138c9caa85576aebdb"
 dependencies = [
  "modemmanager-sys",
  "num",
@@ -2170,7 +2170,7 @@ dependencies = [
 [[package]]
 name = "modemmanager-sys"
 version = "0.1.4"
-source = "git+https://github.com/janzachmann/modemmanager-sys.git?branch=chore#474a89bb82c77c8e8c7720ae7014875aba027ae2"
+source = "git+https://github.com/omnect/modemmanager-sys.git?tag=0.1.4#060a106e04ce344bfa1a0acdaa2a7642d4c40213"
 dependencies = [
  "bindgen",
  "num",
