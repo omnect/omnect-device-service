@@ -185,12 +185,50 @@ datetime="${time[0]}"
 timeepoch="${time[1]}"
 uptime="$(set -- $(cat /proc/uptime); echo $1)"
 
+function get_reason_dirname() {
+    local basedir="$1"
+    local timestamp="$2"
+    local seqno
+
+    if [ -d "${basedir}" ]; then
+	for path_entry in "${basedir}"/*; do
+	    # make it work independently from globbing by conluding that all
+	    # found entries still exist, because nobody else should bother with
+	    # that directory
+	    [ -e "${path_entry}" ] || break
+
+	    local entry=$(basename "${path_entry}")
+	    # format is something like NNNNNN+YYYY-mm-dd_HH-MM-SS
+	    local no="${entry%%+*}"
+
+	    # check format of no now
+	    case "X${no}" in
+		X | X[0-9]*[^0-9][0-9]*) continue;;  # ignored
+	    esac
+
+	    # now remove leading zeros
+	    no="${no#${no%%[^0]}}"
+	    : ${no:=0}
+	    [ -z "${seqno}" -o ${no} -gt ${seqno:-0} ] && seqno="${no}"
+	done
+
+	# we need to increment if we found a number!
+	[ "${seqno}" ] && seqno=$((seqno + 1))
+    fi
+
+    : ${seqno:=0}
+
+    printf '%06u+%s' "${seqno}" "${timestamp}"
+}
+
 # convert timestamp into dir name w/o potential for trouble
-reason_dirname="${datetime//:/-}"
-reason_dirname="${reason_dirname// /_}"
+timestamp="${datetime//:/-}"
+timestamp="${timestamp// /_}"
+
+reason_dirname=$(get_reason_dirname "${REASON_DIR}" "${timestamp}")
 
 reason_path="${REASON_DIR}/${reason_dirname}"
-mkdir "${reason_path}"
+mkdir -p "${reason_path}"
 retval=$?
 [ $retval = 0 ] || err 1 "Could not create directory (${reason_path}) for reboot reason data [$retval]"
 
