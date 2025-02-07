@@ -499,24 +499,21 @@ impl SshTunnel {
             return Ok(());
         };
 
-        let mut response = json!({
-            "ssh_tunnel": {
-                "version": self.version(),
-            }
-        });
-
-        let device_ca_path = device_cert_file!();
-
-        if let Ok(ca_data) = std::fs::read_to_string(&device_ca_path) {
-            response["ssh_tunnel"]["ca_pub"] = json!(ca_data.trim_end().to_string());
+        let ca_data = if let Ok(ca_data) = std::fs::read_to_string(device_cert_file!()) {
+            json!(ca_data.trim_end().to_string())
         } else {
             warn!("report: unable to read ssh public ca data");
-
             // we signal the backend that we don't have a pub ca set.
-            response["ssh_tunnel"]["ca_pub"] = json!(null);
+            json!(null)
         };
 
-        tx.send(response).await.context("report: send")
+        tx.send(json!({
+            "ssh_tunnel": {
+                "ca_pub": ca_data,
+            }
+        }))
+        .await
+        .context("report: send")
     }
 }
 
@@ -712,7 +709,6 @@ mod tests {
             reported_properties,
             json!({
                 "ssh_tunnel": {
-                    "version": 2,
                     "ca_pub": null,
                 }
             })
@@ -743,7 +739,6 @@ mod tests {
             reported_properties,
             json!({
                 "ssh_tunnel": {
-                    "version": 2,
                     "ca_pub": CERTIFICATE_DATA,
                 }
             })
@@ -785,7 +780,6 @@ mod tests {
             reported_properties,
             json!({
                 "ssh_tunnel": {
-                    "version": 2,
                     "ca_pub": CERTIFICATE_DATA,
                 }
             })

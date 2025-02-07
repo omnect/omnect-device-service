@@ -18,35 +18,17 @@ async fn main() {
 
     let mut builder = if cfg!(debug_assertions) {
         Builder::from_env(Env::default().default_filter_or(
-            "trace, \
-            actix_server=warn, \
-            async_io=warn, \
-            azure_iot_sdk=info, \
-            eis_utils=info, \
-            hyper=warn, \
-            hyper_util=warn, \
-            mio=warn, \
-            notify=warn, \
-            polling=warn, \
-            reqwest=warn, \
-            tracing=warn, \
-            zbus=warn",
+            "warn, \
+            azure_iot_sdk=debug, \
+            eis_utils=debug, \
+            omnect_device_service=debug",
         ))
     } else {
         Builder::from_env(Env::default().default_filter_or(
-            "info, \
-            actix_server=warn, \
-            async_io=warn, \
+            "warn, \
             azure_iot_sdk=info, \
             eis_utils=info, \
-            hyper=warn, \
-            hyper_util=warn, \
-            mio=warn, \
-            notify=warn, \
-            polling=warn, \
-            reqwest=warn, \
-            tracing=warn, \
-            zbus=warn",
+            omnect_device_service=info",
         ))
     };
 

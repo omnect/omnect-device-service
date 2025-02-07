@@ -329,7 +329,6 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
-                        "version":2,
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
                     }
                 })))
@@ -514,7 +513,6 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
-                        "version":2,
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
                     }
                 })))
