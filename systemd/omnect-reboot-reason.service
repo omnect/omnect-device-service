@@ -1,0 +1,17 @@
+[Unit]
+Description=omnect-reboot-reason
+# we cannot use time-sync.target here if we want to guarantee reboot reason
+# analysis to happen also in offline case (i.e. w/o any NTP sync)
+After=systemd-tmpfiles-setup.service time-set.target
+Wants=systemd-tmpfiles-setup.service time-set.target
+
+[Service]
+Type=oneshot
+ExecStart=-/bin/sh -c "[ -x /usr/sbin/omnect_pmsg_to_reboot_reason.sh ] && omnect_pmsg_to_reboot_reason.sh"
+RemainAfterExit=true
+
+User=omnect_device_service
+Group=omnect_device_service
+
+[Install]
+WantedBy=multi-user.target
