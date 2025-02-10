@@ -207,7 +207,7 @@ function get_reason_dirname() {
 	    esac
 
 	    # now remove leading zeros
-	    no="${no#${no%%[^0]}}"
+	    no="${no#${no%%[^0]*}}"
 	    : ${no:=0}
 	    [ -z "${seqno}" -o ${no} -gt ${seqno:-0} ] && seqno="${no}"
 	done
