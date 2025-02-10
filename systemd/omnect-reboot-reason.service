@@ -7,7 +7,7 @@ Wants=systemd-tmpfiles-setup.service time-set.target
 
 [Service]
 Type=oneshot
-ExecStart=-/bin/sh -c "[ -x /usr/sbin/omnect_pmsg_to_reboot_reason.sh ] && omnect_pmsg_to_reboot_reason.sh"
+ExecStart=+-/bin/sh -c "[ -x /usr/sbin/omnect_pmsg_to_reboot_reason.sh ] && omnect_pmsg_to_reboot_reason.sh"
 RemainAfterExit=true
 
 User=omnect_device_service
