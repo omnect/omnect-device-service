@@ -311,9 +311,7 @@ impl SshTunnel {
         let mut ssh_process =
             Self::start_tunnel_command(&args.tunnel_id, &ssh_creds, &args.bastion_config)?;
 
-        let Some(stdout) = ssh_process.stdout.take() else {
-            bail!("open_ssh_tunnel: stdout is None");
-        };
+        Self::await_tunnel_creation(&mut ssh_process).await?;
 
         let Some(tx) = &self.tx_outgoing_message else {
             bail!("open_ssh_tunnel: tx_outgoing_message is None")
@@ -327,8 +325,6 @@ impl SshTunnel {
             ssh_tunnel_permit,
             ssh_creds,
         ));
-
-        Self::await_tunnel_creation(stdout).await?;
 
         debug!(
             "Successfully established connection \"{}\" to \"{}:{}\"",
@@ -436,7 +432,11 @@ impl SshTunnel {
         info!("Closed ssh tunnel: {}", tunnel_id);
     }
 
-    async fn await_tunnel_creation(stdout: tokio::process::ChildStdout) -> Result<()> {
+    async fn await_tunnel_creation(ssh_process: &mut Child) -> Result<()> {
+        let Some(stdout) = ssh_process.stdout.as_mut() else {
+            bail!("open_ssh_tunnel: stdout is None");
+        };
+
         let mut reader = BufReader::new(stdout).lines();
         let response = reader.next_line().await;
 
