@@ -1,6 +1,6 @@
 use anyhow::{bail, ensure, Context, Result};
 use freedesktop_entry_parser::parse_entry;
-use regex::RegexBuilder;
+use regex_lite::RegexBuilder;
 use std::time::Duration;
 
 macro_rules! service_file_path {

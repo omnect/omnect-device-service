@@ -1,6 +1,8 @@
 use crate::twin::network;
 
-use super::{consent, factory_reset, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
+use super::{
+    consent, factory_reset, firmware_update, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState,
+};
 use anyhow::{bail, ensure, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::DirectMethod;
@@ -29,9 +31,11 @@ pub enum Command {
     FileModified(FileCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
+    LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
     OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
+    RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
     UserConsent(consent::UserConsentCommand),
 }
@@ -49,9 +53,11 @@ impl Command {
             FileModified(cmd) => cmd.feature_id,
             GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
+            LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Reboot => TypeId::of::<reboot::Reboot>(),
             ReloadNetwork => TypeId::of::<network::Network>(),
+            RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
         }
@@ -129,13 +135,13 @@ impl Command {
                     "ssh_tunnel_ca_pub" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
                         Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e}"
+                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e:#}"
                         ),
                     },
                     "general_consent" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
                         Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
+                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e:#}"
                         ),
                     },
                     "$version" => { /*ignore*/ }

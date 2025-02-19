@@ -322,6 +322,11 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
+                .with(eq(json!({"firmware_update":{"version":1}})))
+                .times(2)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
                 .with(eq(json!({"ssh_tunnel":{"version":2}})))
                 .times(2)
                 .returning(|_| Ok(()));
@@ -511,6 +516,11 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
+                .with(eq(json!({"firmware_update":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
@@ -649,10 +659,11 @@ pub mod mod_test {
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("SUPPRESS_PROVISIONING_CONFIG", "true"),
+            ("SUPPRESS_FIRMWARE_UPDATE", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(11).returning(|_| Ok(()));
+            mock.expect_twin_report().times(12).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -676,7 +687,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(19).returning(|_| Ok(()));
+            mock.expect_twin_report().times(20).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -752,7 +763,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(19).returning(|_| Ok(()));
+            mock.expect_twin_report().times(20).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {

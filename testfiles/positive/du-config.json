@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.1",
+  "aduShellTrustedUsers": [
+    "adu",
+    "do"
+  ],
+  "iotHubProtocol": "mqtt",
+  "compatPropertyNames": "manufacturer,model,compatibilityid",
+  "manufacturer": "conplement-AG",
+  "model": "OMNECT-raspberrypi4-64",
+  "agents": [
+    {
+      "name": "AducIotAgent",
+      "runas": "adu",
+      "connectionSource": {
+        "connectionType": "AIS",
+        "connectionData": ""
+      },
+      "manufacturer": "conplement-ag",
+      "model": "omnect-raspberrypi4-64-gateway-devel",
+      "additionalDeviceProperties": {
+        "compatibilityid": "4"
+      }
+    }
+  ]
+}

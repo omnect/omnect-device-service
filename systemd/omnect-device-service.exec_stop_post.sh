@@ -14,7 +14,7 @@ function reboot() {
 
 # for now we ignore SERVICE_RESULT and EXIT_STATUS. however it does potentially
 # make sense to reboot on certain combinations even if restart_count < max_restart_count
-# or update validation is not yet timeouted. (we have to gain experience.)
+# or update validation has not timed out yet. (we have to gain experience.)
 if [ -f ${barrier_json} ]; then
   # we are run during update validation
   now=$(cat /proc/uptime | awk '{print $1}')
@@ -22,12 +22,13 @@ if [ -f ${barrier_json} ]; then
   update_validation_start_ms=$(jq -r .start_monotonic_time_ms ${barrier_json})
   restart_count=$(jq -r .restart_count ${barrier_json})
   authenticated=$(jq -r .authenticated ${barrier_json})
+  local_update=$(jq -r .local_update ${barrier_json})
 
   if [ ${restart_count} -ge ${max_restart_count} ]; then
     reboot "too many restarts during update validation"
   fi
 
-  if [ "${authenticated}" =  "true" ]; then
+  if [ "${local_update}" =  "false" ] && [ "${authenticated}" =  "true" ]; then
     reboot "omnect-device-service authenticated, but update validation failed"
   fi
 

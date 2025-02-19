@@ -13,9 +13,10 @@ cfg_if::cfg_if! {
 
 #[derive(Copy, Clone, Debug)]
 pub enum UnitAction {
-    Start,
     Reload,
     Restart,
+    Start,
+    Stop,
 }
 
 #[cfg(not(feature = "mock"))]
@@ -28,9 +29,10 @@ pub async fn unit_action(unit: &str, unit_action: UnitAction, timeout: Duration)
 
     let action = |&unit_action| async move {
         match unit_action {
-            UnitAction::Start => manager.start_unit(unit, Mode::Fail).await,
             UnitAction::Reload => manager.reload_unit(unit, Mode::Fail).await,
             UnitAction::Restart => manager.restart_unit(unit, Mode::Fail).await,
+            UnitAction::Start => manager.start_unit(unit, Mode::Fail).await,
+            UnitAction::Stop => manager.stop_unit(unit, Mode::Fail).await,
         }
     };
 

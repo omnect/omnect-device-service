@@ -239,7 +239,7 @@ impl FactoryReset {
                 Ok(())
             }
             Err(e) => {
-                warn!("factory reset status: {e}");
+                warn!("factory reset status: {e:#}");
                 self.report_factory_reset_status(e.to_string().as_str())
                     .await
             }

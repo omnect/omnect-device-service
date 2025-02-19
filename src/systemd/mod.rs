@@ -30,7 +30,7 @@ pub async fn reboot() -> Result<()> {
         .arg("--sync")
         .status()
     {
-        error!("reboot: failed to execute 'journalctl --sync' with: {e}")
+        error!("reboot: failed to execute 'journalctl --sync' with: {e:#}")
     }
 
     zbus::Connection::system()
