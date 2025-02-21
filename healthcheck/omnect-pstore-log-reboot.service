@@ -7,7 +7,7 @@ Before=reboot.target
 Type=exec
 StandardOutput=journal+console
 StandardError=journal+console
-ExecStart=/usr/sbin/omnect_log_reboot_reason_to_pmsg.sh reboot
+ExecStart=/usr/sbin/omnect_reboot_reason.sh log reboot
 RemainAfterExit=yes
 
 User=omnect_device_service

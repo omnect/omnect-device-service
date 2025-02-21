@@ -5,7 +5,7 @@ Requires=poweroff.target halt.target
 
 [Service]
 Type=exec
-ExecStart=/usr/sbin/omnect_log_reboot_reason_to_pmsg.sh shutdown
+ExecStart=/usr/sbin/omnect_reboot_reason.sh log shutdown
 RemainAfterExit=yes
 
 User=omnect_device_service

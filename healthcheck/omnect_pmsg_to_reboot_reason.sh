@@ -4,11 +4,21 @@
 #
 # we now need to analyze the situation:
 #  - console-ramoops-0
-#    -> will always exist
-#  - dmesg-ramoops-0
+#     or
+#  - /sys/firmware/efi/efivars/boot-marker-53d7f47e-126f-bd7c-d98a-5aa0643aa921
+#    -> ramoops file will always exist unless update from image not yet
+#       supporting reboot reason feature
+#    -> EFI bootmarker file only exists if boot tagging service ran
+#       successfully; this means that reboots can go unnoticed if happening
+#       before
+#  - /sys/fs/pstore/dmesg-ramoops-0
+#     or
+#  - /sys/fs/pstore/dmesg-efi-XXXXXX
 #    -> definitely means that a crash happened
-#    -> but this might have been during an intentional reboot
-#  - pmsg-ramoops-0
+#       (possibly on the way to an intentional reboot, though)
+#  - /sys/fs/pstore/pmsg-ramoops-0
+#     or
+#  - /sys/firmware/efi/efivars/reboot-reason-53d7f47e-126f-bd7c-d98a-5aa0643aa921
 #    -> exists only upon regular reboots or reboot attempts
 #
 # that means, we need to prioritize what to report:
@@ -96,29 +106,19 @@
 #    is used, together with additional hints in extra_info field
 #
 
-RAMOOPS_FILENAME_POSTFIX=-ramoops-0
-PSTORE_DFLT_DIR=/sys/fs/pstore
+# common variables
 REASON_DFLT_DIR=/var/lib/omnect/reboot-reason
 REASON_ANALYSIS_FILE=reboot-reason.json
+PSTORE_DFLT_DIR=/sys/fs/pstore
 
-# output directory for reboot reason file
+# output directory for reboot reason file (could be set via env)
 : ${REASON_DIR:=${REASON_DFLT_DIR}}
 
-# file containing console logs of ast boot
-CONSOLE_DFLT_FILE="console${RAMOOPS_FILENAME_POSTFIX}"
-CONSOLE_FILE="${1:-${PSTORE_DFLT_DIR}/${CONSOLE_DFLT_FILE}}"
+# ramoops backend related variables
+RAMOOPS_FILENAME_POSTFIX=-ramoops-0
 
-# file containing logs to /dev/pmsg0
-PMSG_DFLT_FILE="pmsg${RAMOOPS_FILENAME_POSTFIX}"
-PMSG_FILE="${2:-${PSTORE_DFLT_DIR}/${PMSG_DFLT_FILE}}"
-
-# file containing logs to /dev/pmsg0
-DMESG_DFLT_FILE="dmesg${RAMOOPS_FILENAME_POSTFIX}"
-DMESG_FILE="${3:-${PSTORE_DFLT_DIR}/${DMESG_DFLT_FILE}}"
-
-# we need to treat pmsg content different if ECC is enabled on ramoops, because
-# the last line returned by read from sysfs file contains an ECC status
-ecc_enabled="$(</sys/module/ramoops/parameters/ecc)"
+# EFI backend related variables
+EFIVARS_DFLT_DIR=/sys/firmware/efi/efivars
 
 function err() {
     local exitval="${1:-1}"
@@ -142,10 +142,13 @@ function copy_file() {
 
     [ -f "${dstpath}" ] || dstpath=$(realpath "${dstpath}/${srcfile}")
 
+    # NOTE:
+    #   even though an ECC feature seems orthogonal to using special commands
+    #   for copy or remove operations, is only available for ramoops
     if [ "${ecc_quirk}" ]; then
 	sed '$d' "${srcpath}" > "${dstpath}"
     else
-	cp "${srcpath}" "${dstpath}"
+	${CPFILE_CMD} "${srcpath}" "${dstpath}"
     fi
     retval=$?
     [ $retval = 0 ] || err 1 "Copying file failed: ${srcpath} -> ${dstpath} [ecc_quirk:${ecc_quirk}]"
@@ -161,29 +164,147 @@ function copy_file() {
 	fi
     fi
 
-    [ "${del_after_copy}" ] && rm "${srcpath}"
+    [ "${del_after_copy}" ] && ${RMFILE_CMD} "${srcpath}"
 
     # at last return destination file
     realpath "${dstpath}"
 }
 
-# three possible command line arguments were already processed above, so
-# start looking for input files ...
+# NOTE:
+#   EFI variables are initially protected by kernel against (accidental)
+#   deletion (amongst other things) via file attribute 'i' (immutable flag).
+#   this means that we need to lift that restriction prior to deleting the
+#   file and hence the variable
+function rm_efivars() {
+    local var
+    for var; do
+	chattr -i "${var}"
+	rm "${var}"
+    done
+}
 
-[ -r "${CONSOLE_FILE}" ] || CONOSLE_FILE=
-[ -r "${DMESG_FILE}"   ] || DMESG_FILE=
-[ -r "${PMSG_FILE}"    ] || PMSG_FILE=
+# NOTE:
+#   EFI variables when read from sysfs contain a 4 byte header indicating the
+#   variable's flags (in little endian notation); this needs to be stripped
+#   in order to yield actual variable's content.
+function cp_efivars() {
+    local src="$1"
+    local dst="$2"
 
-# determine current time, uptime and other stuff for the first part of
-# the reboot reason JSON file
-boot_id="$(</proc/sys/kernel/random/boot_id)"
-os_version=$(. /etc/os-release; echo "${VERSION}")
-remIFS="${IFS}"
-IFS=, time=( $(date +%F\ %T,%s) )
-IFS="${remIFS}"
-datetime="${time[0]}"
-timeepoch="${time[1]}"
-uptime="$(set -- $(cat /proc/uptime); echo $1)"
+    # be prepared to get empty arguments for input and/or output to allow also
+    # use in pipes
+    dd "${src:+if=${src}}" "${dst:+of=${dst}}" bs=1 skip=4 2>/dev/null
+}
+
+# NOTE:
+#   crash logs are too long to get stored into single EFI variables so they
+#   are distributed over several variables differing only in a timestamp like
+#   last name component.
+#
+#   apparently, the format of this timestmp is ...
+#       xxxxxxxxxxyyzzz
+#   ... where x represents the timestamp (system time) of the EFI variable
+#   logging, y indicates the part of the full log, and zzz seems to be some
+#   kind sub-part sequencing which is obviously currently unused.
+#
+#   additionally, the snippets contain - as kind of in-band ordering
+#   information - one header line of the format ...
+#      "Panic#X PartY"
+#   ... with "X" and Y being decimal numbers.
+#
+#   due to this naming scheme, standard alphabetical file order corresponds
+#   with the dump snippets order.
+#   but be aware that snippets are in reverse chronological order: the first
+#   part contains the end of the crash log!
+#   this ensures that the most important part of the crash information -
+#   crash cause, stacktrace and register duump - is contained in the log
+#   regardless of the chosen log buffer size.
+#
+# NOTE:
+#   on the welotec device the "X" in the header line is apparently not handled
+#   correctly, instead for multiple crash logs there's always "1" used.
+#
+#   however, from the timestamps of the pstore files it can still be deduced
+#   which files belong together: if they are within a few seconds they most
+#   likely stem from the same crash
+function gather_efi_crashlog() {
+    local dstfile="$1"
+    local first_tstamp=""
+    local cwd="${PWD}"
+    local log_part log log_full
+    local curpartno
+    local tstamp time_epoch partno ipartno seq
+
+    # touch destination file right here to ensure we will be later able to
+    # write log to it
+    touch "${dstfile}"
+
+    # also for EFI backend crash log files are available in pstore
+    cd "${PSTORE_DFLT_DIR}"
+
+    for f in dmesg-efi-*; do
+	[ -r "$f" ] || break
+
+	# calculate parts of timestamp like last name component
+	tstamp="${f/dmesg-efi-/}"
+	time_epoch="${tstamp:0:-5}"
+	seq="${tstamp/${time_epoch}/}"
+	partno="${seq:0:2}"
+	ipartno="${partno#${partno%%[^0]*}}"
+	seq="${seq:2}"
+
+	# read that log part right now, we'll need it anyway
+	log_part=$(tail -n +2 ${f})
+
+	# have we already started gathering parts of a log?
+	if [ "${curpartno}" ]; then
+	    # yes, we are, bit does that part belong to the same crash log?
+	    if [ $((curpartno + 1)) = $((ipartno)) ]; then
+		# yes, this is the next (actual chronologically previous) part
+		# of the log
+		curpartno="$((ipartno))"
+		[ "${log}" ] && log="
+${log}"
+		log="${log_part}${log}"
+		continue;
+	    fi
+	    # this is part of a new log, so append previous log to the full
+	    # log possibly consisting of multiple logs which weren't gathered
+	    # yet for whatever reason
+	    [ "${log_full}" ] && log_full="${log_full}
+"
+	    log_full="${log_full}[log from $(date --date @${time_epoch})]
+${log}"
+	fi
+
+	# we need to start gathering a new crash log here
+	curpartno="$((ipartno))"
+	[ ${curpartno} = 1 ] \
+	    || err 1 "crash log part (${f}) doesn't start with part no 1 but with ${curpartno}"
+	log="${log_part}"
+    done
+
+    # here we need to gather last log which exist if log_part is no empty
+    # string
+    if [ "${log_part}" ]; then
+	# add log to full log
+	[ "${log_full}" ] && log_full="${log_full}
+"
+	log_full="[log from $(date --date @${time_epoch})]
+${log_full}${log}"
+    fi
+
+    # now we successfully gathered logs remove dmesg files now so that we don't
+    # process them again in another boot
+    rm -f dmesg-efi-*
+
+    # change back to original working directory to create destination file
+    cd "${cwd}"
+    echo "${log_full}" > "${dstfile}"
+
+    # finaly print time epoch as explicit return value
+    echo -n "${time_epoch}"
+}
 
 function get_reason_dirname() {
     local basedir="$1"
@@ -221,12 +342,79 @@ function get_reason_dirname() {
     printf '%06u+%s' "${seqno}" "${timestamp}"
 }
 
+
+# file containing reboot-reason logs, one of:
+#  - /sys/firmware/efi/efivars/reboot-reason-<boot-uuid>
+#    for EFI devices (normally x86 based)
+#  - /dev/pmsg0
+#    for non-EFI devices, standard for ARM based devices
+: ${SYSFS_DIR_EFIVARS:=${EFIVARS_DFLT_DIR}}
+if [ -d "${SYSFS_DIR_EFIVARS}" ]; then
+    # file containing intentional reboot reason logs
+    # NOTE:
+    #   EFI vars always have a UUID component which can specify some vendor
+    #   or a dedicated purpose, but are often just random values.
+    #   here, use a UUID generated according to RFC 4122 Section 4.3
+    #   (https://www.rfc-editor.org/rfc/rfc4122#section-4.3) using
+    #   "omnect.io" and "reboot-reason" in SHA256 hashed string .
+    #   this means to hash string "io.omnect:reboot-reason" ...
+    #      echo -n "" | sha256sum
+    #   ... and take the first 128 bits of the resulting hash value for UUID
+    #   and format them properly:
+    #      t=( $(echo -n "io.omnect:reboot-reason" | sha256sum) )
+    #      uuid="${t:0:8}-${t:8:4}-${t:12:4}-${t:16:4}-${t:20:12}"
+    #   this results in the UUID as in file name defined below
+    PMSG_DFLT_FILE="${SYSFS_DIR_EFIVARS}/reboot-reason-53d7f47e-126f-bd7c-d98a-5aa0643aa921"
+    CPFILE_CMD=cp_efivars
+    RMFILE_CMD=rm_efivars
+
+    # file containing crash logs
+    DMESG_DFLT_FILE="dmesg${RAMOOPS_FILENAME_POSTFIX}"
+
+    # NOTE: no console logs of last boot available with EFI backend
+else
+    # file containing intentional reboot reason logs
+    PMSG_DFLT_FILE="${PSTORE_DFLT_DIR}/pmsg${RAMOOPS_FILENAME_POSTFIX}"
+    RMFILE_CMD=rm
+    CPFILE_CMD=cp
+
+    # file containing crash logs
+    DMESG_DFLT_FILE="${PSTORE_DFLT_DIR}/dmesg${RAMOOPS_FILENAME_POSTFIX}"
+
+    # file containing console logs of last boot
+    CONSOLE_DFLT_FILE="${PSTORE_DFLT_DIR}/console${RAMOOPS_FILENAME_POSTFIX}"
+
+    # we need to treat pmsg content different if ECC is enabled on ramoops, because
+    # the last line returned by read from sysfs file contains an ECC status
+    [ -r /sys/module/ramoops/parameters/ecc ] \
+	&& ecc_enabled="$(</sys/module/ramoops/parameters/ecc)"
+
+fi
+
+PMSG_FILE="${2:-${PMSG_DFLT_FILE}}"
+DMESG_FILE="${3:-${DMESG_DFLT_FILE}}"
+CONSOLE_FILE="${1:-${CONSOLE_DFLT_FILE}}"
+
+[ "${CONSOLE_FILE}" -a -r "${CONSOLE_FILE}" ] || CONOSLE_FILE=
+[ "${DMESG_FILE}"   -a -r "${DMESG_FILE}"   ] || DMESG_FILE=
+[ "${PMSG_FILE}"    -a -r "${PMSG_FILE}"    ] || PMSG_FILE=
+
+# determine current time, uptime and other stuff for the first part of
+# the reboot reason JSON file
+boot_id="$(</proc/sys/kernel/random/boot_id)"
+os_version=$(. /etc/os-release; echo "${VERSION}")
+remIFS="${IFS}"
+IFS=, time=( $(date +%F\ %T,%s) )
+IFS="${remIFS}"
+datetime="${time[0]}"
+timeepoch="${time[1]}"
+uptime="$(set -- $(cat /proc/uptime); echo $1)"
+
 # convert timestamp into dir name w/o potential for trouble
 timestamp="${datetime//:/-}"
 timestamp="${timestamp// /_}"
 
 reason_dirname=$(get_reason_dirname "${REASON_DIR}" "${timestamp}")
-
 reason_path="${REASON_DIR}/${reason_dirname}"
 mkdir -p "${reason_path}"
 retval=$?
@@ -235,16 +423,18 @@ retval=$?
 # now change to destination directory to process available data (if any)
 cd "${reason_path}"
 
-# at first, copy over all available pstore files
+# three possible command line arguments were already processed above, so
+# start looking for input files and copy them
 del_after_copy=1
-[ -r "${CONSOLE_FILE}" ] \
+[ "${CONSOLE_FILE}" -a -r "${CONSOLE_FILE}" ] \
     && console_file=$(copy_file "${CONSOLE_FILE}" "${PWD}" "${del_after_copy}")
-[ -r "${DMESG_FILE}"   ] \
+[ "${DMESG_FILE}"   -a -r "${DMESG_FILE}"   ] \
     && dmesg_file=$(copy_file "${DMESG_FILE}"   "${PWD}" "${del_after_copy}")
-[ -r "${PMSG_FILE}"    ] \
+[ "${PMSG_FILE}"    -a -r "${PMSG_FILE}"    ] \
     && pmsg_file=$(copy_file "${PMSG_FILE}"    "${PWD}" "${del_after_copy}" 1 "${ecc_enabled}")
 
-# start with empty reason structure values later inserted into reason file
+# calculate json fields
+#  - start with empty reason structure values later inserted into reason file
 r_datetime=
 r_timeepoch=
 r_uptime=
@@ -253,12 +443,15 @@ r_os_version=
 r_reason=
 r_extra_info=
 
+#  - now try finding reasonable values for fields depending on input files
 if [ -r "${dmesg_file}" ]; then
     # highest priority: obviously a panic occured, so report it
     r_reason="system-crash"
     # FFS:
     #   can we obtain some reasonable extra information here?
-    #   maybe from dmesg file itself or from console file?
+    #   maybe from dmesg file itself or from console file (if any)?
+    #   or do we want to investigate on whether we were already about to
+    #   reboot?
 
     if [ -z "${r_extra_info}" -a -r "${pmsg_file}" ]; then
 	# gather all recorded reboot reasons for extra info
@@ -325,7 +518,7 @@ elif [ -r "${pmsg_file}" ]; then
 	    fi
 	fi
 
-	# if resulting reason is still not set do it now and provide more info
+	# 2. if resulting reason is still not set do it now and provide more info
 	if [ -z "${r_reason}" ]; then
 	    r_reason="unrecognized"
 	fi
@@ -336,12 +529,12 @@ elif [ -r "${pmsg_file}" ]; then
     fi
 elif [ -r "${console_file}" ]; then
     r_reason="unrecognized"
-    r_extra_info="console file w/o pmsg file"
+    r_extra_info="console file w/o reboot reason indication file"
 else
     r_reason="power-loss"
 fi
 
-# at last output reboot reason file
+# - at last output reboot reason file with gathered field values
 jq \
     -n \
     --arg report_boot_id "${boot_id}" \
