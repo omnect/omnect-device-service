@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash
 #
 # usage:
 #    omnect_reboot_reason.sh get [ <console-file> <pmsg-file> <dmsg-file> ]
@@ -441,7 +441,7 @@ function reboot_reason_log_for_ramoops() {
 
     out=$(echo -n "${json}" 2>&1 > ${RAMOOPS_DEV_PMSG}) \
      || {
-	>&2 echo -e "$0: logging to ${RAMOOPS_DEV_PMSG} had issues:\n${out}";
+	>&2 echo -e "${ME}: logging to ${RAMOOPS_DEV_PMSG} had issues:\n${out}";
 	exit 1
     }
 }
@@ -491,48 +491,15 @@ function reboot_reason_get_for_ramoops() {
 EFIVARS_DFLT_DIR=/sys/firmware/efi/efivars
 : ${SYSFS_DIR_EFIVARS:=${EFIVARS_DFLT_DIR}}
 EFIVAR_UUID="53d7f47e-126f-bd7c-d98a-5aa0643aa921"
-EFIVAR_VAR="${efivar_uuid}-reboot-reason"
-EFIVAR_SYSFS_PATH="${SYSFS_DIR_EFIVARS}/reboot-reason-${efivar_uuid}"
-
-function reboot_reason_log_for_efi() {
-    local json="$1"
-
-    # unfortunately we need a temporary file containing log data, because
-    # command efivar is not capable to receive these via stdin
-    tmpfile=$(mktemp -p /tmp reboot-reason.XXXXXXXX 2>&1) \
-	|| {
-	>&2 echo -e "$0: creating temporary reboot reason file had issues:\n${tmpfile}";
-	rv=1
-	exit
-    }
-    out=$(echo "$data" 2>&1 > "${tmpfile}") \
-	|| {
-	>&2 echo -e "$0: writing data to temporary reboot reason file (${tmpfile}) had issues:\n${out}";
-	rv=1
-	exit
-    }
-
-    # EFI variable handling with efivar is rather strange compared to kernel
-    # driver handling:
-    #  - sysfs:   <name>-<uuid>
-    #  - efivar:  <uuid>-<name>
-    # for uuid use 53d7f47e-126f-bd7c-d98a-5aa0643aa921 as explained in
-    local logdestination="${EFIVAR_SYSFS_PATH}"
-
-    # variable can't be directly created by efivar for whatever reason, so
-    # ensure it exists before appending data to it
-    [ -w "${EFIVAR_SYSFS_PATH}" ] || touch "${EFIVAR_SYSFS_PATH}"
-
-    # time to actually write our data to the variable
-    set +e
-    out=$(efivar -a -f "${tmpfile}" -n "${efivar_var}" 2>&1 > /dev/null)
-    if [ $? != 0 -o "${out}" ]; then
-	>&2 echo -e "$0: logging to ${efivar_sysfs_path} had issues:\n${out}";
-	rv=1
-	exit
-    fi
-    set -e
-}
+EFIVAR_PMSG_VAR="${EFIVAR_UUID}-reboot-reason"
+EFIVAR_PMSG_DFLT_FILE="${SYSFS_DIR_EFIVARS}/reboot-reason-${EFIVAR_UUID}"
+: ${EFIVAR_PMSG_FILE:=${EFIVAR_PMSG_DFLT_FILE}}
+EFIVAR_BOOTTAG_VAR="${EFIVAR_UUID}-boottag"
+EFIVAR_BOOTTAG_DFLT_FILE="${SYSFS_DIR_EFIVARS}/boottag-${EFIVAR_UUID}"
+: ${EFIVAR_BOOTTAG_FILE:=${EFIVAR_BOOTTAG_DFLT_FILE}}
+EFIVAR_DMESG_DFLT_DIR="${PSTORE_DFLT_DIR}"
+: ${EFIVAR_DMESG_DIR:=${EFIVAR_DMESG_DFLT_DIR}}
+EFIVAR_DMESG_VARNAME_PREFIX="dmesg-efi-"
 
 # NOTE:
 #   EFI variables are initially protected by kernel against (accidental)
@@ -551,13 +518,131 @@ function rm_efivars() {
 #   EFI variables when read from sysfs contain a 4 byte header indicating the
 #   variable's flags (in little endian notation); this needs to be stripped
 #   in order to yield actual variable's content.
-function cp_efivars() {
+function read_efivar() {
     local src="$1"
     local dst="$2"
 
     # be prepared to get empty arguments for input and/or output to allow also
     # use in pipes
-    dd "${src:+if=${src}}" "${dst:+of=${dst}}" bs=1 skip=4 2>/dev/null
+    dd ${src:+if="${src}"} ${dst:+of="${dst}"} bs=1 skip=4 2>/dev/null
+}
+
+function boottag_get_boot_ids() {
+    local omit_cur_boot_id="${1}"
+    local efivar_file="${EFIVAR_BOOTTAG_FILE}"
+    local cur_boot_id="invalid"
+
+    if [ ! -r "${efivar_file}" ]; then
+	>&2 echo "WARNING: no EFI variable \"${efivar_file##*/}\" exists"
+	return
+    fi
+    [ "${omit_cur_boot_id}" ] \
+	&& cur_boot_id="$(</proc/sys/kernel/random/boot_id)"
+
+    read_efivar "${efivar_file}" \
+	| jq -sr --arg omit_id "${cur_boot_id}" 'map(select(.boottag != $omit_id) | .boottag) | join(" ")'
+}
+
+function boottag_write_boot_id() {
+    local boot_id="${1:-$(</proc/sys/kernel/random/boot_id)}"
+    local append="${2:+-a}"
+    local efivar_var="${EFIVAR_BOOTTAG_VAR}"
+    local efivar_file="${EFIVAR_BOOTTAG_FILE}"
+    local tmpfile out
+
+    # for efivar command write we unfortunately need a file
+    tmpfile=$(mktemp -p /tmp boottag.XXXXXXXX 2>&1) \
+	|| {
+	>&2 echo -e "${ME}: creating temporary reboot reason file had issues:\n${tmpfile}";
+	rv=1
+	exit
+    }
+
+    # now write boottag entry(s) to the file
+    jq -cn --arg boottag "${boot_id}" '{ "boottag": $boottag }' > "${tmpfile}"
+
+    # ensure that we don't try appending if variable doesn't yet exist
+    [ -r "${efivar_file}" ] || append=
+    
+    # finally write contnt to efivar
+    out=$(efivar ${append:--w} -f "${tmpfile}" -n "${efivar_var}" 2>&1 > /dev/null)
+    if [ $? != 0 -o "${out}" ]; then
+	>&2 echo -e "${ME}: logging to EFI variable ${efivar_var} had issues:\n${out}";
+	rv=1
+	exit
+    fi
+    rm -f "${tmpfile}"
+}
+
+function boottag_rm_bootid() {
+    local boot_id="${1:-$(</proc/sys/kernel/random/boot_id)}"
+    local other_ids
+
+    # can we delete the variable or do we need to keep IDs?
+    other_ids=$(boottag_get_boot_ids 1)
+    if [ "${other_ids}" ]; then
+	# need to keep
+	local multiple=
+	for id in ${other_ids}; do
+	    boottag_write_boot_id "${id}" "${multiple:+append}"
+	    multiple=1
+	done
+    else
+	# no other IDs contained so we can remove the variable
+	rm_efivars "${EFIVAR_BOOTTAG_FILE}"
+    fi
+}
+
+function reboot_reason_log_for_efi() {
+    local json="$1"
+    local final_reason="$2"
+    local tmpfile
+
+    # unfortunately we need a temporary file containing log data, because
+    # command efivar is not capable to receive these via stdin
+    tmpfile=$(mktemp -p /tmp reboot-reason.XXXXXXXX 2>&1) \
+	|| {
+	>&2 echo -e "${ME}: creating temporary reboot reason file had issues:\n${tmpfile}";
+	rv=1
+	exit
+    }
+    out=$(echo -n "$json" 2>&1 > "${tmpfile}") \
+	|| {
+	>&2 echo -e "${ME}: writing JSON data to temporary reboot reason file (${tmpfile}) had issues:\n${out}";
+	rv=1
+	exit
+    }
+
+    # EFI variable handling with efivar is rather strange compared to kernel
+    # driver handling:
+    #  - sysfs:   <name>-<uuid>
+    #  - efivar:  <uuid>-<name>
+    # for uuid use 53d7f47e-126f-bd7c-d98a-5aa0643aa921 as explained in
+    local efivar_file="${EFIVAR_PMSG_FILE}"
+    local efivar_var="${EFIVAR_PMSG_VAR}"
+
+    # variable can't be directly created by efivar for whatever reason, so
+    # ensure it exists before appending data to it
+    [ -w "${efivar_file}" ] || touch "${efivar_file}"
+
+    # time to actually write our data to the variable
+    set +e
+    out=$(efivar -a -f "${tmpfile}" -n "${efivar_var}" 2>&1 > /dev/null)
+    if [ $? != 0 -o "${out}" ]; then
+	>&2 echo -e "${ME}: logging to ${efivar_file} had issues:\n${out}";
+	rv=1
+	exit
+    fi
+    set -e
+
+    # if the reason is considered the final one prior to reboot/shutdown
+    # we remove the boottag variable. this means that if the variable contains
+    # another boot ID in boottag file (or even multiple) there was a power loss
+    # (or multiple of them, one per non-current ID)
+    # NOTE:
+    #  it is assumed that processing of reboot reason already took place when
+    #  getting here!
+    [ "${final_reason}" ] && boottag_rm_bootid
 }
 
 # NOTE:
@@ -593,7 +678,6 @@ function cp_efivars() {
 #   likely stem from the same crash
 function gather_efi_crashlog() {
     local dstfile="$1"
-    local first_tstamp=""
     local cwd="${PWD}"
     local log_part log log_full
     local curpartno
@@ -603,9 +687,7 @@ function gather_efi_crashlog() {
     # write log to it
     touch "${dstfile}"
 
-    # also for EFI backend crash log files are available in pstore
-    cd "${PSTORE_DFLT_DIR}"
-
+    cd "${EFIVAR_DMESG_DIR}"
     for f in dmesg-efi-*; do
 	[ -r "$f" ] || break
 
@@ -662,25 +744,99 @@ ${log_full}${log}"
     # process them again in another boot
     rm -f dmesg-efi-*
 
-    # change back to original working directory to create destination file
+    # change back to original working directory to create destination file if
+    # there was a panic and return the time_epoch of the crash
     cd "${cwd}"
-    echo "${log_full}" > "${dstfile}"
+    if [ "${log_full}" ]; then
+	echo "${log_full}" > "${dstfile}"
 
-    # finaly print time epoch as explicit return value
-    echo -n "${time_epoch}"
+	# finaly print time epoch as explicit return value
+	echo -n "${time_epoch}"
+    fi
 }
 
+# gather reboot reason files needed for analysis from various places:
+#  - /sys/firmware/efi/efivars:
+#    - reboot-reason-53d7f47e-126f-bd7c-d98a-5aa0643aa921
+#      counterpart to ramoops pmsg file
+#    - boottag-53d7f47e-126f-bd7c-d98a-5aa0643aa921
+#      alternative to ramoops console file which is always there after a
+#      reboot (given that memory region is safe to keep content), but won't
+#      exist after a power loss:
+#       - it exists and holds the boot_id of the current run while up
+#       - it gets removed before actually rebooting or shutting down the
+#         system
+#       - existence during analysis with different boot_id than current means
+#         there was either a power-loss or a sudden reboot
+#         (these cases arent't distinguishable, unfortunately
+# - /sys/fs/pstore:
+#   when system crashes the EFI backend stores the crash log into EFI variables
+#   of the form dump-typeX1-X2-X3-X4-X5-<uuid> which are automatically
+#   transformed to files in pstore of the form dmesg-efi-NNNNNNNNNNNN
+#   (have a look at description above function gather_efi_crashlog() for
+#   detailed information about use of placeholder NNNNNNNNNNNN above)
 function reboot_reason_get_for_efi() {
-    :
+    local dmesg_dir="${EFIVAR_DMESG_DIR}"
+    local reason_dir=$(get_new_reason_dir "${REASON_DIR}" "${timestamp[0]}")
+    local out time_epoch tmpfile pmsg_file dmesg_file console_file
+    local bootids reboot_reasons extra_info
+
+    # check for dmesg at first; create a temporary file for that
+    tmpfile=$(mktemp -p /tmp dmesg-efi.XXXXXXXX 2>&1) \
+	|| {
+	>&2 echo -e "${ME}: creating temporary dmesg file had issues:\n${tmpfile}";
+	rv=1
+	exit
+    }
+    time_epoch=$(gather_efi_crashlog "${tmpfile}")
+    [ "${time_epoch}" ] && dmesg_file="${tmpfile}"
+
+    # check for boottag(s) in order to detect a power loss
+    bootids="$(boottag_get_boot_ids 1)"
+    if [ "${bootids}" ]; then
+	# there is at least one boot_id not matching current one meaning that
+	# there was no ordinary reboot/halt during which it would have been
+	# deleted; conclusion is a power loss
+	# FFS: should we pass on leftover IDs like this
+	#   extra_info="${bootids// /, }"
+
+	# replace EFI variable content with only current boot ID now
+	boottag_write_boot_id
+    else
+	# at most current boot_id is contained in variable, so we assume a
+	# normal reboot or shutdown & power-on
+	console_file="${reason_dir}/console-efi"
+	out=$(touch "${console_file}" 2>&1) \
+	    || {
+	    >&2 echo -e "${ME}: creating console file (${console_file}) had issues:\n${out}";
+	    rv=1
+	    exit
+	}
+    fi
+
+    # retrieve logged reboot reasons
+    reboot_reasons=$(read_efivar "${EFIVAR_PMSG_FILE}")
+    if [ "${reboot_reasons}" ]; then
+	pmsg_file="${reason_dir}/pmsg-efi"
+	out=$(echo "${reboot_reasons}" > "${pmsg_file}" 2>&1) \
+	    || {
+	    >&2 echo -e "${ME}: creating pmsg file (${pmsg_file}) had issues:\n${dmesg_file}";
+	    rv=1
+	    exit
+	}
+	rm_efivars "${EFIVAR_PMSG_FILE}"
+    fi
+
+    analyze "${reason_dir}" "${dmesg_file}" "${console_file}" "${pmsg_file}"
 }
 
-function reboot_reason_bootag_for_efi() {
+function reboot_reason_boottag_for_efi() {
     local cmd="$1"
 
-    if [ "$cmd" ="get" ]; then
-	    :
+    if [ "$cmd" = "get" ]; then
+	boottag_get_boot_ids "${2:+omit}"
     elif [ "$cmd" = "set" ]; then
-	    :
+	boottag_write_boot_id "$2" "${3:+append}"
     fi
 }
 
@@ -699,12 +855,12 @@ fi
 
 function reboot_reason_log() {
     local reason="$1"
-    shift
-    local extra_info="$*"
+    local extra_info="$2"
+    local final_reason="${3:+final}"
     local json
 
     json=$(get_reboot_reason_data "${reason}" "${extra_info}")
-    ${REBOOT_REASON_LOG} "${json}"
+    ${REBOOT_REASON_LOG} "${json}" "${final_reason}"
 
     >&2 echo -e "${ME}: successfully logged reboot reason \"${reason}\"${extra_info:+ [extra info:${extra_info}]}"
 }
@@ -715,7 +871,6 @@ function reboot_reason_get() {
 
 function reboot_reason_boottag() {
     local cmd="$1"
-    shift
 
     [ "${REBOOT_REASON_BOOTTAG}" ] \
 	|| return
@@ -739,7 +894,9 @@ trap cleanup EXIT
 get_timestamp
 
 cmd="$1"
+[ "${cmd}" ] || err 1 "no command given; use log, get or boottag"
 shift
+
 case "$cmd" in
     log)
         # usage: omnect_reboot_reason.sh log <reason> <extra-info> ...
@@ -755,7 +912,6 @@ case "$cmd" in
 	reboot_reason_boottag get "$@"
 	;;
     *)
-	[ "$1" ] && err 1 "unrecognized command \"$1\""
-	err 1 "no command given; use log, get or boottag"
+	err 1 "unrecognized command \"$cmd\"" \
 	;;
 esac

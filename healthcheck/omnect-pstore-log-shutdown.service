@@ -5,7 +5,7 @@ Requires=poweroff.target halt.target
 
 [Service]
 Type=exec
-ExecStart=/usr/sbin/omnect_reboot_reason.sh log shutdown
+ExecStart=/usr/sbin/omnect_reboot_reason.sh log shutdown systemd final
 RemainAfterExit=yes
 
 User=omnect_device_service
