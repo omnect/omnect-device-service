@@ -5,7 +5,7 @@ Requires=local-fs.target
 
 [Service]
 Type=exec
-ExecStart=/usr/sbin/omnect_reboot_reason.sh boottag_set append
+ExecStart=+-/bin/sh -c "[ -x /usr/sbin/omnect_reboot_reason.sh ] && omnect_reboot_reason.sh boottag_set append"
 RemainAfterExit=yes
 
 User=omnect_device_service
