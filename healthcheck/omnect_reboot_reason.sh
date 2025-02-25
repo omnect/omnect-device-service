@@ -623,7 +623,11 @@ function reboot_reason_log_for_efi() {
 
     # variable can't be directly created by efivar for whatever reason, so
     # ensure it exists before appending data to it
-    [ -w "${efivar_file}" ] || touch "${efivar_file}"
+    # NOTE:
+    #   variable file can't be checked for being writable because, even though
+    #   the file has permission 0644 and we operate as root, direct write is
+    #   forbidden by means of immutable file attribute
+    [ -r "${efivar_file}" ] || touch "${efivar_file}"
 
     # time to actually write our data to the variable
     set +e
