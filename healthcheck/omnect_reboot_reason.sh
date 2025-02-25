@@ -646,7 +646,9 @@ function reboot_reason_log_for_efi() {
     # NOTE:
     #  it is assumed that processing of reboot reason already took place when
     #  getting here!
-    [ "${final_reason}" ] && boottag_rm_bootid
+    if [ "${final_reason}" ]; then
+	boottag_rm_bootid
+    fi
 }
 
 # NOTE:
