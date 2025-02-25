@@ -20,8 +20,8 @@ pub fn bootloader_env(key: &str) -> Result<String> {
         let mut j = i.split('=');
         if j.next().context("failed to split grub-editenv line")? == key {
             value = j
-                .last()
-                .context("failed to get {key}'s value")?
+                .next_back()
+                .context(format!("failed to get {key}'s value"))?
                 .trim()
                 .to_string();
             break;
@@ -36,7 +36,7 @@ pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
         Command::new("sudo")
             .args(["grub-editenv", GRUB_ENV_FILE, "set", set.as_str()])
             .status()
-            .context("failed to call \"sudo grub-editenv set {set}\"")?
+            .context(format!("failed to call \"sudo grub-editenv set {set}\""))?
             .success(),
         "\"sudo grub-editenv set {set}\" failed"
     );
@@ -49,7 +49,7 @@ pub fn unset_bootloader_env(key: &str) -> Result<()> {
         Command::new("sudo")
             .args(["grub-editenv", GRUB_ENV_FILE, "unset", key])
             .status()
-            .context("failed to call \"sudo grub-editenv unset {key}\"")?
+            .context(format!("failed to call \"sudo grub-editenv unset {key}\""))?
             .success(),
         "\"sudo grub-editenv unset {key}\" failed"
     );
