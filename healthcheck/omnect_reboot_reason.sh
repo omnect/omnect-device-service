@@ -260,7 +260,8 @@ function analyze() {
 	if [ -z "${r_extra_info}" -a -r "${pmsg_file}" ]; then
 	    # gather all recorded reboot reasons for extra info
 	    no_reasons=$(jq -s 'length' < "${pmsg_file}")
-	    r_extra_info="pmsg file with multiple (${no_reasons}) reason entries exists: ${all_reasons}"
+	    all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
+	    r_extra_info="with multiple reasons exist: ${all_reasons} + ${r_reason}"
 
 	    # use latest reboot record to fill reason; best approximation available
 	    # and at least boot_id is correct!
@@ -563,7 +564,7 @@ function boottag_write_boot_id() {
 
     # ensure that we don't try appending if variable doesn't yet exist
     [ -r "${efivar_file}" ] || append=
-    
+
     # finally write contnt to efivar
     out=$(efivar ${append:--w} -f "${tmpfile}" -n "${efivar_var}" 2>&1 > /dev/null)
     if [ $? != 0 -o "${out}" ]; then
@@ -686,6 +687,7 @@ function gather_efi_crashlog() {
     local dstfile="$1"
     local cwd="${PWD}"
     local log_part log log_full
+    local head_part head head_type
     local curpartno
     local tstamp time_epoch partno ipartno seq
 
@@ -706,6 +708,12 @@ function gather_efi_crashlog() {
 	seq="${seq:2}"
 
 	# read that log part right now, we'll need it anyway
+	head_part=$(head -n 1 ${f})
+	# ignore crash unrelated entries for now
+	head_type="${head_part%%#*}"
+	[ "${head_type}" = "Panic" -o "${head_type}" = "Panic" ] \
+	    || continue
+
 	log_part=$(tail -n +2 ${f})
 
 	# have we already started gathering parts of a log?
@@ -715,6 +723,9 @@ function gather_efi_crashlog() {
 		# yes, this is the next (actual chronologically previous) part
 		# of the log
 		curpartno="$((ipartno))"
+		[ "${head}" ] && head="
+${head}"
+		head="${head_part}${head}"
 		[ "${log}" ] && log="
 ${log}"
 		log="${log_part}${log}"
@@ -726,6 +737,7 @@ ${log}"
 	    [ "${log_full}" ] && log_full="${log_full}
 "
 	    log_full="${log_full}[log from $(date --date @${time_epoch})]
+${head}
 ${log}"
 	fi
 
@@ -734,6 +746,7 @@ ${log}"
 	[ ${curpartno} = 1 ] \
 	    || err 1 "crash log part (${f}) doesn't start with part no 1 but with ${curpartno}"
 	log="${log_part}"
+	head="${head_part}"
     done
 
     # here we need to gather last log which exist if log_part is no empty
@@ -742,8 +755,9 @@ ${log}"
 	# add log to full log
 	[ "${log_full}" ] && log_full="${log_full}
 "
-	log_full="[log from $(date --date @${time_epoch})]
-${log_full}${log}"
+	log_full="${log_full}[log from $(date --date @${time_epoch})]
+${head}
+${log}"
     fi
 
     # now we successfully gathered logs remove dmesg files now so that we don't
@@ -795,7 +809,15 @@ function reboot_reason_get_for_efi() {
 	exit
     }
     time_epoch=$(gather_efi_crashlog "${tmpfile}")
-    [ "${time_epoch}" ] && dmesg_file="${tmpfile}"
+    if [ "${time_epoch}" ]; then
+	dmesg_file="${reason_dir}/dmesg-efi"
+	out=$(cp "${tmpfile}" "${dmesg_file}" 2>&1) \
+	    || {
+	    >&2 echo -e "${ME}: creating dmesg file (${dmesg_file}) had issues:\n${out}";
+	    rv=1
+	    exit
+	}
+    fi
 
     # check for boottag(s) in order to detect a power loss
     bootids="$(boottag_get_boot_ids 1)"
