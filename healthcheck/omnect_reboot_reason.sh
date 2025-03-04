@@ -924,7 +924,7 @@ shift
 # this variable gets set during image build process accordingly
 is_enabled="@@OMNECT_REBOOT_REASON_ENABLED@@"
 
-if [ "${is_enabled}" = "true" ]
+if [ "${is_enabled}" = "true" ]; then
    # we will need a timestamp for current operation so get it right now stored
    # into timestamp array variable for later use
    get_timestamp
