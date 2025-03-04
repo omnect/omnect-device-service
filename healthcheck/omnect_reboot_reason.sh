@@ -913,33 +913,47 @@ function reboot_reason_boottag() {
     esac
 }
 
-##################### main                    #####################
+#####################           main          #####################
 
 trap cleanup EXIT
 
-# we will need a timestamp for current operation so get it right now stored
-# into timestamp array variable for later use
-get_timestamp
-
 cmd="$1"
-[ "${cmd}" ] || err 1 "no command given; use log, get or boottag"
+[ "${cmd}" ] || err 1 "no command given; use log, get, boottag or is_enabled"
 shift
 
-case "$cmd" in
-    log)
-        # usage: omnect_reboot_reason.sh log <reason> <extra-info> ...
-	reboot_reason_log "$@"
-	;;
-    get)
-	reboot_reason_get
-	;;
-    boottag_set)
-	reboot_reason_boottag set "$@"
-	;;
-    boottag_get)
-	reboot_reason_boottag get "$@"
-	;;
-    *)
-	err 1 "unrecognized command \"$cmd\"" \
-	;;
-esac
+# this variable gets set during image build process accordingly
+is_enabled="@@OMNECT_REBOOT_REASON_ENABLED@@"
+
+if [ "${is_enabled}" = "true" ]
+   # we will need a timestamp for current operation so get it right now stored
+   # into timestamp array variable for later use
+   get_timestamp
+
+    case "$cmd" in
+	log)
+            # usage: omnect_reboot_reason.sh log <reason> <extra-info> ...
+	    reboot_reason_log "$@"
+	    ;;
+	get)
+	    reboot_reason_get
+	    ;;
+	boottag_set)
+	    reboot_reason_boottag set "$@"
+	    ;;
+	boottag_get)
+	    reboot_reason_boottag get "$@"
+	    ;;
+	is_enabled)
+	    [ "${is_enabled}" = "true" ]
+	    ;;
+	*)
+	    err 1 "unrecognized command \"$cmd\"" \
+		;;
+    esac
+else
+    # we simply succeed for all commands but "is_enabled" in case reboot reason
+    # functionality not given on a device
+    if [ "${cmd}" = "is_enabled" ]; then
+	[ "${is_enabled}" = "true" ]
+    fi
+fi
