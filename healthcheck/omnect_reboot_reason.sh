@@ -80,8 +80,10 @@
 #     }
 # }
 #
-# struct "report" gathers information /wrt reboot reason file generation.
-# it could be used for checking reboot history.
+# structure "report" gathers information /wrt reboot reason file generation.
+# it could be used for checking history of system reboots over time.
+# structure "reboot_reason" is used in reboot reason result file (aka report
+# or analysis) and identically for reason logging by this script.
 #
 # deduced reboot reasons are:
 #  - reboot
@@ -147,8 +149,7 @@ function cleanup() {
 
 function err() {
     local exitval="${1:-1}"
-    shift
-    local msg="$*"
+    local msg="${*:2}"
 
     [ "$msg" ] || msg="unspecified"
 
@@ -157,13 +158,13 @@ function err() {
     exit
 }
 
-# NOTE: sets global variable time which can be used from then on
+# NOTE: sets global variable timestamp which can be used from then on
 function get_timestamp() {
     local IFS=,
 
     # only calculate timestamp once to yield uniform timestamp when multiply
     # used
-    [ "${timestmap}" ] && return
+    [ "${timestamp}" ] && return
 
     # index 0 has date and tim, index 1 time epoch
     timestamp=( $(date +%F\ %T,%s) )
@@ -179,6 +180,7 @@ function get_new_reason_dir() {
     timestamp="${timestamp//:/-}"
     timestamp="${timestamp// /_}"
 
+    # now find next sequence number for new directory
     if [ -d "${basedir}" ]; then
 	for path_entry in "${basedir}"/*; do
 	    # make it work independently from globbing by conluding that all
@@ -219,7 +221,7 @@ function get_new_reason_dir() {
 function get_reboot_reason_data() {
     local reason="${1:-NOT-SET}"
     local extra_info="$2"
-    local os_version=$(. /etc/os-release; echo "${VERSION}" )
+    local os_version=$(. /etc/os-release; echo "${VERSION}")
 
     cat <<EOF
 {
@@ -302,7 +304,6 @@ function analyze() {
 	    next_to_last_extra_info=$(jq -rs  '[ .[] | .extra_info ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
 
 	    if [ "${last_reason}" = "reboot" ]; then
-		# FIXME: what cases do we need to sort out here?
 		case "${next_to_last_reason}" in
 		    swupdate | swupdate-validation-failed | factory-reset | portal-reboot | ods-reboot)
 			r_reason="${next_to_last_reason}"
@@ -657,7 +658,7 @@ function reboot_reason_log_for_efi() {
 #   are distributed over several variables differing only in a timestamp like
 #   last name component.
 #
-#   apparently, the format of this timestmp is ...
+#   apparently, the format of this timestamp is ...
 #       xxxxxxxxxxyyzzz
 #   ... where x represents the timestamp (system time) of the EFI variable
 #   logging, y indicates the part of the full log, and zzz seems to be some
@@ -862,7 +863,7 @@ function reboot_reason_boottag_for_efi() {
     local cmd="$1"
 
     if [ "$cmd" = "get" ]; then
-	boottag_get_boot_ids "${2:+omit}"
+	boottag_get_boot_ids "${2:+1}"
     elif [ "$cmd" = "set" ]; then
 	boottag_write_boot_id "$2" "${3:+append}"
     fi
@@ -917,9 +918,9 @@ function reboot_reason_boottag() {
 
 trap cleanup EXIT
 
+rv=0
 cmd="$1"
 [ "${cmd}" ] || err 1 "no command given; use log, get, boottag or is_enabled"
-shift
 
 # this variable gets set during image build process accordingly
 is_enabled="@@OMNECT_REBOOT_REASON_ENABLED@@"
@@ -932,16 +933,16 @@ if [ "${is_enabled}" = "true" ]; then
     case "$cmd" in
 	log)
             # usage: omnect_reboot_reason.sh log <reason> <extra-info> ...
-	    reboot_reason_log "$@"
+	    reboot_reason_log "${@:2}"
 	    ;;
 	get)
 	    reboot_reason_get
 	    ;;
 	boottag_set)
-	    reboot_reason_boottag set "$@"
+	    reboot_reason_boottag set "${@:2}"
 	    ;;
 	boottag_get)
-	    reboot_reason_boottag get "$@"
+	    reboot_reason_boottag get "${@:2}"
 	    ;;
 	is_enabled)
 	    [ "${is_enabled}" = "true" ]
