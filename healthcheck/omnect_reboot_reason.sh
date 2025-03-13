@@ -213,6 +213,12 @@ function get_new_reason_dir() {
     reasonpath="${basedir}/${reasondirname}"
     mkdir -p "${reasonpath}" \
 	|| err 1 "Could not create directory (${reasonpath}) for reboot reason data [$retval]"
+    # NOTE:
+    #   we make the directory group readable so that it can be modified by
+    #   suitably started processes; this allows - together with a group sticky
+    #   bit om the base directory - that clean-up of files can be done not only
+    #   by root when this script gets run with this user
+    chmod g+w "${reasonpath}"
 
     echo "${reasonpath}"
 }
