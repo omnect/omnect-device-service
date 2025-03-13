@@ -9,4 +9,4 @@ omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/
 
 # reboot reason logging needs root permissions with EFI variables backend, but
 # only log command is run
-omnect_device_service ALL=(root) NOPASSWD: /usr/sbin/omnect_reboot_reason.sh /usr/sbin/omnect_reboot_reason.sh ^log[[:space:]]+.*$
+omnect_device_service ALL=(root) NOPASSWD: /usr/sbin/omnect_reboot_reason.sh ^log[[:space:]]+.*$
