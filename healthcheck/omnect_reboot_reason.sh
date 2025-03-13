@@ -951,7 +951,7 @@ if [ "${is_enabled}" = "true" ]; then
 	    reboot_reason_boottag get "${@:2}"
 	    ;;
 	is_enabled)
-	    [ "${is_enabled}" = "true" ]
+	    [ "${is_enabled}" = "true" ] || rv=1
 	    ;;
 	*)
 	    err 1 "unrecognized command \"$cmd\"" \
@@ -961,6 +961,6 @@ else
     # we simply succeed for all commands but "is_enabled" in case reboot reason
     # functionality not given on a device
     if [ "${cmd}" = "is_enabled" ]; then
-	[ "${is_enabled}" = "true" ]
+	[ "${is_enabled}" = "true" ] || rv=1
     fi
 fi
