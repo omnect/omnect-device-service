@@ -3,6 +3,7 @@ pub mod systemd;
 pub mod twin;
 pub mod update_validation;
 pub mod web_service;
+pub mod reboot_reason;
 
 use anyhow::Result;
 use azure_iot_sdk::client::*;

@@ -1,0 +1,12 @@
+[Unit]
+Description=Create boottag on system start-up
+DefaultDependencies=no
+Requires=local-fs.target
+
+[Service]
+Type=exec
+ExecStart=-/usr/sbin/omnect_reboot_reason.sh boottag_set append
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
