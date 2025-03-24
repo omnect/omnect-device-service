@@ -20,6 +20,8 @@ pub fn reboot_reason(reason: &str, extra_info: &str) -> Result<()> {
 	cmd.args([ REBOOT_REASON_SCRIPT ]);
     } else if cfg!(feature = "bootloader_uboot") {
 	cmd = Command::new(REBOOT_REASON_SCRIPT);
+    } else if cfg!(feature = "mock") {
+	return Ok(());
     } else {
 	unreachable!()
     };
