@@ -6,10 +6,10 @@ use anyhow::{Result};
 //   repetetive use of cfg macro is ugly, yes, but having a separate reboot
 //   reason file for mocking purposes is also not ideal
 #[cfg(not(feature = "mock"))]
-use anyhow::{ensure, Context};
-
-#[cfg(not(feature = "mock"))]
-use std::process::Command;
+use {
+    anyhow::{ensure, Context},
+    std::process::Command,
+};
 
 #[cfg(not(feature = "mock"))]
 static REBOOT_REASON_SCRIPT: &str = "/usr/sbin/omnect_reboot_reason.sh";
