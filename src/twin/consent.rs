@@ -1,5 +1,7 @@
-use super::{feature::*, Feature};
-use crate::consent_path;
+use crate::{
+    consent_path,
+    twin::{feature::*, Feature},
+};
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -36,14 +38,14 @@ macro_rules! history_consent_path {
     }};
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct UserConsentCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct UserConsentCommand {
     pub user_consent: HashMap<String, String>,
 }
 
 type GeneralConsent = Vec<String>;
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct DesiredGeneralConsentCommand {
     pub general_consent: GeneralConsent,
 }
@@ -86,7 +88,7 @@ impl Feature for DeviceUpdateConsent {
         self.report_user_consent(&history_consent_path!()).await
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
         let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),
@@ -96,7 +98,7 @@ impl Feature for DeviceUpdateConsent {
         Ok(Some(stream))
     }
 
-    async fn command(&mut self, cmd: Command) -> CommandResult {
+    async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::FileModified(file) => {
                 self.report_user_consent(&file.path).await?;
@@ -118,10 +120,10 @@ impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
 
-    fn user_consent(&self, cmd: UserConsentCommand) -> CommandResult {
+    fn user_consent(&self, cmd: &UserConsentCommand) -> CommandResult {
         info!("user consent requested: {cmd:?}");
 
-        for (component, version) in cmd.user_consent {
+        for (component, version) in &cmd.user_consent {
             ensure!(
                 !component.contains(std::path::is_separator),
                 "user_consent: invalid component name: {component}"
@@ -160,9 +162,9 @@ impl DeviceUpdateConsent {
 
     async fn update_general_consent(
         &self,
-        desired_consents: DesiredGeneralConsentCommand,
+        desired_consents: &DesiredGeneralConsentCommand,
     ) -> CommandResult {
-        let mut new_consents = desired_consents.general_consent;
+        let mut new_consents = desired_consents.general_consent.clone();
         // enforce entries only exists once
         new_consents.sort_by_key(|name| name.to_string());
         new_consents.dedup();
@@ -266,7 +268,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::FileModified(FileCommand {
+                .command(&Command::FileModified(FileCommand {
                     feature_id: TypeId::of::<DeviceUpdateConsent>(),
                     path: PathBuf::from_str("my-path").unwrap(),
                 }))
@@ -280,7 +282,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::FileModified(FileCommand {
+                .command(&Command::FileModified(FileCommand {
                     feature_id: TypeId::of::<DeviceUpdateConsent>(),
                     path: PathBuf::from_str("testfiles/positive/test_component/user_consent.json")
                         .unwrap(),
@@ -305,7 +307,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::DesiredGeneralConsent(
+                .command(&Command::DesiredGeneralConsent(
                     DesiredGeneralConsentCommand {
                         general_consent: vec![],
                     },
@@ -326,7 +328,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::DesiredGeneralConsent(
+                .command(&Command::DesiredGeneralConsent(
                     DesiredGeneralConsentCommand {
                         general_consent: vec![],
                     },
@@ -343,7 +345,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::DesiredGeneralConsent(
+                .command(&Command::DesiredGeneralConsent(
                     DesiredGeneralConsentCommand {
                         general_consent: vec![],
                     },
@@ -380,7 +382,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::DesiredGeneralConsent(
+                .command(&Command::DesiredGeneralConsent(
                     DesiredGeneralConsentCommand {
                         general_consent: vec!["foo".to_string(), "bar".to_string()],
                     },
@@ -409,7 +411,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::UserConsent(UserConsentCommand {
+                .command(&Command::UserConsent(UserConsentCommand {
                     user_consent: HashMap::from([("foo/bar".to_string(), "bar".to_string())]),
                 }))
                 .await
@@ -422,7 +424,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::UserConsent(UserConsentCommand {
+                .command(&Command::UserConsent(UserConsentCommand {
                     user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
                 }))
                 .await
@@ -443,7 +445,7 @@ mod tests {
 
         assert!(block_on(async {
             consent
-                .command(Command::UserConsent(UserConsentCommand {
+                .command(&Command::UserConsent(UserConsentCommand {
                     user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
                 }))
                 .await

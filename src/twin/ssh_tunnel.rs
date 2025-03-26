@@ -1,4 +1,4 @@
-use super::{
+use crate::twin::{
     feature::{Command as FeatureCommand, CommandResult},
     Feature,
 };
@@ -61,8 +61,8 @@ macro_rules! device_cert_file {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct BastionConfig {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct BastionConfig {
     pub host: String,
     pub port: u16,
     pub user: String,
@@ -95,19 +95,19 @@ where
         .to_string())
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct UpdateDeviceSshCaCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct UpdateDeviceSshCaCommand {
     ssh_tunnel_ca_pub: String,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct GetSshPubKeyCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct GetSshPubKeyCommand {
     #[serde(deserialize_with = "validate_uuid")]
     pub tunnel_id: String,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct OpenSshTunnelCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct OpenSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
     pub tunnel_id: String,
     pub certificate: String,
@@ -115,8 +115,8 @@ pub(crate) struct OpenSshTunnelCommand {
     pub bastion_config: BastionConfig,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct CloseSshTunnelCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct CloseSshTunnelCommand {
     #[serde(deserialize_with = "validate_uuid")]
     pub tunnel_id: String,
 }
@@ -152,7 +152,7 @@ impl Feature for SshTunnel {
         self.report().await
     }
 
-    async fn command(&mut self, cmd: FeatureCommand) -> CommandResult {
+    async fn command(&mut self, cmd: &FeatureCommand) -> CommandResult {
         match cmd {
             FeatureCommand::DesiredUpdateDeviceSshCa(cmd) => self.update_device_ssh_ca(cmd).await,
             FeatureCommand::CloseSshTunnel(cmd) => self.close_ssh_tunnel(cmd).await,
@@ -175,7 +175,7 @@ impl SshTunnel {
         }
     }
 
-    async fn update_device_ssh_ca(&self, args: UpdateDeviceSshCaCommand) -> CommandResult {
+    async fn update_device_ssh_ca(&self, args: &UpdateDeviceSshCaCommand) -> CommandResult {
         info!("update device ssh cert requested");
 
         let mut child = exec_as(SSH_TUNNEL_USER, "tee")
@@ -214,7 +214,7 @@ impl SshTunnel {
         Ok(None)
     }
 
-    async fn get_ssh_pub_key(&self, args: GetSshPubKeyCommand) -> CommandResult {
+    async fn get_ssh_pub_key(&self, args: &GetSshPubKeyCommand) -> CommandResult {
         info!("ssh pub key requested");
 
         let (priv_key_path, pub_key_path) = (
@@ -290,7 +290,7 @@ impl SshTunnel {
         Ok(str::from_utf8(&output.stdout)?.to_string())
     }
 
-    async fn open_ssh_tunnel(&self, args: OpenSshTunnelCommand) -> CommandResult {
+    async fn open_ssh_tunnel(&self, args: &OpenSshTunnelCommand) -> CommandResult {
         info!("open ssh tunnel requested");
 
         let ssh_tunnel_permit = match self.ssh_tunnel_semaphore.clone().try_acquire_owned() {
@@ -460,7 +460,7 @@ impl SshTunnel {
         }
     }
 
-    async fn close_ssh_tunnel(&self, args: CloseSshTunnelCommand) -> CommandResult {
+    async fn close_ssh_tunnel(&self, args: &CloseSshTunnelCommand) -> CommandResult {
         let control_socket_path = control_socket_path!(&args.tunnel_id);
 
         info!(
@@ -761,7 +761,7 @@ mod tests {
 
         let _response = block_on(async {
             ssh_tunnel
-                .command(FeatureCommand::DesiredUpdateDeviceSshCa(
+                .command(&FeatureCommand::DesiredUpdateDeviceSshCa(
                     UpdateDeviceSshCaCommand {
                         ssh_tunnel_ca_pub: CERTIFICATE_DATA.to_string(),
                     },
@@ -807,7 +807,7 @@ mod tests {
 
         let response = block_on(async {
             ssh_tunnel
-                .command(FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
+                .command(&FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
                     tunnel_id,
                 }))
                 .await
@@ -828,7 +828,7 @@ mod tests {
 
         let response = block_on(async {
             ssh_tunnel
-                .command(FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
+                .command(&FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
                     tunnel_id,
                 }))
                 .await
@@ -861,7 +861,7 @@ mod tests {
         // test successful
         assert!(block_on(async {
             ssh_tunnel
-                .command(FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
                     tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
                     certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
                     bastion_config: BastionConfig {
@@ -894,7 +894,7 @@ mod tests {
         for pipe_name in &pipe_names[0..=4] {
             assert!(block_on(async {
                 ssh_tunnel
-                    .command(FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                    .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
                         tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
                         certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
                         bastion_config: BastionConfig {
@@ -912,7 +912,7 @@ mod tests {
         // the final should fail
         assert!(block_on(async {
             ssh_tunnel
-                .command(FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
                     tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
                     certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
                     bastion_config: BastionConfig {

@@ -1,6 +1,6 @@
 // reboot reason handling
 
-use anyhow::{Result};
+use anyhow::Result;
 
 // NOTE:
 //   repetetive use of cfg macro is ugly, yes, but having a separate reboot
@@ -26,12 +26,12 @@ pub fn reboot_reason(reason: &str, extra_info: &str) -> Result<()> {
     // we need to pass sudo only for EFI machines which correlates to feature
     // bootloader_grub
     if cfg!(feature = "bootloader_grub") {
-	cmd = Command::new("sudo");
-	cmd.args([ REBOOT_REASON_SCRIPT ]);
+        cmd = Command::new("sudo");
+        cmd.args([REBOOT_REASON_SCRIPT]);
     } else if cfg!(feature = "bootloader_uboot") {
-	cmd = Command::new(REBOOT_REASON_SCRIPT);
+        cmd = Command::new(REBOOT_REASON_SCRIPT);
     } else {
-	unreachable!()
+        unreachable!()
     };
     ensure!(
         cmd.args(common_args)

@@ -1,7 +1,8 @@
-use super::super::systemd::networkd;
-use super::web_service;
-use super::{feature::*, Feature};
-use super::{systemd, systemd::unit::UnitAction};
+use crate::{
+    systemd::{networkd, unit},
+    twin::{feature::*, Feature},
+    web_service,
+};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -77,7 +78,7 @@ impl Feature for Network {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
@@ -87,14 +88,15 @@ impl Feature for Network {
         }
     }
 
-    async fn command(&mut self, cmd: Command) -> CommandResult {
+    async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::Interval(_) => {}
             Command::ReloadNetwork => {
-                systemd::unit::unit_action(
+                unit::unit_action(
                     NETWORK_SERVICE,
-                    UnitAction::Reload,
+                    unit::UnitAction::Reload,
                     Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
+                    systemd_zbus::Mode::Fail,
                 )
                 .await?
             }

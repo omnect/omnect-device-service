@@ -12,8 +12,8 @@ pub mod mod_test {
     use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
     use rand::{
-        distributions::Alphanumeric,
-        {thread_rng, Rng},
+        distr::Alphanumeric,
+        {rng, Rng},
     };
     use regex::Regex;
     use serde_json::json;
@@ -80,7 +80,7 @@ pub mod mod_test {
         }
 
         #[allow(dead_code)]
-        pub async fn shutdown(&mut self) {}
+        pub async fn shutdown(&mut self, _timeout: Duration) {}
     }
 
     pub struct TestEnvironment {
@@ -150,7 +150,7 @@ pub mod mod_test {
             run_test: impl Fn(&mut TestConfig),
         ) {
             // unique testcase name
-            let testcase_name: String = thread_rng()
+            let testcase_name: String = rng()
                 .sample_iter(&Alphanumeric)
                 .take(10)
                 .map(char::from)
@@ -231,11 +231,13 @@ pub mod mod_test {
             let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
             let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
             let (tx_web_service, _rx_web_service) = mpsc::channel(100);
+            let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
 
             let mut twin = block_on(Twin::new(
                 tx_web_service,
                 tx_reported_properties,
                 tx_outgoing_message,
+                tx_validated,
             ))
             .unwrap();
 
@@ -318,6 +320,11 @@ pub mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"factory_reset":{"version":2}})))
+                .times(2)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
+                .with(eq(json!({"firmware_update":{"version":1}})))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -511,6 +518,11 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
+                .with(eq(json!({"firmware_update":{"version":1}})))
+                .times(1)
+                .returning(|_| Ok(()));
+
+            mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
@@ -649,10 +661,11 @@ pub mod mod_test {
             ("SUPPRESS_NETWORK_STATUS", "true"),
             ("SUPPRESS_REBOOT", "true"),
             ("SUPPRESS_PROVISIONING_CONFIG", "true"),
+            ("SUPPRESS_FIRMWARE_UPDATE", "true"),
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(11).returning(|_| Ok(()));
+            mock.expect_twin_report().times(12).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -676,7 +689,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(19).returning(|_| Ok(()));
+            mock.expect_twin_report().times(20).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -700,7 +713,7 @@ pub mod mod_test {
                 .features
                 .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
                 .unwrap()
-                .event_stream()
+                .command_request_stream()
                 .unwrap()
                 .unwrap();
 
@@ -729,7 +742,7 @@ pub mod mod_test {
                     .features
                     .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
                     .unwrap()
-                    .command(cmd)
+                    .command(&cmd.command)
                     .await
             })
             .is_ok());
@@ -752,7 +765,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(19).returning(|_| Ok(()));
+            mock.expect_twin_report().times(20).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -763,15 +776,15 @@ pub mod mod_test {
             assert!(block_on(async {
                 test_attr
                     .twin
-                    .handle_command(
-                        feature::Command::from_direct_method(&DirectMethod {
+                    .handle_request(CommandRequest {
+                        command: feature::Command::from_direct_method(&DirectMethod {
                             name: "user_consent".to_string(),
                             payload: json!({"test_component": "1.0.0"}),
                             responder: tx,
                         })
                         .unwrap(),
-                        None,
-                    )
+                        reply: None,
+                    })
                     .await
             })
             .is_ok());

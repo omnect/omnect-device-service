@@ -1,16 +1,13 @@
 pub mod bootloader_env;
+pub mod reboot_reason;
 pub mod systemd;
 pub mod twin;
-pub mod update_validation;
 pub mod web_service;
-pub mod reboot_reason;
 
-use anyhow::Result;
-use azure_iot_sdk::client::*;
 use env_logger::{Builder, Env, Target};
 use log::{error, info};
 use std::{io::Write, process};
-use twin::{system_info::SystemInfo, Twin};
+use twin::Twin;
 
 #[tokio::main]
 async fn main() {
@@ -44,18 +41,6 @@ async fn main() {
 
     builder.target(Target::Stdout).init();
 
-    info!(
-        "module version: {} ({})",
-        env!("CARGO_PKG_VERSION"),
-        env!("GIT_SHORT_REV")
-    );
-    info!("azure sdk version: {}", IotHubClient::sdk_version_string());
-
-    #[cfg(not(feature = "mock"))]
-    if let Err(e) = infos() {
-        error!("application error: {e:#}");
-    }
-
     if let Err(e) = Twin::run().await {
         error!("application error: {e:#}");
 
@@ -63,14 +48,4 @@ async fn main() {
     }
 
     info!("application shutdown")
-}
-
-#[allow(dead_code)]
-fn infos() -> Result<()> {
-    info!(
-        "bootloader was updated: {}",
-        SystemInfo::bootloader_updated()
-    );
-    info!("device booted from root {}.", SystemInfo::current_root()?);
-    Ok(())
 }

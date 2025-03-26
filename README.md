@@ -1,5 +1,6 @@
 # omnect-device-service
-**Product page: https://www.omnect.io/home**
+
+Product page: <www.omnect.io>
 
 This module serves as interface between omnect cloud and device to support certain end to end workflows:
 
@@ -36,6 +37,8 @@ This module serves as interface between omnect cloud and device to support certa
       - [Current reported network status](#current-reported-network-status)
     - [SSH Tunnel handling](#ssh-tunnel-handling)
       - [Feature availability](#feature-availability-7)
+      - [Current reported ssh tunnel feature status](#current-reported-ssh-tunnel-feature-status)
+      - [Configure the ssh certificate](#configure-the-ssh-certificate)
       - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
       - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
       - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
@@ -43,6 +46,7 @@ This module serves as interface between omnect cloud and device to support certa
       - [Feature availability](#feature-availability-8)
   - [Local web service](#local-web-service)
     - [Factory reset](#factory-reset-1)
+    - [Local firmware update](#local-firmware-update)
     - [Trigger reboot](#trigger-reboot-1)
     - [Reload network daemon](#reload-network-daemon)
     - [Status updates](#status-updates)
@@ -832,6 +836,20 @@ Description [Factory reset](#factory-reset).
 curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1 --json '{"mode": 1, "preserve": []}'
 ```
 
+### Local firmware update
+
+#### Load a firmware package
+
+```
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/fwupdate/load/v1 --json '{"update_file_path": "/path/to/update.tar"}'
+```
+
+#### Run installation of a loaded firmware package
+
+```
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/fwupdate/run/v1 --json '{"validate_iothub_connection": bool}'
+```
+
 ### Trigger reboot
 
 ```
@@ -852,6 +870,7 @@ omnect-device-service is capable to publish certain properties to a list of defi
 - timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html)
 - factory-reset: if there was a factory-reset in previous boot, the result is published
 - network status: network adapter and its current configuration (LTE modems are currently not included). The reported structure is equal to [Current reported network status](#current-reported-network-status)
+- firmware update validation status: result of a local firmware update
 
 #### Publish status
 
