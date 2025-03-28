@@ -4,7 +4,6 @@ use crate::{
     web_service,
 };
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
@@ -54,7 +53,6 @@ pub struct Network {
     interfaces: Vec<Interface>,
 }
 
-#[async_trait(?Send)]
 impl Feature for Network {
     fn name(&self) -> String {
         Self::ID.to_string()

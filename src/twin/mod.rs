@@ -61,7 +61,7 @@ pub struct Twin {
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     update_validated: bool,
     state: TwinState,
-    features: HashMap<TypeId, Box<dyn Feature>>,
+    features: HashMap<TypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
 }
 
@@ -79,48 +79,46 @@ impl Twin {
         let web_service = web_service::WebService::run(tx_command_request.clone()).await?;
         let state = TwinState::Uninitialized;
         let waiting_for_reboot = false;
-
         let features = HashMap::from([
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
-                Box::<consent::DeviceUpdateConsent>::default() as Box<dyn Feature>,
+                DynFeature::boxed(consent::DeviceUpdateConsent::default()),
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                Box::new(factory_reset::FactoryReset::new()) as Box<dyn Feature>,
+                DynFeature::boxed(factory_reset::FactoryReset::new()),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
-                Box::new(firmware_update::FirmwareUpdate::new(update_validation))
-                    as Box<dyn Feature>,
+                DynFeature::boxed(firmware_update::FirmwareUpdate::new(update_validation)),
             ),
             (
                 TypeId::of::<modem_info::ModemInfo>(),
-                Box::new(modem_info::ModemInfo::new()) as Box<dyn Feature>,
+                DynFeature::boxed(modem_info::ModemInfo::new()),
             ),
             (
                 TypeId::of::<network::Network>(),
-                Box::<network::Network>::default() as Box<dyn Feature>,
+                DynFeature::boxed(network::Network::default()),
             ),
             (
                 TypeId::of::<provisioning_config::ProvisioningConfig>(),
-                Box::new(provisioning_config::ProvisioningConfig::new()?) as Box<dyn Feature>,
+                DynFeature::boxed(provisioning_config::ProvisioningConfig::new()?),
             ),
             (
                 TypeId::of::<reboot::Reboot>(),
-                Box::<reboot::Reboot>::default() as Box<dyn Feature>,
+                DynFeature::boxed(reboot::Reboot::default()),
             ),
             (
                 TypeId::of::<ssh_tunnel::SshTunnel>(),
-                Box::new(ssh_tunnel::SshTunnel::new()) as Box<dyn Feature>,
+                DynFeature::boxed(ssh_tunnel::SshTunnel::new()),
             ),
             (
                 TypeId::of::<system_info::SystemInfo>(),
-                Box::new(system_info::SystemInfo::new()?) as Box<dyn Feature>,
+                DynFeature::boxed(system_info::SystemInfo::new()?),
             ),
             (
                 TypeId::of::<wifi_commissioning::WifiCommissioning>(),
-                Box::<wifi_commissioning::WifiCommissioning>::default() as Box<dyn Feature>,
+                DynFeature::boxed(wifi_commissioning::WifiCommissioning::default()),
             ),
         ]);
 
