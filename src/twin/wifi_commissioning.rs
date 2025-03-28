@@ -1,4 +1,4 @@
-use super::Feature;
+use crate::twin::Feature;
 use std::env;
 
 #[derive(Default)]

@@ -1,12 +1,12 @@
-use crate::{reboot_reason};
-use super::super::bootloader_env;
-use super::super::systemd;
-use super::{feature::*, Feature};
-use crate::web_service;
+use crate::{
+    bootloader_env, reboot_reason, systemd,
+    twin::{feature::*, Feature},
+    web_service,
+};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::*;
@@ -41,17 +41,17 @@ macro_rules! factory_reset_custom_config_dir_path {
     }};
 }
 
-#[derive(Debug, Deserialize_repr, PartialEq, Serialize_repr)]
+#[derive(Clone, Debug, Deserialize_repr, PartialEq, Serialize_repr)]
 #[repr(u8)]
-pub(crate) enum FactoryResetMode {
+pub enum FactoryResetMode {
     Mode1 = 1,
     Mode2 = 2,
     Mode3 = 3,
     Mode4 = 4,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub(crate) struct FactoryResetCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct FactoryResetCommand {
     pub mode: FactoryResetMode,
     pub preserve: Vec<String>,
 }
@@ -89,7 +89,7 @@ impl Feature for FactoryReset {
         self.handle_factory_reset_status().await
     }
 
-    async fn command(&mut self, cmd: Command) -> CommandResult {
+    async fn command(&mut self, cmd: &Command) -> CommandResult {
         info!("factory reset requested: {cmd:?}");
 
         let Command::FactoryReset(cmd) = cmd else {
@@ -157,7 +157,7 @@ impl FactoryReset {
         .context("report_factory_reset_status: send")
     }
 
-    async fn reset_to_factory_settings(&self, cmd: FactoryResetCommand) -> CommandResult {
+    async fn reset_to_factory_settings(&self, cmd: &FactoryResetCommand) -> CommandResult {
         let keys = FactoryReset::factory_reset_keys()?;
         for topic in &cmd.preserve {
             let topic = String::from(topic.to_string().trim_matches('"'));
@@ -168,10 +168,10 @@ impl FactoryReset {
 
         bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
         self.report_factory_reset_status("in_progress").await?;
-	if let Err(e) = reboot_reason::reboot_reason(
-	    "factory-reset", "initiated by portal or API") {
+        if let Err(e) = reboot_reason::reboot_reason("factory-reset", "initiated by portal or API")
+        {
             error!("factory_reset: failed to write reboot reason [{e}]");
-	}
+        }
         systemd::reboot().await?;
         Ok(None)
     }
@@ -244,7 +244,7 @@ impl FactoryReset {
                 Ok(())
             }
             Err(e) => {
-                warn!("factory reset status: {e}");
+                warn!("factory reset status: {e:#}");
                 self.report_factory_reset_status(e.to_string().as_str())
                     .await
             }
@@ -282,7 +282,7 @@ mod tests {
 
         assert!(block_on(async {
             factory_reset
-                .command(Command::FactoryReset(FactoryResetCommand {
+                .command(&Command::FactoryReset(FactoryResetCommand {
                     mode: FactoryResetMode::Mode1,
                     preserve: vec!["foo".to_string()],
                 }))
@@ -296,7 +296,7 @@ mod tests {
 
         assert!(block_on(async {
             factory_reset
-                .command(Command::FactoryReset(FactoryResetCommand {
+                .command(&Command::FactoryReset(FactoryResetCommand {
                     mode: FactoryResetMode::Mode1,
                     preserve: vec![
                         "network".to_string(),

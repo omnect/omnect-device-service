@@ -1,25 +1,26 @@
-use crate::twin::network;
-
-use super::{consent, factory_reset, reboot, ssh_tunnel, TwinUpdate, TwinUpdateState};
+use crate::twin::{
+    consent, factory_reset, firmware_update, network, reboot, ssh_tunnel, TwinUpdate,
+    TwinUpdateState,
+};
 use anyhow::{bail, ensure, Result};
 use async_trait::async_trait;
-use azure_iot_sdk::client::DirectMethod;
-use azure_iot_sdk::client::IotMessage;
+use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
 use futures::StreamExt;
 use log::{debug, error, info, warn};
 use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
-use std::any::TypeId;
-use std::path::Path;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::time::Duration;
+use std::{
+    any::TypeId,
+    path::{Path, PathBuf},
+    pin::Pin,
+    time::Duration,
+};
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     time::{Instant, Interval},
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
@@ -29,10 +30,13 @@ pub enum Command {
     FileModified(FileCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
+    LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
     OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
+    RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
+    ValidateUpdateAuthenticated(bool),
     UserConsent(consent::UserConsentCommand),
 }
 
@@ -49,10 +53,13 @@ impl Command {
             FileModified(cmd) => cmd.feature_id,
             GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
+            LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Reboot => TypeId::of::<reboot::Reboot>(),
             ReloadNetwork => TypeId::of::<network::Network>(),
+            RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
+            ValidateUpdateAuthenticated(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
         }
     }
@@ -129,13 +136,13 @@ impl Command {
                     "ssh_tunnel_ca_pub" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
                         Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e}"
+                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e:#}"
                         ),
                     },
                     "general_consent" => match serde_json::from_value(value.clone()) {
                         Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
                         Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e}"
+                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e:#}"
                         ),
                     },
                     "$version" => { /*ignore*/ }
@@ -148,12 +155,18 @@ impl Command {
     }
 }
 
+#[derive(Debug)]
+pub struct CommandRequest {
+    pub command: Command,
+    pub reply: Option<oneshot::Sender<CommandResult>>,
+}
+
 pub type CommandResult = Result<Option<serde_json::Value>>;
-pub type EventStream = Pin<Box<dyn Stream<Item = Command> + Send>>;
-pub type EventStreamResult = Result<Option<EventStream>>;
+pub type CommandRequestStream = Pin<Box<dyn Stream<Item = CommandRequest> + Send>>;
+pub type CommandRequestStreamResult = Result<Option<CommandRequestStream>>;
 
 #[async_trait(?Send)]
-pub(crate) trait Feature {
+pub trait Feature {
     fn name(&self) -> String;
     fn version(&self) -> u8;
     fn is_enabled(&self) -> bool;
@@ -170,42 +183,43 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
         Ok(None)
     }
 
-    async fn command(&mut self, _cmd: Command) -> CommandResult {
+    async fn command(&mut self, _cmd: &Command) -> CommandResult {
         unimplemented!();
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileCommand {
     pub feature_id: TypeId,
     pub path: PathBuf,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct IntervalCommand {
     pub feature_id: TypeId,
     pub instant: Instant,
 }
 
-pub fn interval_stream<T>(interval: Interval) -> EventStream
+pub fn interval_stream<T>(interval: Interval) -> CommandRequestStream
 where
     T: 'static,
 {
     tokio_stream::wrappers::IntervalStream::new(interval)
-        .map(|i| {
-            Command::Interval(IntervalCommand {
+        .map(|i| CommandRequest {
+            command: Command::Interval(IntervalCommand {
                 feature_id: TypeId::of::<T>(),
                 instant: i,
-            })
+            }),
+            reply: None,
         })
         .boxed()
 }
 
-pub fn file_created_stream<T>(paths: Vec<&Path>) -> EventStream
+pub fn file_created_stream<T>(paths: Vec<&Path>) -> CommandRequestStream
 where
     T: 'static,
 {
@@ -215,10 +229,13 @@ where
     tokio::task::spawn_blocking(move || loop {
         for p in &inner_paths {
             if matches!(p.try_exists(), Ok(true)) {
-                let _ = tx.blocking_send(Command::FileCreated(FileCommand {
-                    feature_id: TypeId::of::<T>(),
-                    path: p.clone(),
-                }));
+                let _ = tx.blocking_send(CommandRequest {
+                    command: Command::FileCreated(FileCommand {
+                        feature_id: TypeId::of::<T>(),
+                        path: p.clone(),
+                    }),
+                    reply: None,
+                });
                 return;
             }
         }
@@ -230,7 +247,7 @@ where
 
 pub fn file_modified_stream<T>(
     paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, EventStream)>
+) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
 where
     T: 'static,
 {
@@ -244,10 +261,13 @@ where
                     if let EventKind::Modify(_) = de.event.kind {
                         debug!("notify-event: {de:?}");
                         for p in &de.paths {
-                            let _ = tx.blocking_send(Command::FileModified(FileCommand {
-                                feature_id: TypeId::of::<T>(),
-                                path: p.clone(),
-                            }));
+                            let _ = tx.blocking_send(CommandRequest {
+                                command: Command::FileModified(FileCommand {
+                                    feature_id: TypeId::of::<T>(),
+                                    path: p.clone(),
+                                }),
+                                reply: None,
+                            });
                         }
                     }
                 }
@@ -270,13 +290,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use crate::twin::factory_reset;
-
     use super::*;
+    use crate::twin::factory_reset;
     use reboot::SetWaitOnlineTimeoutCommand;
     use serde_json::json;
+    use std::str::FromStr;
     use tokio::sync::oneshot;
 
     #[test]

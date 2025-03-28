@@ -1,4 +1,4 @@
-use super::{feature::*, Feature};
+use crate::twin::{feature::*, Feature};
 use anyhow::{bail, ensure, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
@@ -143,7 +143,7 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn event_stream(&mut self) -> EventStreamResult {
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
@@ -156,7 +156,7 @@ impl Feature for ProvisioningConfig {
         }
     }
 
-    async fn command(&mut self, cmd: Command) -> CommandResult {
+    async fn command(&mut self, cmd: &Command) -> CommandResult {
         let Command::Interval(_) = cmd else {
             bail!("unexpected event: {cmd:?}")
         };
@@ -337,7 +337,7 @@ mod tests {
         env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .command(Command::Interval(IntervalCommand {
+            .command(&Command::Interval(IntervalCommand {
                 feature_id: TypeId::of::<ProvisioningConfig>(),
                 instant: Instant::now(),
             }))

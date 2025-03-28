@@ -1,18 +1,19 @@
-use crate::{reboot_reason};
-use super::super::systemd;
-use super::web_service;
-use super::{feature::*, Feature};
+use crate::{
+    reboot_reason, systemd,
+    twin::{feature::*, Feature},
+    web_service,
+};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, info, error};
+use log::{debug, error, info};
 use serde::Deserialize;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub(crate) struct SetWaitOnlineTimeoutCommand {
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct SetWaitOnlineTimeoutCommand {
     pub timeout_secs: Option<u64>,
 }
 
@@ -49,7 +50,7 @@ impl Feature for Reboot {
         self.report_wait_online_timeout().await
     }
 
-    async fn command(&mut self, cmd: Command) -> CommandResult {
+    async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::Reboot => self.reboot().await,
             Command::SetWaitOnlineTimeout(cmd) => self.set_wait_online_timeout(cmd).await,
@@ -65,17 +66,16 @@ impl Reboot {
     async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
 
-	if let Err(e) = reboot_reason::reboot_reason(
-	    "ods-reboot", "initiated by portal or API") {
-	    error!(": failed to write reboot reason [{e}]");
-	}
+        if let Err(e) = reboot_reason::reboot_reason("ods-reboot", "initiated by portal or API") {
+            error!(": failed to write reboot reason [{e}]");
+        }
 
         systemd::reboot().await?;
 
         Ok(None)
     }
 
-    async fn set_wait_online_timeout(&self, cmd: SetWaitOnlineTimeoutCommand) -> CommandResult {
+    async fn set_wait_online_timeout(&self, cmd: &SetWaitOnlineTimeoutCommand) -> CommandResult {
         info!("set wait_online_timeout requested: {cmd:?}");
 
         systemd::networkd::set_networkd_wait_online_timeout(

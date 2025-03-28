@@ -6,7 +6,7 @@ PartOf=omnect-device-service.service
 ListenStream=/run/omnect-device-service/api.sock
 SocketMode=0660
 SocketUser=omnect_device_service
-SocketGroup=omnect_device_socket
+SocketGroup=omnect_device_service_client
 
 ExecStartPre=+rm -rf /run/omnect-device-service/api.sock
 ExecStopPost=+rm -rf /run/omnect-device-service/api.sock
