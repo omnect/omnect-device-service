@@ -1,5 +1,5 @@
 use crate::{
-    bootloader_env,
+    bootloader_env, reboot_reason,
     systemd::{self, unit::UnitAction, watchdog::WatchdogManager},
     twin::{firmware_update::common::*, system_info::RootPartition, web_service},
 };
@@ -119,16 +119,19 @@ impl UpdateValidation {
             let validation_timeout = new_self.validation_timeout;
 
             new_self.join_handle = Some(tokio::spawn(async move {
-                info!(
-                    "reboot timer started ({} ms).",
-                    validation_timeout.as_millis()
-                );
+                let timeout_ms = validation_timeout.as_millis();
+                info!("reboot timer started ({timeout_ms} ms).");
                 match timeout(validation_timeout, rx_cancel_timer).await {
                     Err(_) => {
-                        error!("update validation: timeout. rebooting ...");
-
+                        error!("update validation timed out: write reboot reason and reboot");
+                        if let Err(e) = reboot_reason::reboot_reason(
+                            "swupdate-validation-failed",
+                            &format!("timer ({timeout_ms} ms) expired"),
+                        ) {
+                            error!("update validation timed out: failed to write reboot reason with {e:#}");
+                        }
                         if let Err(e) = systemd::reboot().await {
-                            error!("reboot timer couldn't trigger reboot: {e:#}");
+                            error!("update validation timed out: failed to trigger reboot with {e:#}");
                         }
                     }
                     _ => info!("reboot timer canceled."),
@@ -247,10 +250,22 @@ impl UpdateValidation {
         let saved_interval = WatchdogManager::interval(self.validation_timeout).await?;
 
         if let Err(e) = self.validate().await {
+            if let Err(e) = reboot_reason::reboot_reason(
+                "swupdate-validation-failed",
+                &format!("validate error: {e:#}"),
+            ) {
+                error!("check (validate): failed to write reboot reason [{e:#}]");
+            }
             systemd::reboot().await?;
-            bail!("update validation: validate error: {e:#}");
+            bail!("update validation: validate failed with {e:#}");
         }
         if let Err(e) = self.finalize().await {
+            if let Err(e) = reboot_reason::reboot_reason(
+                "swupdate-validation-failed",
+                &format!("finalize error: {e:#}"),
+            ) {
+                error!("check (finalize): failed to write reboot reason [{e:#}]");
+            }
             systemd::reboot().await?;
             bail!("update validation: finalize error: {e:#}");
         }
