@@ -9,7 +9,13 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::*;
-use std::{collections::HashMap, env, fs::read_dir, fs::File, io::BufReader};
+use std::{
+    collections::HashMap,
+    env,
+    fs::{read_dir, File},
+    io::BufReader,
+    path::Path,
+};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
@@ -54,6 +60,8 @@ pub struct FactoryResetCommand {
     pub mode: FactoryResetMode,
     pub preserve: Vec<String>,
 }
+
+, in case
 
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
@@ -201,13 +209,17 @@ impl FactoryReset {
     }
 
     fn factory_reset_status() -> Result<Option<&'static str>> {
-        let omnect_os_initramfs_json: serde_json::Value = serde_json::from_reader(BufReader::new(
-            File::open(factory_reset_status_path!()).context("open omnect-os-initramfs.json")?,
-        ))
-        .context("parsing factory reset status")?;
+        let factory_reset_status_path = Path::new(&factory_reset_status_path!());
 
-        let factory_reset = &omnect_os_initramfs_json["factory-reset"];
-        anyhow::ensure!(factory_reset.is_object(), "factory-reset is not an object");
+        let omnect_os_initramfs_json: serde_json::Value = serde_json::from_reader(BufReader::new(
+            File::open(factory_reset_status_path)
+                .context(format!("failed to open {factory_reset_status_path:?}"))?,
+        ))
+        .context(format!("failed to parse {factory_reset_status_path:?}"))?;
+
+        let factory_reset: FactoryResetResult =
+            serde_json::from_value(omnect_os_initramfs_json["factory-reset"])
+                .context("failed to parse factory reset result from initramfs")?;
 
         let mut factory_reset_status = String::from("");
         let status = &factory_reset["status"];
@@ -243,8 +255,7 @@ impl FactoryReset {
             }
             Err(e) => {
                 warn!("factory reset status: {e:#}");
-                self.report_factory_reset_status(e.to_string().as_str())
-                    .await
+                self.report_factory_reset_status(&e.to_string()).await
             }
         }
     }
