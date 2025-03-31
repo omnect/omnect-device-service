@@ -101,7 +101,7 @@ impl Feature for FactoryReset {
 }
 
 impl FactoryReset {
-    const FACTORY_RESET_VERSION: u8 = 2;
+    const FACTORY_RESET_VERSION: u8 = 3;
     const ID: &'static str = "factory_reset";
 
     pub fn new() -> Self {
