@@ -31,7 +31,7 @@ use firmware_update::update_validation::UpdateValidation;
 use futures::stream;
 use futures_util::StreamExt;
 use log::{error, info, warn};
-use serde_json::json;
+use serde_json::{json, Value};
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
 use std::{
@@ -138,10 +138,10 @@ impl Twin {
         Ok(twin)
     }
 
-    async fn connect_twin(&mut self) -> Result<()> {
-        let client = self.client.as_ref().context("client not present")?;
+    fn feature_info(&self) -> serde_json::Map<K, V> {
+        let mut features = serde_json::Map::new();
 
-        // report feature availability
+         // report feature availability and version
         for f in self.features.values() {
             let value = if f.is_enabled() {
                 json!({ "version": f.version() })
@@ -149,8 +149,17 @@ impl Twin {
                 json!(null)
             };
 
-            client.twin_report(json!({ f.name(): value }))?;
+            features.insert(f.name(), value);
         }
+
+        features
+    }
+
+    async fn connect_twin(&mut self) -> Result<()> {
+        let client = self.client.as_ref().context("client not present")?;
+
+        // report feature availability and version
+        client.twin_report(self.feature_info())?;
 
         // connect twin channels
         for f in self.features.values_mut() {
