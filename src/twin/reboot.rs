@@ -67,7 +67,7 @@ impl Reboot {
         if let Err(e) =
             reboot_reason::write_reboot_reason("ods-reboot", "initiated by portal or API")
         {
-            error!(": failed to write reboot reason [{e}]");
+            error!("reboot: failed to write reboot reason [{e:#}]");
         }
 
         systemd::reboot().await?;

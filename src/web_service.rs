@@ -4,10 +4,12 @@ use crate::{
 };
 use actix_server::ServerHandle;
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use lazy_static::lazy_static;
 use log::{debug, error, info};
 use reqwest::{header, Client};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::HashMap, path::Path, str::FromStr, sync::LazyLock};
@@ -19,6 +21,21 @@ static PUBLISH_STATUS_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Va
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
 static PUBLISH_ENDPOINTS: LazyLock<Mutex<HashMap<String, PublishEndpoint>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static PUBLISH_CLIENT: LazyLock<Mutex<ClientWithMiddleware>> = LazyLock::new(|| {
+    Mutex::new(
+        ClientBuilder::new(
+            Client::builder()
+                .timeout(tokio::time::Duration::from_secs(3))
+                .danger_accept_invalid_certs(true)
+                .build()
+                .expect("building ClientWithMiddleware failed"),
+        )
+        .with(RetryTransientMiddleware::new_with_policy(
+            ExponentialBackoff::builder().build_with_max_retries(10),
+        ))
+        .build(),
+    )
+});
 
 macro_rules! publish_endpoints_path {
     () => {{
@@ -31,8 +48,7 @@ macro_rules! publish_endpoints_path {
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
-    FactoryResetKeysV1,
-    FactoryResetStatusV1,
+    FactoryResetV1,
     NetworkStatusV1,
     OnlineStatusV1,
     SystemInfoV1,
@@ -43,8 +59,7 @@ pub enum PublishChannel {
 impl PublishChannel {
     fn to_status_string(&self) -> String {
         match self {
-            PublishChannel::FactoryResetKeysV1 => "FactoryResetKeys".to_string(),
-            PublishChannel::FactoryResetStatusV1 => "FactoryResetStatus".to_string(),
+            PublishChannel::FactoryResetV1 => "FactoryResetResult".to_string(),
             PublishChannel::NetworkStatusV1 => "NetworkStatus".to_string(),
             PublishChannel::OnlineStatusV1 => "OnlineStatus".to_string(),
             PublishChannel::SystemInfoV1 => "SystemInfo".to_string(),
@@ -411,7 +426,7 @@ async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
         let msg = json!({"channel": channel, "data": value});
 
         if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
-            error!("republish: {e:#}");
+            error!("republish_to_endpoint: {e:#}");
             return HttpResponse::InternalServerError().body(e.to_string());
         }
     }
@@ -422,6 +437,8 @@ async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
 async fn publish_to_endpoint(msg: &serde_json::Value, endpoint: &PublishEndpoint) -> Result<()> {
     let mut headers = header::HeaderMap::new();
 
+    info!("try to send {msg} to {}.", endpoint.url);
+
     for h in &endpoint.headers {
         headers.insert(
             header::HeaderName::from_str(&h.name)?,
@@ -429,36 +446,18 @@ async fn publish_to_endpoint(msg: &serde_json::Value, endpoint: &PublishEndpoint
         );
     }
 
-    // we allow self-signed ssl certs
-    let Ok(request) = Client::builder()
-        .timeout(tokio::time::Duration::from_secs(3))
-        .default_headers(headers)
-        .danger_accept_invalid_certs(true)
-        .build()
-    else {
-        bail!(
-            "publish_to_endpoint: building request {msg} to {} failed",
-            endpoint.url
-        );
-    };
-    if let Err(e) = request
+    PUBLISH_CLIENT
+        .lock()
+        .await
         .post(&endpoint.url)
+        .headers(headers)
         .body(msg.to_string())
         .send()
         .await
-    {
-        bail!(
-            "publish_to_endpoint: sending {msg} to {} (failed with {e})?",
-            endpoint.url
-        );
-    }
-
-    info!(
-        "publish_to_endpoint: successfully sent {msg} to {}.",
-        endpoint.url
-    );
-
-    Ok(())
+        .context("sending request failed")?
+        .error_for_status()
+        .context("response error")
+        .map(|_| ())
 }
 
 async fn save_publish_endpoints() -> Result<()> {

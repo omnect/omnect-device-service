@@ -4,57 +4,59 @@ Product page: <www.omnect.io>
 
 This module serves as interface between omnect cloud and device to support certain end to end workflows:
 
-- [omnect-device-service](#omnect-device-service)
-  - [Configuration](#configuration)
-    - [Log level](#log-level)
-    - [azure-iot-sdk](#azure-iot-sdk)
-  - [Azure twin features](#azure-twin-features)
-    - [System Info](#system-info)
+  * [Configuration](#configuration)
+    + [Log level](#log-level)
+    + [azure-iot-sdk](#azure-iot-sdk)
+  * [Azure twin features](#azure-twin-features)
+    + [System Info](#system-info)
       - [Feature availability](#feature-availability)
       - [Current reported system info](#current-reported-system-info)
       - [Current reported device metrics](#current-reported-device-metrics)
-    - [Factory reset](#factory-reset)
+    + [Factory reset](#factory-reset)
       - [Feature availability](#feature-availability-1)
+      - [Supported preserve keys](#supported-preserve-keys)
       - [Trigger factory reset](#trigger-factory-reset)
-      - [Report factory reset status](#report-factory-reset-status)
-    - [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
+      - [Report factory reset result](#report-factory-reset-result)
+    + [iot-hub-device-update user consent](#iot-hub-device-update-user-consent)
       - [Feature availability](#feature-availability-2)
       - [Configure current desired general consent](#configure-current-desired-general-consent)
       - [Grant user consent](#grant-user-consent)
       - [Current reported user consent status](#current-reported-user-consent-status)
-    - [provisioning configuration](#provisioning-configuration)
+    + [provisioning configuration](#provisioning-configuration)
       - [Feature availability](#feature-availability-3)
       - [Current reported provisioning configuration](#current-reported-provisioning-configuration)
-    - [Reboot](#reboot)
+    + [Reboot](#reboot)
       - [Feature availability](#feature-availability-4)
       - [Trigger reboot](#trigger-reboot)
       - [Configure wait-online reboot timeout](#configure-wait-online-reboot-timeout)
-    - [Modem Info](#modem-info)
+    + [Modem Info](#modem-info)
       - [Feature availability](#feature-availability-5)
       - [Current reported modem info](#current-reported-modem-info)
-    - [Network status](#network-status)
+    + [Network status](#network-status)
       - [Feature availability](#feature-availability-6)
       - [Current reported network status](#current-reported-network-status)
-    - [SSH Tunnel handling](#ssh-tunnel-handling)
+    + [SSH Tunnel handling](#ssh-tunnel-handling)
       - [Feature availability](#feature-availability-7)
       - [Current reported ssh tunnel feature status](#current-reported-ssh-tunnel-feature-status)
       - [Configure the ssh certificate](#configure-the-ssh-certificate)
       - [Access to Device SSH Public Key](#access-to-device-ssh-public-key)
       - [Opening the SSH tunnel](#opening-the-ssh-tunnel)
       - [Closing the SSH tunnel](#closing-the-ssh-tunnel)
-    - [Wifi commissioning service](#wifi-commissioning-service)
+    + [Wifi commissioning service](#wifi-commissioning-service)
       - [Feature availability](#feature-availability-8)
-  - [Local web service](#local-web-service)
-    - [Factory reset](#factory-reset-1)
-    - [Local firmware update](#local-firmware-update)
-    - [Trigger reboot](#trigger-reboot-1)
-    - [Reload network daemon](#reload-network-daemon)
-    - [Status updates](#status-updates)
+  * [Local web service](#local-web-service)
+    + [Factory reset](#factory-reset-1)
+    + [Local firmware update](#local-firmware-update)
+      - [Load a firmware package](#load-a-firmware-package)
+      - [Run installation of a loaded firmware package](#run-installation-of-a-loaded-firmware-package)
+    + [Trigger reboot](#trigger-reboot-1)
+    + [Reload network daemon](#reload-network-daemon)
+    + [Status updates](#status-updates)
       - [Publish status](#publish-status)
       - [Republish status](#republish-status)
       - [Get status](#get-status)
-  - [Update validation](#update-validation)
-    - [Criteria for a successful update](#criteria-for-a-successful-update)
+  * [Update validation](#update-validation)
+    + [Criteria for a successful update](#criteria-for-a-successful-update)
 - [License](#license)
 - [Contribution](#contribution)
 
@@ -196,6 +198,7 @@ Example of the D2C payload:
 
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
+Read the [documentation](https://github.com/omnect/meta-omnect#factory-reset) in order to understand the concepts.
 
 #### Feature availability
 
@@ -214,6 +217,17 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_FACTORY_RESET=true
 ```
 
+#### Supported preserve keys
+
+Available preserve keys are reported as follows:
+
+```
+"factory_reset":
+{
+  "keys": ["network", "firewall", "certificates", "applications"]
+}
+```
+
 #### Trigger factory reset
 
 **Direct method: factory reset**
@@ -225,10 +239,7 @@ Payload:
 ```
 {
   "mode": <factory reset mode number>,
-  "preserve":
-  [
-      "network", "firewall", "certificates", "applications"
-  ]
+  "preserve": ["network", "firewall", "certificates", "applications"]
 }
 ```
 
@@ -260,27 +271,23 @@ In all other cases there will be an error status and a meaningful message in the
 }
 ```
 
-#### Report factory reset status
+#### Report factory reset result
 
-Performing a factory reset also triggers a device restart. The restart time of a device depends on the selected factory reset. After the device has been restarted, this module sends a confirmation to the cloud as reported property in the module twin.
+Performing a factory reset also triggers a device restart. The restart duration might depend on the selected factory reset mode. After the device has been restarted, the result is reported in the module twin.
+Details about the result format can be found [here](https://github.com/omnect/meta-omnect#factory-reset).
 
 ```
 "factory_reset":
 {
-  "status":
-  {
-      "date": "<UTC time of the factory reset status>",
-      "status": "<status>"
+  "result": {
+      "error": "0",
+      "paths": [
+          "/etc/omnect/factory-reset.d/"
+      ],
+      "status": 0
   }
 }
 ```
-
-The following status information is defined:
-
-- "in_progress"
-- "succeeded"
-- "failed"
-- "unexpected factory reset type"
 
 ### iot-hub-device-update user consent
 
