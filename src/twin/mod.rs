@@ -31,7 +31,7 @@ use firmware_update::update_validation::UpdateValidation;
 use futures::stream;
 use futures_util::StreamExt;
 use log::{error, info, warn};
-use serde_json::{json, Value};
+use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
 use std::{
@@ -87,7 +87,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::boxed(factory_reset::FactoryReset::new()),
+                DynFeature::boxed(factory_reset::FactoryReset::new()?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -138,10 +138,10 @@ impl Twin {
         Ok(twin)
     }
 
-    fn feature_info(&self) -> serde_json::Map<K, V> {
+    fn feature_info(&self) -> serde_json::Value {
         let mut features = serde_json::Map::new();
 
-         // report feature availability and version
+        // report feature availability and version
         for f in self.features.values() {
             let value = if f.is_enabled() {
                 json!({ "version": f.version() })
@@ -152,7 +152,7 @@ impl Twin {
             features.insert(f.name(), value);
         }
 
-        features
+        serde_json::Value::Object(features)
     }
 
     async fn connect_twin(&mut self) -> Result<()> {
