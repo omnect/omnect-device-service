@@ -4,7 +4,7 @@ mod os_version;
 pub mod update_validation;
 
 use crate::{
-    bootloader_env, systemd,
+    bootloader_env, reboot_reason, systemd,
     systemd::{unit::UnitAction, watchdog::WatchdogManager},
     twin::{
         feature::*,
@@ -126,7 +126,7 @@ pub struct FirmwareUpdate {
 impl Drop for FirmwareUpdate {
     fn drop(&mut self) {
         if let Err(e) = Self::clean_working_dir() {
-            error!("failed to clean working directory: {e}")
+            error!("failed to clean working directory: {e:#}")
         }
     }
 }
@@ -369,6 +369,10 @@ impl FirmwareUpdate {
             update_validation_config_path!(),
             true,
         )?;
+
+        if let Err(e) = reboot_reason::reboot_reason("swupdate", "local update") {
+            error!("failed to write reboot reason: {e:#}");
+        }
 
         systemd::reboot().await?;
 

@@ -170,7 +170,7 @@ impl FactoryReset {
         self.report_factory_reset_status("in_progress").await?;
         if let Err(e) = reboot_reason::reboot_reason("factory-reset", "initiated by portal or API")
         {
-            error!("factory_reset: failed to write reboot reason [{e}]");
+            error!("reset_to_factory_settings: failed to write reboot reason with {e:#}");
         }
         systemd::reboot().await?;
         Ok(None)
