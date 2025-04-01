@@ -3,7 +3,6 @@ use crate::{
     web_service,
 };
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use futures::StreamExt;
 use lazy_static::lazy_static;
@@ -184,8 +183,6 @@ pub struct SystemInfo {
     software_info: SoftwareInfo,
     hardware_info: HardwareInfo,
 }
-
-#[async_trait(?Send)]
 impl Feature for SystemInfo {
     fn name(&self) -> String {
         Self::ID.to_string()

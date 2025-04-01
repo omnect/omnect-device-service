@@ -14,7 +14,6 @@ use crate::{
     },
 };
 use anyhow::{bail, ensure, Context, Result};
-use async_trait::async_trait;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use log::{debug, error, info};
 use serde::Deserialize;
@@ -131,7 +130,6 @@ impl Drop for FirmwareUpdate {
     }
 }
 
-#[async_trait(?Send)]
 impl Feature for FirmwareUpdate {
     fn name(&self) -> String {
         Self::ID.to_string()

@@ -1,6 +1,5 @@
 use super::{feature::*, Feature};
 use anyhow::{bail, Context, Result};
-use async_trait::async_trait;
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
@@ -341,7 +340,6 @@ lazy_static! {
     };
 }
 
-#[async_trait(?Send)]
 impl Feature for ModemInfo {
     fn name(&self) -> String {
         ID.to_string()
