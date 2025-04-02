@@ -26,8 +26,40 @@ use std::{
 use tar::Archive;
 use update_validation::UpdateValidation;
 
-static UPDATE_WDT_INTERVAL_SECS: u64 = 600;
+static LOAD_UPDATE_WDT_INTERVAL_SECS: u64 = 120;
+static RUN_UPDATE_WDT_INTERVAL_SECS: u64 = 600;
 static UNIT_ACTION_TIMEOUT_SECS: u64 = 30;
+
+struct LoadUpdateGuard {
+    wdt: Option<Duration>,
+}
+
+impl LoadUpdateGuard {
+    async fn new() -> Result<Self> {
+        let wdt =
+            WatchdogManager::interval(Duration::from_secs(LOAD_UPDATE_WDT_INTERVAL_SECS)).await?;
+
+        debug!("changed wdt to {LOAD_UPDATE_WDT_INTERVAL_SECS}s and saved old one ({wdt:?})");
+
+        Ok(LoadUpdateGuard { wdt })
+    }
+}
+
+impl Drop for LoadUpdateGuard {
+    fn drop(&mut self) {
+        let wdt = self.wdt.take();
+
+        debug!("load update: restore old wdt ({wdt:?})");
+
+        tokio::spawn(async move {
+            if let Some(wdt) = wdt {
+                if let Err(e) = WatchdogManager::interval(wdt).await {
+                    error!("failed to restore wdt interval: {e:#}")
+                }
+            }
+        });
+    }
+}
 
 struct RunUpdateGuard {
     succeeded: bool,
@@ -37,9 +69,10 @@ struct RunUpdateGuard {
 impl RunUpdateGuard {
     async fn new() -> Result<Self> {
         let succeeded = false;
-        let wdt = WatchdogManager::interval(Duration::from_secs(UPDATE_WDT_INTERVAL_SECS)).await?;
+        let wdt =
+            WatchdogManager::interval(Duration::from_secs(RUN_UPDATE_WDT_INTERVAL_SECS)).await?;
 
-        debug!("changed wdt to {UPDATE_WDT_INTERVAL_SECS}s and saved old one ({wdt:?})");
+        debug!("changed wdt to {RUN_UPDATE_WDT_INTERVAL_SECS}s and saved old one ({wdt:?})");
 
         systemd::unit::unit_action(
             IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
@@ -72,7 +105,7 @@ impl Drop for RunUpdateGuard {
         if !(self.succeeded) {
             let wdt = self.wdt.take();
 
-            debug!("update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}");
+            debug!("run update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}");
 
             tokio::spawn(async move {
                 if let Some(wdt) = wdt {
@@ -150,7 +183,7 @@ impl Feature for FirmwareUpdate {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::LoadFirmwareUpdate(cmd) => self.load(&cmd.update_file_path),
+            Command::LoadFirmwareUpdate(cmd) => self.load(&cmd.update_file_path).await,
             Command::RunFirmwareUpdate(cmd) => self.run(cmd.validate_iothub_connection).await,
             Command::ValidateUpdateAuthenticated(authenticated) => {
                 self.update_validation
@@ -174,12 +207,13 @@ impl FirmwareUpdate {
         }
     }
 
-    fn load<P>(&mut self, path: P) -> CommandResult
+    async fn load<P>(&mut self, path: P) -> CommandResult
     where
         P: AsRef<Path>,
     {
         self.swu_file_path = None;
 
+        let _guard = LoadUpdateGuard::new().await?;
         let du_config: DeviceUpdateConfig = from_json_file(&du_config_path!())?;
         let current_version = OmnectOsVersion::from_sw_versions_file()?;
         let mut ar = Archive::new(fs::File::open(path).context("failed to open archive")?);
@@ -435,11 +469,10 @@ impl FirmwareUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_executor::block_on;
     use tempfile;
 
-    #[test]
-    fn load_ok() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn load_ok() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let update_folder = tmp_dir.path().join("local_update");
         let du_config_file = tmp_dir.path().join("du-config.json");
@@ -451,19 +484,21 @@ mod tests {
         std::env::set_var("DEVICE_UPDATE_PATH", du_config_file);
         std::env::set_var("SW_VERSIONS_PATH", sw_versions_file);
         let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
-        let update_validation =
-            block_on(async { UpdateValidation::new(tx_validated).await.unwrap() });
+        let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
             update_validation,
         };
 
-        assert!(block_on(async { firmware_update.load("testfiles/positive/update.tar") }).is_ok());
+        firmware_update
+            .load("testfiles/positive/update.tar")
+            .await
+            .unwrap();
     }
 
-    #[test]
-    fn load_sw_versions_fail() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn load_sw_versions_fail() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let update_folder = tmp_dir.path().join("local_update");
         let du_config_file = tmp_dir.path().join("du-config.json");
@@ -474,8 +509,7 @@ mod tests {
         std::env::set_var("DEVICE_UPDATE_PATH", du_config_file);
         std::env::set_var("SW_VERSIONS_PATH", &sw_versions_file);
         let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
-        let update_validation =
-            block_on(async { UpdateValidation::new(tx_validated).await.unwrap() });
+        let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
@@ -484,8 +518,10 @@ mod tests {
 
         fs::write(&sw_versions_file, "dobi-OMNECT-gateway-devel 40.0.0.0").unwrap();
 
-        let err =
-            block_on(async { firmware_update.load("testfiles/positive/update.tar") }).unwrap_err();
+        let err = firmware_update
+            .load("testfiles/positive/update.tar")
+            .await
+            .unwrap_err();
 
         assert!(err
             .chain()
@@ -497,16 +533,18 @@ mod tests {
         )
         .unwrap();
 
-        let err =
-            block_on(async { firmware_update.load("testfiles/positive/update.tar") }).unwrap_err();
+        let err = firmware_update
+            .load("testfiles/positive/update.tar")
+            .await
+            .unwrap_err();
 
         assert!(err.chain().any(|e| e
             .to_string()
             .starts_with("version 4.0.24.557123921 already installed")));
     }
 
-    #[test]
-    fn load_compatibility_fail() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn load_compatibility_fail() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let update_folder = tmp_dir.path().join("local_update");
         let du_config_file = tmp_dir.path().join("du-config.json");
@@ -517,8 +555,7 @@ mod tests {
         std::env::set_var("DEVICE_UPDATE_PATH", &du_config_file);
         std::env::set_var("SW_VERSIONS_PATH", sw_versions_file);
         let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
-        let update_validation =
-            block_on(async { UpdateValidation::new(tx_validated).await.unwrap() });
+        let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
@@ -541,8 +578,10 @@ mod tests {
         )
         .unwrap();
 
-        let err =
-            block_on(async { firmware_update.load("testfiles/positive/update.tar") }).unwrap_err();
+        let err = firmware_update
+            .load("testfiles/positive/update.tar")
+            .await
+            .unwrap_err();
 
         assert!(err.chain().any(|e| e
             .to_string()
@@ -556,8 +595,10 @@ mod tests {
         )
         .unwrap();
 
-        let err =
-            block_on(async { firmware_update.load("testfiles/positive/update.tar") }).unwrap_err();
+        let err = firmware_update
+            .load("testfiles/positive/update.tar")
+            .await
+            .unwrap_err();
 
         assert!(err.chain().any(|e| e
             .to_string()
@@ -571,8 +612,10 @@ mod tests {
         )
         .unwrap();
 
-        let err =
-            block_on(async { firmware_update.load("testfiles/positive/update.tar") }).unwrap_err();
+        let err = firmware_update
+            .load("testfiles/positive/update.tar")
+            .await
+            .unwrap_err();
 
         assert!(err.chain().any(|e| e
             .to_string()
