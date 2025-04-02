@@ -213,7 +213,7 @@ impl FirmwareUpdate {
     {
         self.swu_file_path = None;
 
-        let _ = LoadUpdateGuard::new().await?;
+        let _guard = LoadUpdateGuard::new().await?;
         let du_config: DeviceUpdateConfig = from_json_file(&du_config_path!())?;
         let current_version = OmnectOsVersion::from_sw_versions_file()?;
         let mut ar = Archive::new(fs::File::open(path).context("failed to open archive")?);
