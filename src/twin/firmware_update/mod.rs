@@ -49,7 +49,7 @@ impl Drop for LoadUpdateGuard {
     fn drop(&mut self) {
         let wdt = self.wdt.take();
 
-        debug!("load update failed: restore old wdt ({wdt:?})");
+        debug!("load update: restore old wdt ({wdt:?})");
 
         tokio::spawn(async move {
             if let Some(wdt) = wdt {
