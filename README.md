@@ -826,7 +826,7 @@ The availability of the feature is reported by the following module twin propert
 omnect-device-service provides a http web service that exposes a web API over a unix domain socket.<br>
 Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)<br>
 
-The web service features is disabled by default and must be explicitly activated via environment variable `WEBSERVICE_ENABLED=true`.
+The web service features is enabled by default and can be explicitly deactivated via environment variable `DISABLE_WEBSERVICE="true"`.
 
 ### Factory reset
 
