@@ -57,11 +57,11 @@ struct PublishEndpoint {
 }
 
 lazy_static! {
-    static ref WEBSERVICE_ENABLED: bool = {
-        std::env::var("WEBSERVICE_ENABLED")
+    static ref IS_WEBSERVICE_ENABLED: bool = {
+        std::env::var("DISABLE_WEBSERVICE")
             .unwrap_or("false".to_string())
             .to_lowercase()
-            == "true"
+            != "true"
     };
 }
 
@@ -71,8 +71,8 @@ pub struct WebService {
 
 impl WebService {
     pub async fn run(tx_request: mpsc::Sender<CommandRequest>) -> Result<Option<Self>> {
-        // we only start web service feature if WEBSERVICE_ENABLED env var is explicitly set
-        if !(*WEBSERVICE_ENABLED) {
+        // we only start web service feature if not explicitly disabled by 'DISABLE_WEBSERVICE="true"' env var
+        if !(*IS_WEBSERVICE_ENABLED) {
             info!("WebService is disabled");
             return Ok(None);
         };
@@ -292,7 +292,7 @@ impl WebService {
 }
 
 pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
-    if !(*WEBSERVICE_ENABLED) {
+    if !(*IS_WEBSERVICE_ENABLED) {
         debug!("publish: skip since feature not enabled");
     } else {
         let msg = json!({"channel": channel.to_string(), "data": value});
