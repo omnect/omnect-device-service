@@ -7,31 +7,13 @@ use log::{debug, error, info, warn};
 use reqwest::{header, Client};
 use serde::Deserialize;
 use serde_json::json;
-use std::{str::FromStr, sync::LazyLock};
+use std::{collections::HashMap, str::FromStr, sync::LazyLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
-
-macro_rules! publish_endpoints_path {
-    () => {{
-        static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str = "/etc/omnect/publish_endpoints.json";
-        std::env::var("PUBLISH_ENDPOINTS_PATH")
-            .unwrap_or(PUBLISH_ENDPOINTS_PATH_DEFAULT.to_string())
-    }};
-}
 
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
-static PUBLISH_ENDPOINTS: LazyLock<Mutex<Vec<PublishEndpoint>>> =
-    LazyLock::new(|| match std::fs::File::open(publish_endpoints_path!()) {
-        Ok(file) => Mutex::new(serde_json::from_reader(file).expect("cannot parse endpoints file")),
-        Err(kind) if kind.kind() == std::io::ErrorKind::NotFound => {
-            info!("no endpoint file present");
-            Mutex::new(vec![])
-        }
-        Err(_) => {
-            error!("cannot open endpoints file");
-            Mutex::new(vec![])
-        }
-    });
+static PUBLISH_ENDPOINTS: LazyLock<Mutex<HashMap<String, PublishEndpoint>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
@@ -54,6 +36,12 @@ struct Header {
 struct PublishEndpoint {
     url: String,
     headers: Vec<Header>,
+}
+
+#[derive(Deserialize, Debug)]
+struct PublishEndpointRequest {
+    id: String,
+    endpoint: PublishEndpoint,
 }
 
 lazy_static! {
@@ -82,6 +70,10 @@ impl WebService {
         let srv = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(tx_request.clone()))
+                .route(
+                    "/publish-endpoint/v1",
+                    web::post().to(Self::set_publish_endpoint),
+                )
                 .route("/factory-reset/v1", web::post().to(Self::factory_reset))
                 .route("/fwupdate/load/v1", web::post().to(Self::load_fwupdate))
                 .route("/fwupdate/run/v1", web::post().to(Self::run_fwupdate))
@@ -138,6 +130,26 @@ impl WebService {
         debug!("WebService shutdown");
 
         self.srv_handle.stop(false).await;
+    }
+
+    async fn set_publish_endpoint(
+        body: web::Bytes,
+        _tx_request: web::Data<mpsc::Sender<CommandRequest>>,
+    ) -> HttpResponse {
+        debug!("WebService set_publish_endpoint");
+
+        match serde_json::from_slice::<PublishEndpointRequest>(&body) {
+            Ok(request) => {
+
+                PUBLISH_ENDPOINTS.lock().await.insert(request.id, request.endpoint);
+
+                HttpResponse::Ok().finish()
+            }
+            Err(e) => {
+                error!("couldn't parse PublishEndpointRequest from body: {e:#}");
+                HttpResponse::BadRequest().body(e.to_string())
+            }
+        }
     }
 
     async fn factory_reset(
@@ -309,7 +321,7 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
 }
 
 async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
-    for endpoint in PUBLISH_ENDPOINTS.lock().await.iter() {
+    for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
         let mut headers = header::HeaderMap::new();
 
         for h in &endpoint.headers {

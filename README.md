@@ -833,7 +833,10 @@ The web service features is enabled by default and can be explicitly deactivated
 Description [Factory reset](#factory-reset).
 
 ```
-curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1 --json '{"mode": 1, "preserve": []}'
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1 ---data-raw '
+{
+  "mode": 1, "preserve": []
+}'
 ```
 
 ### Local firmware update
@@ -841,13 +844,19 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 #### Load a firmware package
 
 ```
-curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/fwupdate/load/v1 --json '{"update_file_path": "/path/to/update.tar"}'
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/fwupdate/load/v1 --data-raw '
+{
+  "update_file_path": "/path/to/update.tar"
+}'
 ```
 
 #### Run installation of a loaded firmware package
 
 ```
-curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/fwupdate/run/v1 --json '{"validate_iothub_connection": bool}'
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/fwupdate/run/v1 --data-raw '
+{
+  "validate_iothub_connection": bool
+}'
 ```
 
 ### Trigger reboot
@@ -876,11 +885,13 @@ omnect-device-service is capable to publish certain properties to a list of defi
 
 Publishing messages in omnect-device-service is inspired by [centrifugo](https://centrifugal.dev/) and e.g. makes use of it in [omnect-ui](https://github.com/omnect/omnect-ui).
 
-In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested endpoints must be added to "/etc/omnect/publish_endpoints.json" in the following format (headers are optional):
+In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested clients must register its endpoint via http://localhost/publish-endpoint/v1 API in the following format (headers are optional):
 ```
-[
-  {
-    "url": "http://localhost:8000/api/publish",
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/publish-endpoint/v1 --data-raw '
+{
+  "id": "my-unique-client-id",
+  "endpoint": {
+    "url": "http://localhost:my-port/my-publish-endpoint",
     "headers": [
       {
         "name": "Content-Type",
@@ -892,7 +903,7 @@ In order to receive updates, a http POST endpoint must be present, where omnect-
       }
     ]
   }
-]
+}'
 ```
 
 The publish message format is also inspired by [centrifugo](https://centrifugal.dev/). A message must define a channel and a data attribute, e.g.:
