@@ -253,11 +253,10 @@ impl FactoryReset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_executor::block_on;
     use regex::Regex;
 
-    #[test]
-    fn factory_reset_test() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn factory_reset_test() {
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("factory-reset.json");
         let custom_dir_path = temp_dir.path().join("factory-reset.d");
@@ -278,35 +277,31 @@ mod tests {
             tx_reported_properties: Some(tx_reported_properties),
         };
 
-        assert!(block_on(async {
-            factory_reset
-                .command(&Command::FactoryReset(FactoryResetCommand {
-                    mode: FactoryResetMode::Mode1,
-                    preserve: vec!["foo".to_string()],
-                }))
-                .await
-        })
-        .unwrap_err()
-        .chain()
-        .any(|e| e
-            .to_string()
-            .starts_with("unknown preserve topic received: foo")));
+        assert!(factory_reset
+            .command(&Command::FactoryReset(FactoryResetCommand {
+                mode: FactoryResetMode::Mode1,
+                preserve: vec!["foo".to_string()],
+            }))
+            .await
+            .unwrap_err()
+            .chain()
+            .any(|e| e
+                .to_string()
+                .starts_with("unknown preserve topic received: foo")));
 
-        assert!(block_on(async {
-            factory_reset
-                .command(&Command::FactoryReset(FactoryResetCommand {
-                    mode: FactoryResetMode::Mode1,
-                    preserve: vec![
-                        "network".to_string(),
-                        "firewall".to_string(),
-                        "certificates".to_string(),
-                    ],
-                }))
-                .await
-        })
-        .is_ok());
+        factory_reset
+            .command(&Command::FactoryReset(FactoryResetCommand {
+                mode: FactoryResetMode::Mode1,
+                preserve: vec![
+                    "network".to_string(),
+                    "firewall".to_string(),
+                    "certificates".to_string(),
+                ],
+            }))
+            .await
+            .unwrap();
 
-        let reported = format!("{:?}", rx_reported_properties.blocking_recv().unwrap());
+        let reported = format!("{:?}", rx_reported_properties.recv().await.unwrap());
         const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
 
         let re = format!(
@@ -350,7 +345,7 @@ mod tests {
         std::fs::create_dir(custom_dir_path.clone()).unwrap();
         std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
 
-        assert!(FactoryReset::factory_reset_keys().is_ok());
+        FactoryReset::factory_reset_keys().unwrap();
     }
 
     #[test]
