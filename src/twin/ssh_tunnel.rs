@@ -634,7 +634,6 @@ async fn notify_tunnel_termination(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_executor::block_on;
     use regex::Regex;
     use std::fs::File;
     use std::str::FromStr;
@@ -699,7 +698,7 @@ mod tests {
         let tmp_file = tmp_dir.path().join("some-ca-file");
         env::set_var("DEVICE_CERT_FILE", &tmp_file);
 
-        let _response = block_on(async { ssh_tunnel.report().await }).unwrap();
+        let _response = ssh_tunnel.report().await.unwrap();
 
         let reported_properties = rx_reported_properties.try_recv().unwrap();
 
@@ -729,7 +728,7 @@ mod tests {
 
         std::fs::write(&tmp_file, format!("{CERTIFICATE_DATA}\n")).unwrap();
 
-        let _response = block_on(async { ssh_tunnel.report().await }).unwrap();
+        let _response = ssh_tunnel.report().await.unwrap();
 
         let reported_properties = rx_reported_properties.try_recv().unwrap();
 
@@ -757,16 +756,14 @@ mod tests {
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
         env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
 
-        let _response = block_on(async {
-            ssh_tunnel
-                .command(&FeatureCommand::DesiredUpdateDeviceSshCa(
-                    UpdateDeviceSshCaCommand {
-                        ssh_tunnel_ca_pub: CERTIFICATE_DATA.to_string(),
-                    },
-                ))
-                .await
-        })
-        .unwrap();
+        let _response = ssh_tunnel
+            .command(&FeatureCommand::DesiredUpdateDeviceSshCa(
+                UpdateDeviceSshCaCommand {
+                    ssh_tunnel_ca_pub: CERTIFICATE_DATA.to_string(),
+                },
+            ))
+            .await
+            .unwrap();
 
         let result = std::fs::read_to_string(&tmp_file.path()).unwrap();
 
@@ -803,16 +800,14 @@ mod tests {
         )
         .unwrap();
 
-        let response = block_on(async {
-            ssh_tunnel
-                .command(&FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
-                    tunnel_id,
-                }))
-                .await
-        })
-        .unwrap()
-        .unwrap()
-        .to_string();
+        let response = ssh_tunnel
+            .command(&FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
+                tunnel_id,
+            }))
+            .await
+            .unwrap()
+            .unwrap()
+            .to_string();
 
         assert!(pub_key_regex.is_match(&response));
 
@@ -824,16 +819,14 @@ mod tests {
         .unwrap();
         let tunnel_id = "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string();
 
-        let response = block_on(async {
-            ssh_tunnel
-                .command(&FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
-                    tunnel_id,
-                }))
-                .await
-        })
-        .unwrap()
-        .unwrap()
-        .to_string();
+        let response = ssh_tunnel
+            .command(&FeatureCommand::GetSshPubKey(GetSshPubKeyCommand {
+                tunnel_id,
+            }))
+            .await
+            .unwrap()
+            .unwrap()
+            .to_string();
 
         assert!(!response.starts_with(
             "-----BEGIN OPENSSH PRIVATE KEY-----
@@ -857,22 +850,19 @@ mod tests {
         env::set_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
 
         // test successful
-        assert!(block_on(async {
-            ssh_tunnel
-                .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
-                    tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
-                    certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
-                    bastion_config: BastionConfig {
-                        host: "test-host".to_string(),
-                        port: 2222,
-                        user: "test-user".to_string(),
-                        socket_path: std::path::PathBuf::from_str("/some/test/socket/path")
-                            .unwrap(),
-                    },
-                }))
-                .await
-        })
-        .is_ok());
+        ssh_tunnel
+            .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                bastion_config: BastionConfig {
+                    host: "test-host".to_string(),
+                    port: 2222,
+                    user: "test-user".to_string(),
+                    socket_path: std::path::PathBuf::from_str("/some/test/socket/path").unwrap(),
+                },
+            }))
+            .await
+            .unwrap();
 
         // test connection limit
         let pipe_names = (1..=5)
@@ -890,39 +880,35 @@ mod tests {
 
         // the first 5 requests should succeed
         for pipe_name in &pipe_names[0..=4] {
-            assert!(block_on(async {
-                ssh_tunnel
-                    .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
-                        tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
-                        certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
-                        bastion_config: BastionConfig {
-                            host: pipe_name.to_str().unwrap().to_string(),
-                            port: 2222,
-                            user: "test-user".to_string(),
-                            socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
-                        },
-                    }))
-                    .await
-            })
-            .is_ok());
-        }
-
-        // the final should fail
-        assert!(block_on(async {
             ssh_tunnel
                 .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
                     tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
                     certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
                     bastion_config: BastionConfig {
-                        host: "test-host".to_string(),
+                        host: pipe_name.to_str().unwrap().to_string(),
                         port: 2222,
                         user: "test-user".to_string(),
                         socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
                     },
                 }))
                 .await
-        })
-        .is_err());
+                .unwrap();
+        }
+
+        // the final should fail
+        assert!(ssh_tunnel
+            .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                bastion_config: BastionConfig {
+                    host: "test-host".to_string(),
+                    port: 2222,
+                    user: "test-user".to_string(),
+                    socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
+                },
+            }))
+            .await
+            .is_err());
 
         // finally, close the pipes. By opening and closing for writing is
         // sufficient.
