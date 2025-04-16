@@ -402,7 +402,7 @@ impl FirmwareUpdate {
             true,
         )?;
 
-        if let Err(e) = reboot_reason::reboot_reason("swupdate", "local update") {
+        if let Err(e) = reboot_reason::write_reboot_reason("swupdate", "local update") {
             error!("failed to write reboot reason: {e:#}");
         }
 

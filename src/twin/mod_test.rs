@@ -306,13 +306,23 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
             let s = IotHubClient::sdk_version_string();
             mock.expect_twin_report()
-                .with(eq(json!({"system_info":{
+                .with(eq(json!({
+                "system_info":{
                     "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
                     "azure_sdk_version": s,
                     "boot_time": null,
                     "os": {
                         "name": "OMNECT-gateway-devel",
                         "version": "4.0.17.123456"
+                    },
+                    "reboot_reason": {
+                        "datetime": "".to_string(),
+                        "timeepoch": "".to_string(),
+                        "uptime": "".to_string(),
+                        "boot_id": "".to_string(),
+                        "os_version": "".to_string(),
+                        "reason": "power-loss".to_string(),
+                        "extra_info": "".to_string()
                     }
                 }})))
                 .times(2)
@@ -502,6 +512,15 @@ pub mod mod_test {
                     "os": {
                         "name": "OMNECT-gateway-devel",
                         "version": "4.0.17.123456"
+                    },
+                    "reboot_reason": {
+                        "datetime": "".to_string(),
+                        "timeepoch": "".to_string(),
+                        "uptime": "".to_string(),
+                        "boot_id": "".to_string(),
+                        "os_version": "".to_string(),
+                        "reason": "power-loss".to_string(),
+                        "extra_info": "".to_string()
                     }
                 }})))
                 .times(1)

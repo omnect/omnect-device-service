@@ -124,7 +124,7 @@ impl UpdateValidation {
                 match timeout(validation_timeout, rx_cancel_timer).await {
                     Err(_) => {
                         error!("update validation timed out: write reboot reason and reboot");
-                        if let Err(e) = reboot_reason::reboot_reason(
+                        if let Err(e) = reboot_reason::write_reboot_reason(
                             "swupdate-validation-failed",
                             &format!("timer ({timeout_ms} ms) expired"),
                         ) {
@@ -250,7 +250,7 @@ impl UpdateValidation {
         let saved_interval = WatchdogManager::interval(self.validation_timeout).await?;
 
         if let Err(e) = self.validate().await {
-            if let Err(e) = reboot_reason::reboot_reason(
+            if let Err(e) = reboot_reason::write_reboot_reason(
                 "swupdate-validation-failed",
                 &format!("validate error: {e:#}"),
             ) {
@@ -260,7 +260,7 @@ impl UpdateValidation {
             bail!("update validation: validate failed with {e:#}");
         }
         if let Err(e) = self.finalize().await {
-            if let Err(e) = reboot_reason::reboot_reason(
+            if let Err(e) = reboot_reason::write_reboot_reason(
                 "swupdate-validation-failed",
                 &format!("finalize error: {e:#}"),
             ) {
