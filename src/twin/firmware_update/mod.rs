@@ -402,7 +402,7 @@ impl FirmwareUpdate {
             true,
         )?;
 
-        if let Err(e) = reboot_reason::reboot_reason("swupdate", "local update") {
+        if let Err(e) = reboot_reason::write_reboot_reason("swupdate", "local update") {
             error!("failed to write reboot reason: {e:#}");
         }
 
@@ -420,8 +420,6 @@ impl FirmwareUpdate {
         let stdio = std::process::Stdio::from(
             std::fs::OpenOptions::new()
                 .write(true)
-                .create(false)
-                .truncate(false)
                 .open(log_file_path!())
                 .context("failed to open for write log file")?,
         );

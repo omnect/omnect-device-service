@@ -299,7 +299,6 @@ mod tests {
         let json: serde_json::Value = serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
-                .create(false)
                 .open("testfiles/positive/systemd-networkd-link-description.json")
                 .unwrap(),
         )
@@ -313,7 +312,6 @@ mod tests {
         let json: serde_json::Value = serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
-                .create(false)
                 .open("testfiles/negative/systemd-networkd-link-description-missing-mac.json")
                 .unwrap(),
         )

@@ -52,7 +52,6 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
     let json = serde_json::from_reader(
         OpenOptions::new()
             .read(true)
-            .create(false)
             .open("testfiles/positive/systemd-networkd-link-description.json")
             .unwrap(),
     )?;

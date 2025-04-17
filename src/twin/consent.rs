@@ -146,7 +146,6 @@ impl DeviceUpdateConsent {
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
-                    .create(false)
                     .truncate(true)
                     .open(path)
                     .context("user_consent: open user_consent.json for write")?,
@@ -170,7 +169,6 @@ impl DeviceUpdateConsent {
         let mut current_config: ConsentConfig = serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
-                .create(false)
                 .open(format!("{}/consent_conf.json", consent_path!()))
                 .context("update_general_consent: open consent_conf.json for read")?,
         )
@@ -191,7 +189,6 @@ impl DeviceUpdateConsent {
         serde_json::to_writer_pretty(
             OpenOptions::new()
                 .write(true)
-                .create(false)
                 .truncate(true)
                 .open(format!("{}/consent_conf.json", consent_path!()))
                 .context("update_general_consent: open consent_conf.json for write")?,
@@ -211,7 +208,6 @@ impl DeviceUpdateConsent {
             serde_json::from_reader(
                 OpenOptions::new()
                     .read(true)
-                    .create(false)
                     .open(format!("{}/consent_conf.json", consent_path!()))
                     .context("report_general_consent: open consent_conf.json fo read")?,
             )
@@ -226,7 +222,6 @@ impl DeviceUpdateConsent {
             serde_json::from_reader(
                 OpenOptions::new()
                     .read(true)
-                    .create(false)
                     .open(report_consent_file)
                     .context("report_user_consent: open report_consent_file for read")?,
             )
@@ -353,7 +348,6 @@ mod tests {
         let consent_conf: ConsentConfig = serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
-                .create(false)
                 .open(&consent_conf_file)
                 .unwrap(),
         )

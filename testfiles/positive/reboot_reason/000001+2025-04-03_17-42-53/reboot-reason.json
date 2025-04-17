@@ -1,0 +1,21 @@
+{
+  "report": {
+    "datetime": "2025-04-03 17:42:53",
+    "timeepoch": "1743702173",
+    "uptime": "11.88",
+    "boot_id": "56e51a56-f85f-4abd-95bb-fc2335d9b696",
+    "os_version": "4.0.25.603211037",
+    "console_file": "",
+    "dmesg_file": "",
+    "pmsg_file": ""
+  },
+  "reboot_reason": {
+    "datetime": "",
+    "timeepoch": "",
+    "uptime": "",
+    "boot_id": "",
+    "os_version": "",
+    "reason": "power-loss",
+    "extra_info": ""
+  }
+}

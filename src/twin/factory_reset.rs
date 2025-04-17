@@ -166,7 +166,8 @@ impl FactoryReset {
 
         bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
         self.report_factory_reset_status("in_progress").await?;
-        if let Err(e) = reboot_reason::reboot_reason("factory-reset", "initiated by portal or API")
+        if let Err(e) =
+            reboot_reason::write_reboot_reason("factory-reset", "initiated by portal or API")
         {
             error!("reset_to_factory_settings: failed to write reboot reason with {e:#}");
         }

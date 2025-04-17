@@ -1,4 +1,5 @@
 use crate::{
+    reboot_reason,
     twin::{feature::*, Feature},
     web_service,
 };
@@ -176,12 +177,18 @@ struct HardwareInfo {
     hostname: String,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize)]
 pub struct SystemInfo {
+    #[serde(skip_serializing)]
     tx_reported_properties: Option<mpsc::Sender<serde_json::Value>>,
+    #[serde(skip_serializing)]
     tx_outgoing_message: Option<mpsc::Sender<IotMessage>>,
+    #[serde(flatten)]
     software_info: SoftwareInfo,
+    #[serde(skip_serializing)]
     hardware_info: HardwareInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reboot_reason: Option<serde_json::Value>,
 }
 impl Feature for SystemInfo {
     fn name(&self) -> String {
@@ -302,6 +309,7 @@ impl SystemInfo {
 
                 hostname,
             },
+            reboot_reason: reboot_reason::current_reboot_reason(),
         })
     }
 
@@ -319,7 +327,7 @@ impl SystemInfo {
         };
 
         tx.send(json!({
-            "system_info": serde_json::to_value(&self.software_info).context("report: cannot serialize")?
+            "system_info": serde_json::to_value(self).context("report: cannot serialize")?
         }))
         .await
         .context("report: send")
