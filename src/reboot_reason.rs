@@ -6,7 +6,7 @@ use regex_lite::Regex;
 
 #[cfg(not(feature = "mock"))]
 static REBOOT_REASON_SCRIPT: &str = "/usr/sbin/omnect_reboot_reason.sh";
-static REBOOT_REASON_DIR_REGEX: &str = r"^(\d+)\+\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$";
+static REBOOT_REASON_DIR_REGEX: &str = r"^\d{6}\+\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$";
 static REBOOT_REASON_FILE_NAME: &str = "reboot-reason.json";
 
 macro_rules! reboot_reason_dir_path {
@@ -53,34 +53,36 @@ pub fn write_reboot_reason(reason: &str, extra_info: &str) -> Result<()> {
 pub fn current_reboot_reason() -> Option<serde_json::Value> {
     // use a closure here to be able to use anyhow::Context for error messages
     // and convert the result to an Option (incl. possibly inspecting errors) afterwards
-    let current_reboot_reason = || -> Result<serde_json::Value> {
+    let current_reboot_reason_impl = || -> Result<serde_json::Value> {
         let regex = Regex::new(REBOOT_REASON_DIR_REGEX)
             .context("failed to create regex for reboot reason folder")?;
         let dir = std::fs::read_dir(reboot_reason_dir_path!())
             .context("failed to read reboot reason directory")?;
+
+        // 1. filter for all dirs with format of REBOOT_REASON_DIR_REGEX, e.g. "000001+2025-04-03_17-42-53"
+        // 2. return the latest one
         let dir = dir
             .flatten()
             .filter(|f| {
-                if let Ok(m) = f.metadata() {
-                    return m.is_dir();
-                }
-                false
-            })
-            .max_by_key(|k| {
-                let name = k.file_name();
-                let name = name.as_os_str().to_str()?;
+                let Ok(m) = f.metadata() else { return false };
 
-                if let Some(c) = regex.captures(name) {
-                    return c[1].to_string().parse::<u32>().ok();
+                if !m.is_dir() {
+                    return false;
+                }
+
+                let name = f.file_name();
+                let Some(name) = name.as_os_str().to_str() else {
+                    return false;
                 };
-                None
+
+                regex.is_match(name)
             })
+            .max_by_key(|k| k.file_name())
             .context("failed to identify current reboot reason folder")?;
 
         let json: serde_json::Value = serde_json::from_reader(
             std::fs::OpenOptions::new()
                 .read(true)
-                .create(false)
                 .open(dir.path().join(REBOOT_REASON_FILE_NAME))
                 .context("failed to open reboot reason file")?,
         )
@@ -92,7 +94,9 @@ pub fn current_reboot_reason() -> Option<serde_json::Value> {
             .clone())
     };
 
-    current_reboot_reason().inspect_err(|e| warn!("{e:#}")).ok()
+    current_reboot_reason_impl()
+        .inspect_err(|e| warn!("{e:#}"))
+        .ok()
 }
 
 #[cfg(feature = "mock")]

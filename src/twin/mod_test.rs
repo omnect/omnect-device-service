@@ -739,7 +739,6 @@ pub mod mod_test {
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
-                    .create(false)
                     .truncate(true)
                     .open(history_consent_path!())
                     .unwrap(),

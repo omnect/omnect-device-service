@@ -99,7 +99,6 @@ where
     serde_json::from_reader(
         std::fs::OpenOptions::new()
             .read(true)
-            .create(false)
             .open(&path)
             .context(format!("failed to open for read: {path}"))?,
     )
