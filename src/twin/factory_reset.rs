@@ -269,8 +269,10 @@ mod tests {
         .unwrap();
         std::fs::create_dir_all(custom_dir_path.clone()).unwrap();
 
-        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
-        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone()) };
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path) };
 
         let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
 
@@ -318,10 +320,11 @@ mod tests {
 
     #[test]
     fn factory_reset_keys_test() {
-        std::env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(
             "FACTORY_RESET_CONFIG_FILE_PATH",
             "testfiles/positive/factory-rest.json",
-        );
+        ) };
         assert!(FactoryReset::factory_reset_keys()
             .unwrap_err()
             .to_string()
@@ -329,7 +332,8 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let file_path = tmp_dir.path().join("factory-reset.json");
-        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone()) };
 
         std::fs::copy(
             "testfiles/positive/factory-reset.json",
@@ -344,59 +348,66 @@ mod tests {
 
         let custom_dir_path = tmp_dir.path().join("factory-reset.d");
         std::fs::create_dir(custom_dir_path.clone()).unwrap();
-        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path) };
 
         FactoryReset::factory_reset_keys().unwrap();
     }
 
     #[test]
     fn factory_reset_status_test() {
-        std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "") };
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
             .to_string()
             .starts_with("open omnect-os-initramfs.json"));
 
-        std::env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/negative/factory-reset-status_unexpected_reset_type",
-        );
+        ) };
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
             .to_string()
             .starts_with("unexpected factory reset type"));
 
-        std::env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/negative/factory-reset-status_unexpected_reset_settings",
-        );
+        ) };
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
             .to_string()
             .starts_with("unexpected restore setting"));
 
-        std::env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/negative/factory-reset-status_unexpected_factory_reset_format",
-        );
+        ) };
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
             .to_string()
             .starts_with("unexpected factory reset status format"));
 
-        std::env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_succeeded",
-        );
+        ) };
         assert_eq!(
             FactoryReset::factory_reset_status().unwrap().unwrap(),
             "succeeded"
         );
 
-        std::env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_normal_boot",
-        );
+        ) };
         assert!(FactoryReset::factory_reset_status().unwrap().is_none());
     }
 }

@@ -177,44 +177,57 @@ pub mod mod_test {
             test_env.mkdir("empty-dir");
 
             // set env vars
-            env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("WPA_SUPPLICANT_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var(
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str()) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str()) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str()) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var("WPA_SUPPLICANT_DIR_PATH", test_env.dirpath().as_str()) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "WAIT_ONLINE_SERVICE_FILE_PATH",
                 format!(
                     "{}/systemd-networkd-wait-online.service",
                     test_env.dirpath()
                 ),
-            );
-            env::set_var(
+            ) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "FACTORY_RESET_CONFIG_FILE_PATH",
                 format!("{}/factory-reset.json", test_env.dirpath()),
-            );
-            env::set_var(
+            ) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "FACTORY_RESET_STATUS_FILE_PATH",
                 format!("{}/factory-reset-status_succeeded", test_env.dirpath()),
-            );
-            env::set_var(
+            ) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH",
                 format!("{}/empty-dir", test_env.dirpath()),
-            );
-            env::set_var("CONNECTION_STRING", "my-constr");
-            env::set_var(
+            ) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var("CONNECTION_STRING", "my-constr") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "IDENTITY_CONFIG_FILE_PATH",
                 format!("{}/config.toml.est", test_env.dirpath()),
-            );
-            env::set_var(
+            ) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "EST_CERT_FILE_PATH",
                 format!("{}/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
-            );
-            env::set_var(
+            ) };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::set_var(
                 "DEVICE_CERT_FILE",
                 format!("{}/ssh_root_ca.pub", test_env.dirpath()),
-            );
+            ) };
 
-            env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            env_vars.iter().for_each(|env| unsafe { env::set_var(env.0, env.1) });
 
             // create iothub client mock
             let ctx = MockMyIotHub::builder_context();
@@ -276,17 +289,28 @@ pub mod mod_test {
             }
 
             // cleanup env vars
-            env::remove_var("SSH_TUNNEL_DIR_PATH");
-            env::remove_var("OS_RELEASE_DIR_PATH");
-            env::remove_var("CONSENT_DIR_PATH");
-            env::remove_var("WPA_SUPPLICANT_DIR_PATH");
-            env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
-            env::remove_var("FACTORY_RESET_CONFIG_FILE_PATH");
-            env::remove_var("FACTORY_RESET_STATUS_FILE_PATH");
-            env::remove_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH");
-            env::remove_var("IDENTITY_CONFIG_FILE_PATH");
-            env::remove_var("EST_CERT_FILE_PATH");
-            env_vars.iter().for_each(|e| env::remove_var(e.0));
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("SSH_TUNNEL_DIR_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("OS_RELEASE_DIR_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("CONSENT_DIR_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("WPA_SUPPLICANT_DIR_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("FACTORY_RESET_CONFIG_FILE_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("FACTORY_RESET_STATUS_FILE_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("IDENTITY_CONFIG_FILE_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            unsafe { env::remove_var("EST_CERT_FILE_PATH") };
+            // TODO: Audit that the environment access only happens in single-threaded code.
+            env_vars.iter().for_each(|e| unsafe { env::remove_var(e.0) });
         }
     }
 
