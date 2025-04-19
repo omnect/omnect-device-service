@@ -122,7 +122,8 @@ mod tests {
         assert!(OmnectOsVersion::from_string("123.123.123.123.123").is_err());
         assert!(OmnectOsVersion::from_string("asdf.123.123.123").is_err());
 
-        std::env::set_var("SW_VERSIONS_PATH", "testfiles/positive/sw-versions");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("SW_VERSIONS_PATH", "testfiles/positive/sw-versions") };
 
         assert!(
             OmnectOsVersion::from_sw_versions_file().unwrap()
