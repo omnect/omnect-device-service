@@ -5,15 +5,24 @@ use anyhow::{bail, Context, Result};
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use reqwest::{header, Client};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, str::FromStr, sync::LazyLock};
+use std::{collections::HashMap, fs::OpenOptions, str::FromStr, sync::LazyLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
 static PUBLISH_ENDPOINTS: LazyLock<Mutex<HashMap<String, PublishEndpoint>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+macro_rules! centrifugo_endpoints_path {
+    () => {{
+        static CENTRIFUGO_ENDPOINTS_PATH_DEFAULT: &'static str =
+            "/var/lib/omnect-device-service/publish_endpoints";
+        std::env::var("CENTRIFUGO_ENDPOINTS_PATH")
+            .unwrap_or(CENTRIFUGO_ENDPOINTS_PATH_DEFAULT.to_string())
+    }};
+}
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
@@ -26,22 +35,27 @@ pub enum PublishChannel {
     UpdateValidationStatus,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct Header {
     name: String,
     value: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct PublishEndpoint {
     url: String,
     headers: Vec<Header>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct PublishEndpointRequest {
     id: String,
     endpoint: PublishEndpoint,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct PublishEndpointAppId {
+    id: String,
 }
 
 lazy_static! {
@@ -73,6 +87,10 @@ impl WebService {
                 .route(
                     "/publish-endpoint/v1",
                     web::post().to(Self::set_publish_endpoint),
+                )
+                .route(
+                    "/publish-endpoint/v1/{id}",
+                    web::delete().to(Self::delete_publish_endpoint),
                 )
                 .route("/factory-reset/v1", web::post().to(Self::factory_reset))
                 .route("/fwupdate/load/v1", web::post().to(Self::load_fwupdate))
@@ -140,8 +158,37 @@ impl WebService {
 
         match serde_json::from_slice::<PublishEndpointRequest>(&body) {
             Ok(request) => {
+                // Read the existing JSON file, or create an empty array if it doesn't exist
+                let mut endpoints: Vec<PublishEndpointRequest> =
+                    match std::fs::read_to_string(centrifugo_endpoints_path!()) {
+                        Ok(content) => {
+                            serde_json::from_str(&content).unwrap_or_else(|_| Vec::new())
+                        }
+                        Err(_) => Vec::new(),
+                    };
+                // Check if the id exists, update if found, else push new
+                let mut found = false;
+                for endpoint in endpoints.iter_mut() {
+                    if endpoint.id == request.id {
+                        *endpoint = request.clone();
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    endpoints.push(request);
+                }
 
-                PUBLISH_ENDPOINTS.lock().await.insert(request.id, request.endpoint);
+                let _ = serde_json::to_writer_pretty(
+                    OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(centrifugo_endpoints_path!())
+                        .unwrap(),
+                    &endpoints,
+                )
+                .context("web_service: serde_json::to_writer_pretty");
 
                 HttpResponse::Ok().finish()
             }
@@ -150,6 +197,33 @@ impl WebService {
                 HttpResponse::BadRequest().body(e.to_string())
             }
         }
+    }
+
+    async fn delete_publish_endpoint(
+        path: web::Path<PublishEndpointAppId>,
+        _tx_request: web::Data<mpsc::Sender<CommandRequest>>,
+    ) -> HttpResponse {
+        debug!("WebService delete_publish_endpoint");
+
+        let mut endpoints: Vec<PublishEndpointRequest> =
+            match std::fs::read_to_string(centrifugo_endpoints_path!()) {
+                Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| Vec::new()),
+                Err(_) => Vec::new(),
+            };
+        endpoints.retain(|client| client.id != path.id);
+
+        let _ = serde_json::to_writer_pretty(
+            OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(centrifugo_endpoints_path!())
+                .unwrap(),
+            &endpoints,
+        )
+        .context("web_service: serde_json::to_writer_pretty");
+
+        HttpResponse::Ok().finish()
     }
 
     async fn factory_reset(
@@ -304,6 +378,7 @@ impl WebService {
 }
 
 pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
+    debug!("publish");
     if !(*IS_WEBSERVICE_ENABLED) {
         debug!("publish: skip since feature not enabled");
     } else {
@@ -321,10 +396,20 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
 }
 
 async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
-    for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
+    debug!("publish to endpoints");
+
+    let endpoints: Vec<PublishEndpointRequest> =
+        match std::fs::read_to_string(centrifugo_endpoints_path!()) {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| Vec::new()),
+            Err(_) => Vec::new(),
+        };
+
+    let mut errors = Vec::new();
+
+    for endpoint in endpoints {
         let mut headers = header::HeaderMap::new();
 
-        for h in &endpoint.headers {
+        for h in &endpoint.endpoint.headers {
             headers.insert(
                 header::HeaderName::from_str(&h.name)?,
                 header::HeaderValue::from_str(&h.value)?,
@@ -338,24 +423,40 @@ async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
             .danger_accept_invalid_certs(true)
             .build()
         else {
-            bail!(
+            // bail!(
+            //     "publish_to_endpoints: building request {msg} to {} failed",
+            //     endpoint.endpoint.url
+            // );
+            errors.push(format!(
                 "publish_to_endpoints: building request {msg} to {} failed",
-                endpoint.url
-            );
+                endpoint.endpoint.url
+            ));
+            continue;
         };
         if let Err(e) = request
-            .post(&endpoint.url)
+            .post(&endpoint.endpoint.url)
             .body(msg.to_string())
             .send()
             .await
         {
-            bail!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?", endpoint.url);
+            //     bail!(
+            //     "publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?",
+            //     endpoint.endpoint.url
+            // );
+            errors.push(format!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?",
+            endpoint.endpoint.url));
+            continue;
         }
 
         info!(
             "publish_to_endpoints: successfully sent {msg} to {}.",
-            endpoint.url
+            endpoint.endpoint.url
         )
+    }
+    if !errors.is_empty() {
+        // Return the first error, or combine them as needed
+        //return Err(anyhow::anyhow!("Errors occurred: {:?}", errors));
+        bail!("Errors occurred: {:?}", errors)
     }
 
     Ok(())
