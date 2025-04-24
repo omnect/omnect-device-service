@@ -77,6 +77,7 @@ Runtime configuration options of the underlying azure-iot-sdk crate can be found
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "system_info":
 {
@@ -85,6 +86,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_SYSTEM_INFO=true
 ```
@@ -111,6 +113,7 @@ The module reports some system information. For this purpose the module sends a 
 The module reports some device metrics like **cpu_usage**, **memory_usage**, **disk_usage** and **temperature**.
 For this purpose the module sends a D2C(device-to-cloud) message in a default interval of **60s**.
 The default interval might be changed by creating the following environment variable:
+
 ```
 REFRESH_SYSTEM_INFO_INTERVAL_SECS=<interval in seconds>
 ```
@@ -118,6 +121,7 @@ REFRESH_SYSTEM_INFO_INTERVAL_SECS=<interval in seconds>
 In case **REFRESH_SYSTEM_INFO_INTERVAL_SECS=0**, the transmission of the device metrics will be disabled.
 
 Example of the D2C payload:
+
 ```
 "body": [
     {
@@ -188,14 +192,15 @@ Example of the D2C payload:
   ]
 ```
 
-
 ### Factory reset
+
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
 
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "factory_reset":
 {
@@ -204,6 +209,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_FACTORY_RESET=true
 ```
@@ -215,6 +221,7 @@ SUPPRESS_FACTORY_RESET=true
 Method Name: `factory_reset`
 
 Payload:
+
 ```
 {
   "mode": <factory reset mode number>,
@@ -231,7 +238,6 @@ Result:
   "payload": {"<result>"}
 }
 
-
 The supported reset `mode` and the documentation in general can be found in the [meta-omnect layer](https://github.com/omnect/meta-omnect#factory-reset).
 
 The **optional** `preserve` array can be used to define system resp. user settings that must be restored after wiping device storage. Supported are keys from [here](https://github.com/omnect/meta-omnect/blob/main/recipes-omnect/omnect-device-service/omnect-device-service/factory-reset.json) and the key "applications" if there is a [custom configuration file](https://github.com/omnect/meta-omnect?tab=readme-ov-file#custom-factory-reset-configuration) in `/etc/omnect/factory-reset.d/`.
@@ -246,6 +252,7 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status and a meaningful message in the payload:
+
 ```
 {
   "status": 401,
@@ -269,11 +276,11 @@ Performing a factory reset also triggers a device restart. The restart time of a
 ```
 
 The following status information is defined:
- - "in_progress"
- - "succeeded"
- - "failed"
- - "unexpected factory reset type"
 
+- "in_progress"
+- "succeeded"
+- "failed"
+- "unexpected factory reset type"
 
 ### iot-hub-device-update user consent
 
@@ -282,6 +289,7 @@ omnect os uses [iot-hub-device-update](https://github.com/Azure/iot-hub-device-u
 The module itself does not perform a user consent. It serves as an interface between the cloud and the content handler in [omnect yocto image](https://github.com/omnect/meta-omnect).
 
 Adapt the following environment variable in order to configure the directory used for consent files at runtime:
+
 ```
 # use the following directory for consent files (defaults to "/etc/omnect/consent"), e.g.:
 CONSENT_DIR_PATH: "/my/path"
@@ -290,6 +298,7 @@ CONSENT_DIR_PATH: "/my/path"
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "device_update_consent":
 {
@@ -298,6 +307,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_DEVICE_UPDATE_USER_CONSENT=true
 ```
@@ -334,6 +344,7 @@ A direct method was specified for this purpose which is described below.
 Method Name: `user_consent`
 
 Payload:
+
 ```
 {
   "swupdate": "<version>"
@@ -341,6 +352,7 @@ Payload:
 ```
 
 Result:
+
 ```
 {
   "status": <HTTP-Statusode>,
@@ -358,6 +370,7 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status and a meaningful message in the payload:
+
 ```
 {
   "status": 401,
@@ -402,6 +415,7 @@ omnect-os uses the [azure iot-identity-service](https://github.com/Azure/iot-ide
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "provisioning_config":
 {
@@ -410,6 +424,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_PROVISIONING_CONFIG=true
 ```
@@ -419,6 +434,7 @@ SUPPRESS_PROVISIONING_CONFIG=true
 The module reports the current provisioning configuration status. For this purpose the module sends a reported property to the cloud.
 
 non-x509 method:
+
 ```
 "provisioning_config": {
   "version":number,
@@ -426,7 +442,9 @@ non-x509 method:
   "method": string("tpm", "sas", "symmetric_key")
 }
 ```
+
 x509 method:
+
 ```
 "provisioning_config":{
   "version":number,
@@ -445,6 +463,7 @@ x509 method:
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "reboot":
 {
@@ -453,6 +472,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_REBOOT=true
 ```
@@ -466,18 +486,21 @@ A direct method to trigger a device reboot.
 Method Name: `reboot`
 
 Payload:
+
 ```
 {
 }
 ```
 
 Result:
+
 ```
 {
   "status": <HTTP-Statusode>,
   "payload": {}
 }
 ```
+
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
@@ -488,6 +511,7 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status:
+
 ```
 {
   "status": 401,
@@ -505,6 +529,7 @@ Method Name: `set_wait_online_timeout`
 
 Payload:<br>
 The timeout is defined in seconds. A "timeout_secs" value of 0 means no timeout. An empty payload also means no timeout to be set at all.
+
 ```
 {
   "timeout_secs": <secs>
@@ -512,12 +537,14 @@ The timeout is defined in seconds. A "timeout_secs" value of 0 means no timeout.
 ```
 
 Result:
+
 ```
 {
   "status": <HTTP-Statusode>,
   "payload": {}
 }
 ```
+
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
@@ -528,6 +555,7 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status:
+
 ```
 {
   "status": 401,
@@ -545,6 +573,7 @@ building, i.e., `cargo build --features modem_info,...`.
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "modem_info":
 {
@@ -589,6 +618,7 @@ The network status is refreshed in an interval which can be configured by `REFRE
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "network_status":
 {
@@ -597,6 +627,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_NETWORK_STATUS=true
 ```
@@ -646,6 +677,7 @@ The module reports the status of network adapters. For this purpose the module s
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "ssh_tunnel":
 {
@@ -654,6 +686,7 @@ The availability of the feature is reported by the following module twin propert
 ```
 
 The availability of the feature might be suppressed by creating the following environment variable:
+
 ```
 SUPPRESS_SSH_TUNNEL=true
 ```
@@ -690,6 +723,7 @@ This creates a single-use ssh key pair and retrieves the public key of the key p
 Method Name: `get_ssh_pub_key`
 
 Payload:
+
 ```
 {
   "tunnel_id": "<uuid identifying the tunnel>",
@@ -697,12 +731,14 @@ Payload:
 ```
 
 Result:
+
 ```
 {
   "status": <HTTP-Statuscode>,
   "payload": {}
 }
 ```
+
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
@@ -715,13 +751,13 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status:
+
 ```
 {
   "status": 401,
   "payload": {}
 }
 ```
-
 
 #### Opening the SSH tunnel
 
@@ -734,6 +770,7 @@ This creates a ssh tunnel to the bastion host, which can then be used to open an
 Method Name: `open_ssh_tunnel`
 
 Payload:
+
 ```
 {
   "tunnel_id": "<uuid identifying the tunnel>",
@@ -746,12 +783,14 @@ Payload:
 ```
 
 Result:
+
 ```
 {
   "status": <HTTP-Statuscode>,
   "payload": {}
 }
 ```
+
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
@@ -762,13 +801,13 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status:
+
 ```
 {
   "status": 401,
   "payload": {}
 }
 ```
-
 
 #### Closing the SSH tunnel
 
@@ -779,6 +818,7 @@ This closes an existing ssh tunnel. Typically, the ssh tunnel is terminated auto
 Method Name: `open_ssh_tunnel`
 
 Payload:
+
 ```
 {
   "tunnel_id": "<uuid identifying the tunnel>"
@@ -786,12 +826,14 @@ Payload:
 ```
 
 Result:
+
 ```
 {
   "status": <HTTP-Statuscode>,
   "payload": {}
 }
 ```
+
 In case the method was successful received by the module the return value of the method looks like this:
 
 ```
@@ -802,6 +844,7 @@ In case the method was successful received by the module the return value of the
 ```
 
 In all other cases there will be an error status:
+
 ```
 {
   "status": 401,
@@ -814,6 +857,7 @@ In all other cases there will be an error status:
 #### Feature availability
 
 The availability of the feature is reported by the following module twin property:
+
 ```
 "wifi_commissioning":
 {
@@ -874,6 +918,7 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 ### Status updates
 
 omnect-device-service is capable to publish certain properties to a list of defined endpoints. Currently the following properties are published:
+
 - online status: connection status to iothub
 - info: software versions of various components and device boot timestamp
 - timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html)
@@ -885,7 +930,8 @@ omnect-device-service is capable to publish certain properties to a list of defi
 
 Publishing messages in omnect-device-service is inspired by [centrifugo](https://centrifugal.dev/) and e.g. makes use of it in [omnect-ui](https://github.com/omnect/omnect-ui).
 
-In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested clients must register its endpoint via http://localhost/publish-endpoint/v1 API in the following format (headers are optional):
+In order to receive updates, a http POST endpoint must be present, where omnect-device-service can post messages to. Interested clients must register its endpoint via <http://localhost/publish-endpoint/v1> API in the following format (headers are optional):
+
 ```
 curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/publish-endpoint/v1 --data-raw '
 {
@@ -907,6 +953,7 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 ```
 
 The publish message format is also inspired by [centrifugo](https://centrifugal.dev/). A message must define a channel and a data attribute, e.g.:
+
 ```
 {
   "channel": "OnlineStatus",
@@ -915,7 +962,9 @@ The publish message format is also inspired by [centrifugo](https://centrifugal.
   }
 }
 ```
+
 #### Republish status
+
 The client can trigger omnect-device-service to republish its status:
 
 ```
@@ -923,10 +972,19 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 ```
 
 #### Get status
+
 It is also possible to query ths current status directly:
 
 ```
 curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/status/v1
+```
+
+#### disable publish messages
+
+The client can trigger omnect-device-service to disable the publishing messages:
+
+```
+curl -X DELETE --unix-socket /run/omnect-device-service/api.sock http://localhost/publish-endpoint/v1/{id}
 ```
 
 ## Update validation
@@ -939,6 +997,7 @@ The overall update validation timeout can be overwritten by `UPDATE_VALIDATION_T
 ### Criteria for a successful update
 
 The following checks must be passed in order to successfully validate an update:
+
 - system is running
 - adu-agent could be started successfully
 - omnect-device-service is connected to iot-hub (successfully provisioned)
@@ -946,8 +1005,9 @@ The following checks must be passed in order to successfully validate an update:
 # License
 
 Licensed under either of
-* Apache License, Version 2.0, (./LICENSE-APACHE or <http://www.apache.org/licenses/LICENSE-2.0>)
-* MIT license (./LICENSE-MIT or <http://opensource.org/licenses/MIT>)
+
+- Apache License, Version 2.0, (./LICENSE-APACHE or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license (./LICENSE-MIT or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
