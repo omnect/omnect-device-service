@@ -429,7 +429,7 @@ async fn save_publish_endpoints() -> Result<()> {
             .write(true)
             .truncate(true)
             .open(publish_endpoints_path!())
-            .context("save_publish_endpoints: open PUBLISH_CHANNEL_MAP_PATH for write")?,
+            .context("save_publish_endpoints: open PUBLISH_ENDPOINTS_PATH for write")?,
         &*PUBLISH_ENDPOINTS.lock().await,
     )
     .context("save_publish_endpoints: serde_json::to_writer_pretty")
