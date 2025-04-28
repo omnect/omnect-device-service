@@ -952,6 +952,12 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 }'
 ```
 
+A client should unregister an endpoint if no updates must received anymore (e.g. because the client application exits)
+
+```
+curl -X DELETE --unix-socket /run/omnect-device-service/api.sock http://localhost/publish-endpoint/v1/{my-unique-client-id}
+```
+
 The publish message format is also inspired by [centrifugo](https://centrifugal.dev/). A message must define a channel and a data attribute, e.g.:
 
 ```
@@ -977,14 +983,6 @@ It is also possible to query ths current status directly:
 
 ```
 curl -X GET --unix-socket /run/omnect-device-service/api.sock http://localhost/status/v1
-```
-
-#### disable publish messages
-
-The client can trigger omnect-device-service to disable the publishing messages:
-
-```
-curl -X DELETE --unix-socket /run/omnect-device-service/api.sock http://localhost/publish-endpoint/v1/{id}
 ```
 
 ## Update validation
