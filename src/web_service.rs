@@ -5,15 +5,24 @@ use anyhow::{bail, Context, Result};
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use reqwest::{header, Client};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, str::FromStr, sync::LazyLock};
+use std::{collections::HashMap, fs::OpenOptions, path::Path, str::FromStr, sync::LazyLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
 static PUBLISH_ENDPOINTS: LazyLock<Mutex<HashMap<String, PublishEndpoint>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+macro_rules! publish_endpoints_path {
+    () => {{
+        static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str =
+            "/run/omnect-device-service/publish_endpoints.json";
+        std::env::var("PUBLISH_ENDPOINTS_PATH")
+            .unwrap_or(PUBLISH_ENDPOINTS_PATH_DEFAULT.to_string())
+    }};
+}
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
@@ -26,19 +35,19 @@ pub enum PublishChannel {
     UpdateValidationStatus,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 struct Header {
     name: String,
     value: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PublishEndpoint {
     url: String,
     headers: Vec<Header>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PublishEndpointRequest {
     id: String,
     endpoint: PublishEndpoint,
@@ -67,12 +76,26 @@ impl WebService {
 
         info!("WebService is enabled");
 
+        if matches!(Path::new(&publish_endpoints_path!()).try_exists(), Ok(true)) {
+            *PUBLISH_ENDPOINTS.lock().await = serde_json::from_reader(
+                OpenOptions::new()
+                    .read(true)
+                    .open(publish_endpoints_path!())
+                    .context("run: open PUBLISH_ENDPOINTS_PATH for read")?,
+            )
+            .context("run: read PUBLISH_ENDPOINTS_PATH")?;
+        }
+
         let srv = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(tx_request.clone()))
                 .route(
                     "/publish-endpoint/v1",
-                    web::post().to(Self::set_publish_endpoint),
+                    web::post().to(Self::register_publish_endpoint),
+                )
+                .route(
+                    "/publish-endpoint/v1/{id}",
+                    web::delete().to(Self::unregister_publish_endpoint),
                 )
                 .route("/factory-reset/v1", web::post().to(Self::factory_reset))
                 .route("/fwupdate/load/v1", web::post().to(Self::load_fwupdate))
@@ -132,17 +155,23 @@ impl WebService {
         self.srv_handle.stop(false).await;
     }
 
-    async fn set_publish_endpoint(
+    async fn register_publish_endpoint(
         body: web::Bytes,
         _tx_request: web::Data<mpsc::Sender<CommandRequest>>,
     ) -> HttpResponse {
-        debug!("WebService set_publish_endpoint");
+        debug!("WebService register_publish_endpoint");
 
         match serde_json::from_slice::<PublishEndpointRequest>(&body) {
             Ok(request) => {
+                PUBLISH_ENDPOINTS
+                    .lock()
+                    .await
+                    .insert(request.id, request.endpoint);
 
-                PUBLISH_ENDPOINTS.lock().await.insert(request.id, request.endpoint);
-
+                if let Err(e) = save_publish_endpoints().await {
+                    error!("couldn't write endpoints: {e:#}");
+                    return HttpResponse::InternalServerError().body(e.to_string());
+                }
                 HttpResponse::Ok().finish()
             }
             Err(e) => {
@@ -150,6 +179,27 @@ impl WebService {
                 HttpResponse::BadRequest().body(e.to_string())
             }
         }
+    }
+
+    async fn unregister_publish_endpoint(
+        id: web::Path<String>,
+        _tx_request: web::Data<mpsc::Sender<CommandRequest>>,
+    ) -> HttpResponse {
+        debug!("WebService unregister_publish_endpoint");
+
+        if PUBLISH_ENDPOINTS
+            .lock()
+            .await
+            .remove(&id.into_inner())
+            .is_some()
+        {
+            if let Err(e) = save_publish_endpoints().await {
+                error!("couldn't write endpoints: {e:#}");
+                return HttpResponse::InternalServerError().body(e.to_string());
+            }
+        }
+
+        HttpResponse::Ok().finish()
     }
 
     async fn factory_reset(
@@ -304,6 +354,7 @@ impl WebService {
 }
 
 pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
+    debug!("publish");
     if !(*IS_WEBSERVICE_ENABLED) {
         debug!("publish: skip since feature not enabled");
     } else {
@@ -321,6 +372,10 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
 }
 
 async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
+    debug!("publish to endpoints");
+
+    let mut errors = Vec::new();
+
     for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
         let mut headers = header::HeaderMap::new();
 
@@ -338,10 +393,11 @@ async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
             .danger_accept_invalid_certs(true)
             .build()
         else {
-            bail!(
+            errors.push(format!(
                 "publish_to_endpoints: building request {msg} to {} failed",
                 endpoint.url
-            );
+            ));
+            continue;
         };
         if let Err(e) = request
             .post(&endpoint.url)
@@ -349,7 +405,9 @@ async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
             .send()
             .await
         {
-            bail!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?", endpoint.url);
+            errors.push(format!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?",
+            endpoint.url));
+            continue;
         }
 
         info!(
@@ -357,8 +415,24 @@ async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
             endpoint.url
         )
     }
+    if !errors.is_empty() {
+        bail!("Errors occurred: {:?}", errors)
+    }
 
     Ok(())
+}
+
+async fn save_publish_endpoints() -> Result<()> {
+    serde_json::to_writer_pretty(
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(publish_endpoints_path!())
+            .context("save_publish_endpoints: open PUBLISH_ENDPOINTS_PATH for write")?,
+        &*PUBLISH_ENDPOINTS.lock().await,
+    )
+    .context("save_publish_endpoints: serde_json::to_writer_pretty")
 }
 
 #[cfg(test)]
