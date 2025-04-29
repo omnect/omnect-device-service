@@ -10,8 +10,7 @@ use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::env;
-use std::path::Path;
+use std::{env, path::Path};
 use sysinfo;
 use time::format_description::well_known::Rfc3339;
 use tokio::{
@@ -247,10 +246,10 @@ impl Feature for SystemInfo {
             }
             Command::FileCreated(_) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
+                self.report().await?;
             }
             _ => bail!("unexpected command"),
         }
-        self.report().await?;
 
         Ok(None)
     }
@@ -314,23 +313,18 @@ impl SystemInfo {
     }
 
     async fn report(&self) -> Result<()> {
-        web_service::publish(
-            web_service::PublishChannel::SystemInfo,
-            serde_json::to_value(&self.software_info)
-                .context("connect_web_service: cannot serialize")?,
-        )
-        .await;
+        let value = serde_json::to_value(self).context("report: cannot serialize")?;
+
+        web_service::publish(web_service::PublishChannel::SystemInfo, value.clone()).await;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report: skip since tx_reported_properties is None");
             return Ok(());
         };
 
-        tx.send(json!({
-            "system_info": serde_json::to_value(self).context("report: cannot serialize")?
-        }))
-        .await
-        .context("report: send")
+        tx.send(json!({ "system_info": value }))
+            .await
+            .context("report: send")
     }
 
     #[cfg(not(feature = "mock"))]
