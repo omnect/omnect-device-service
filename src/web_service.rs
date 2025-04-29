@@ -3,7 +3,7 @@ use actix_server::ServerHandle;
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
 use anyhow::{bail, Context, Result};
 use lazy_static::lazy_static;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -35,19 +35,19 @@ pub enum PublishChannel {
     UpdateValidationStatus,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 struct Header {
     name: String,
     value: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct PublishEndpoint {
     url: String,
     headers: Vec<Header>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct PublishEndpointRequest {
     id: String,
     endpoint: PublishEndpoint,
@@ -102,7 +102,7 @@ impl WebService {
                 .route("/fwupdate/run/v1", web::post().to(Self::run_fwupdate))
                 .route("/reboot/v1", web::post().to(Self::reboot))
                 .route("/reload-network/v1", web::post().to(Self::reload_network))
-                .route("/republish/v1", web::post().to(Self::republish))
+                .route("/republish/v1/{id}", web::post().to(Self::republish))
                 .route("/status/v1", web::get().to(Self::status))
         });
 
@@ -172,6 +172,7 @@ impl WebService {
                     error!("couldn't write endpoints: {e:#}");
                     return HttpResponse::InternalServerError().body(e.to_string());
                 }
+
                 HttpResponse::Ok().finish()
             }
             Err(e) => {
@@ -249,13 +250,25 @@ impl WebService {
         Self::exec_request(tx_request, rx_reply, cmd).await
     }
 
-    async fn republish(_tx_request: web::Data<mpsc::Sender<CommandRequest>>) -> HttpResponse {
+    async fn republish(
+        id: web::Path<String>,
+        _tx_request: web::Data<mpsc::Sender<CommandRequest>>,
+    ) -> HttpResponse {
         debug!("WebService republish");
+
+        let id = id.into_inner();
+        let endpoints = PUBLISH_ENDPOINTS.lock().await;
+
+        let Some(endpoint) = endpoints.get(&id) else {
+            error!("republish: id '{id}' not found");
+            return HttpResponse::BadRequest().body("id not found");
+        };
 
         for (channel, value) in PUBLISH_CHANNEL_MAP.lock().await.iter() {
             let msg = json!({"channel": channel, "data": value});
 
-            if let Err(e) = publish_to_endpoints(msg).await {
+            if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
+                error!("republish: {e:#}");
                 return HttpResponse::InternalServerError().body(e.to_string());
             }
         }
@@ -354,70 +367,65 @@ impl WebService {
 }
 
 pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
-    debug!("publish");
     if !(*IS_WEBSERVICE_ENABLED) {
         debug!("publish: skip since feature not enabled");
-    } else {
-        let msg = json!({"channel": channel.to_string(), "data": value});
+        return;
+    }
 
-        PUBLISH_CHANNEL_MAP
-            .lock()
-            .await
-            .insert(channel.to_string(), value.clone());
+    debug!("publish");
 
-        if let Err(e) = publish_to_endpoints(msg).await {
-            warn!("publish: failed to publish request with {e:#}");
-        };
+    let msg = json!({"channel": channel.to_string(), "data": value});
+
+    PUBLISH_CHANNEL_MAP
+        .lock()
+        .await
+        .insert(channel.to_string(), value.clone());
+
+    for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
+        if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
+            error!("publish: {e:#}");
+        }
     }
 }
 
-async fn publish_to_endpoints(msg: serde_json::Value) -> Result<()> {
-    debug!("publish to endpoints");
+async fn publish_to_endpoint(msg: &serde_json::Value, endpoint: &PublishEndpoint) -> Result<()> {
+    let mut headers = header::HeaderMap::new();
 
-    let mut errors = Vec::new();
+    for h in &endpoint.headers {
+        headers.insert(
+            header::HeaderName::from_str(&h.name)?,
+            header::HeaderValue::from_str(&h.value)?,
+        );
+    }
 
-    for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
-        let mut headers = header::HeaderMap::new();
-
-        for h in &endpoint.headers {
-            headers.insert(
-                header::HeaderName::from_str(&h.name)?,
-                header::HeaderValue::from_str(&h.value)?,
-            );
-        }
-
-        // we allow self-signed ssl certs
-        let Ok(request) = Client::builder()
-            .timeout(tokio::time::Duration::from_secs(3))
-            .default_headers(headers)
-            .danger_accept_invalid_certs(true)
-            .build()
-        else {
-            errors.push(format!(
-                "publish_to_endpoints: building request {msg} to {} failed",
-                endpoint.url
-            ));
-            continue;
-        };
-        if let Err(e) = request
-            .post(&endpoint.url)
-            .body(msg.to_string())
-            .send()
-            .await
-        {
-            errors.push(format!("publish_to_endpoints: sending {msg} to {} (failed with {e}). Endpoint not present?",
-            endpoint.url));
-            continue;
-        }
-
-        info!(
-            "publish_to_endpoints: successfully sent {msg} to {}.",
+    // we allow self-signed ssl certs
+    let Ok(request) = Client::builder()
+        .timeout(tokio::time::Duration::from_secs(3))
+        .default_headers(headers)
+        .danger_accept_invalid_certs(true)
+        .build()
+    else {
+        bail!(
+            "publish_to_endpoint: building request {msg} to {} failed",
             endpoint.url
-        )
+        );
+    };
+    if let Err(e) = request
+        .post(&endpoint.url)
+        .body(msg.to_string())
+        .send()
+        .await
+    {
+        bail!(
+            "publish_to_endpoint: sending {msg} to {} (failed with {e})?",
+            endpoint.url
+        );
     }
-    if !errors.is_empty() {
-        bail!("Errors occurred: {:?}", errors)
-    }
+
+    info!(
+        "publish_to_endpoint: successfully sent {msg} to {}.",
+        endpoint.url
+    );
 
     Ok(())
 }

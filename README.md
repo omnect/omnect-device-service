@@ -974,7 +974,7 @@ The publish message format is also inspired by [centrifugo](https://centrifugal.
 The client can trigger omnect-device-service to republish its status:
 
 ```
-curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/republish/v1
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/republish/v1/{my-unique-client-id}
 ```
 
 #### Get status
