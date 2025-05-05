@@ -2,7 +2,7 @@
 authors = ["omnect@conplement.de"]
 build = "src/build.rs"
 description = "This service allows remote features like: user fw update consent, factory reset, network adapter status and reboot."
-edition = "2021"
+edition = "2024"
 homepage = "www.omnect.io"
 license = "MIT OR Apache-2.0"
 name = "omnect-device-service"

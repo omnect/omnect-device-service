@@ -267,17 +267,20 @@ mod tests {
 
     #[test]
     fn provisioning_config_test() {
-        env::set_var("IDENTITY_CONFIG_FILE_PATH", "");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var("IDENTITY_CONFIG_FILE_PATH", "") };
         assert!(ProvisioningConfig::new()
             .unwrap_err()
             .to_string()
             .starts_with("provisioning_config: cannot read"));
 
-        env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var(
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.est",
-        );
-        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
+        ) };
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer") };
         assert_eq!(
             serde_json::to_value(ProvisioningConfig::new().unwrap()).unwrap(),
             json!({
@@ -291,10 +294,11 @@ mod tests {
             })
         );
 
-        env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var(
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.tpm",
-        );
+        ) };
         assert_eq!(
             serde_json::to_value(ProvisioningConfig::new().unwrap()).unwrap(),
             json!({
@@ -306,12 +310,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn provisioning_refresh_test() {
-        env::set_var(
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var(
             "IDENTITY_CONFIG_FILE_PATH",
             "testfiles/positive/config.toml.est",
-        );
+        ) };
 
-        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer") };
 
         let mut config = ProvisioningConfig::new().unwrap();
 
@@ -332,7 +338,8 @@ mod tests {
             panic!("no X509 found");
         };
 
-        env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { env::set_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer") };
 
         config
             .command(&Command::Interval(IntervalCommand {

@@ -111,7 +111,8 @@ mod tests {
 
     #[test]
     fn current_reboot_reason_ok() {
-        std::env::set_var("REBOOT_REASON_DIR_PATH", "testfiles/positive/reboot_reason");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("REBOOT_REASON_DIR_PATH", "testfiles/positive/reboot_reason") };
         assert_eq!(
             current_reboot_reason(),
             Some(json!( {
