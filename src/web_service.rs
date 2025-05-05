@@ -26,13 +26,13 @@ macro_rules! publish_endpoints_path {
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
-    FactoryResetKeys,
-    FactoryResetStatus,
-    NetworkStatus,
-    OnlineStatus,
-    SystemInfo,
-    Timeouts,
-    UpdateValidationStatus,
+    FactoryResetKeysV1,
+    FactoryResetStatusV1,
+    NetworkStatusV1,
+    OnlineStatusV1,
+    SystemInfoV1,
+    TimeoutsV1,
+    UpdateValidationStatusV1,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

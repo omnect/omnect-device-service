@@ -131,7 +131,9 @@ impl UpdateValidation {
                             error!("update validation timed out: failed to write reboot reason with {e:#}");
                         }
                         if let Err(e) = systemd::reboot().await {
-                            error!("update validation timed out: failed to trigger reboot with {e:#}");
+                            error!(
+                                "update validation timed out: failed to trigger reboot with {e:#}"
+                            );
                         }
                     }
                     _ => info!("reboot timer canceled."),
@@ -279,7 +281,7 @@ impl UpdateValidation {
 
     pub async fn report(&self) {
         web_service::publish(
-            web_service::PublishChannel::UpdateValidationStatus,
+            web_service::PublishChannel::UpdateValidationStatusV1,
             json!({"status": self.status}),
         )
         .await;

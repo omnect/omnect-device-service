@@ -315,7 +315,7 @@ impl SystemInfo {
     async fn report(&self) -> Result<()> {
         let value = serde_json::to_value(self).context("report: cannot serialize")?;
 
-        web_service::publish(web_service::PublishChannel::SystemInfo, value.clone()).await;
+        web_service::publish(web_service::PublishChannel::SystemInfoV1, value.clone()).await;
 
         let Some(tx) = &self.tx_reported_properties else {
             warn!("report: skip since tx_reported_properties is None");

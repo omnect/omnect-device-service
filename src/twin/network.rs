@@ -128,7 +128,7 @@ impl Network {
         };
 
         web_service::publish(
-            web_service::PublishChannel::NetworkStatus,
+            web_service::PublishChannel::NetworkStatusV1,
             json!({"network_status": interfaces}),
         )
         .await;
