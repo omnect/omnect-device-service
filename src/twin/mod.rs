@@ -169,7 +169,7 @@ impl Twin {
 
     async fn connect_web_service(&self) -> Result<()> {
         web_service::publish(
-            web_service::PublishChannel::OnlineStatus,
+            web_service::PublishChannel::OnlineStatusV1,
             json!({"iothub": false}),
         )
         .await;
@@ -237,7 +237,7 @@ impl Twin {
         self.request_validate_update(authenticated).await?;
 
         web_service::publish(
-            web_service::PublishChannel::OnlineStatus,
+            web_service::PublishChannel::OnlineStatusV1,
             json!({"iothub": authenticated}),
         )
         .await;

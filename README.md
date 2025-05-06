@@ -962,7 +962,7 @@ The publish message format is also inspired by [centrifugo](https://centrifugal.
 
 ```
 {
-  "channel": "OnlineStatus",
+  "channel": "OnlineStatusV1",
   "data": {
     "iothub": true
   }

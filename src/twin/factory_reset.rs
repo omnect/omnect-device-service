@@ -136,7 +136,7 @@ impl FactoryReset {
         // get keys on each call, since factory_reset.d could have changes
         let keys = FactoryReset::factory_reset_keys()?;
         web_service::publish(
-            web_service::PublishChannel::FactoryResetKeys,
+            web_service::PublishChannel::FactoryResetKeysV1,
             json!({"keys": keys}),
         )
         .await;
@@ -178,7 +178,7 @@ impl FactoryReset {
     async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
         // ToDo why is that not the same format as for the cloud?
         web_service::publish(
-            web_service::PublishChannel::FactoryResetStatus,
+            web_service::PublishChannel::FactoryResetStatusV1,
             json!({"factory_reset_status": status}),
         )
         .await;
