@@ -12,6 +12,8 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
+static PUBLISH_STATUS_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
+    LazyLock::new(|| Mutex::new(serde_json::Map::default()));
 static PUBLISH_ENDPOINTS: LazyLock<Mutex<HashMap<String, PublishEndpoint>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -33,6 +35,21 @@ pub enum PublishChannel {
     SystemInfoV1,
     TimeoutsV1,
     UpdateValidationStatusV1,
+}
+
+impl PublishChannel {
+    fn to_status_string(&self) -> String {
+        match self {
+            PublishChannel::FactoryResetKeysV1 => "FactoryResetKeys".to_string(),
+            PublishChannel::FactoryResetStatusV1 => "FactoryResetStatus".to_string(),
+            PublishChannel::NetworkStatusV1 => "NetworkStatus".to_string(),
+            PublishChannel::OnlineStatusV1 => "OnlineStatus".to_string(),
+            PublishChannel::SystemInfoV1 => "SystemInfo".to_string(),
+            PublishChannel::TimeoutsV1 => "Timeouts".to_string(),
+            PublishChannel::UpdateValidationStatusV1 => "UpdateValidationStatus".to_string(),
+
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -279,7 +296,7 @@ impl WebService {
     async fn status(_tx_request: web::Data<mpsc::Sender<CommandRequest>>) -> HttpResponse {
         debug!("WebService status");
 
-        let pubs = PUBLISH_CHANNEL_MAP.lock().await;
+        let pubs = PUBLISH_STATUS_MAP.lock().await;
 
         HttpResponse::Ok().body(
             serde_json::to_string(&pubs.clone()).expect("cannot convert publish map to string"),
@@ -380,6 +397,11 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
         .lock()
         .await
         .insert(channel.to_string(), value.clone());
+
+    PUBLISH_STATUS_MAP
+        .lock()
+        .await
+        .insert(channel.to_status_string(), value.clone());
 
     for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
         if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
