@@ -72,14 +72,15 @@ impl Twin {
         tx_outgoing_message: mpsc::Sender<IotMessage>,
         tx_validated: oneshot::Sender<()>,
     ) -> Result<Self> {
-        // has to be called before iothub client authentication
-        let update_validation = UpdateValidation::new(tx_validated).await?;
-        let update_validated = false;
-        let client = None;
-        let web_service = web_service::WebService::run(tx_command_request.clone()).await?;
-        let state = TwinState::Uninitialized;
-        let waiting_for_reboot = false;
+        /*
+            - init features first
+            - start with SystemInfo in order to log useful infos asap
+        */
         let features = HashMap::from([
+            (
+                TypeId::of::<system_info::SystemInfo>(),
+                DynFeature::boxed(system_info::SystemInfo::new()?),
+            ),
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
                 DynFeature::boxed(consent::DeviceUpdateConsent::default()),
@@ -90,7 +91,9 @@ impl Twin {
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
-                DynFeature::boxed(firmware_update::FirmwareUpdate::new(update_validation)),
+                DynFeature::boxed(firmware_update::FirmwareUpdate::new(
+                    UpdateValidation::new(tx_validated).await?,
+                )),
             ),
             (
                 TypeId::of::<modem_info::ModemInfo>(),
@@ -113,25 +116,21 @@ impl Twin {
                 DynFeature::boxed(ssh_tunnel::SshTunnel::new()),
             ),
             (
-                TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::boxed(system_info::SystemInfo::new()?),
-            ),
-            (
                 TypeId::of::<wifi_commissioning::WifiCommissioning>(),
                 DynFeature::boxed(wifi_commissioning::WifiCommissioning::default()),
             ),
         ]);
 
         let twin = Twin {
-            client,
-            web_service,
+            client: None,
+            web_service: web_service::WebService::run(tx_command_request.clone()).await?,
             tx_command_request,
             tx_reported_properties,
             tx_outgoing_message,
-            update_validated,
-            state,
+            update_validated: false,
+            state: TwinState::Uninitialized,
             features,
-            waiting_for_reboot,
+            waiting_for_reboot: false,
         };
 
         twin.connect_web_service().await?;
