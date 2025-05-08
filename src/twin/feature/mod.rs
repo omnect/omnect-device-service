@@ -24,10 +24,11 @@ pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
     DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
+    DirModified(PathCommand),
     FactoryReset(factory_reset::FactoryResetCommand),
-    FileCreated(FileCommand),
-    FileModified(FileCommand),
     FleetId(system_info::FleetIdCommand),
+    FileCreated(PathCommand),
+    FileModified(PathCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
     LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
@@ -48,6 +49,7 @@ impl Command {
             CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
             DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            DirModified(cmd) => cmd.feature_id,
             FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
             FileCreated(cmd) => cmd.feature_id,
             FileModified(cmd) => cmd.feature_id,
@@ -200,7 +202,7 @@ pub(crate) trait Feature {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct FileCommand {
+pub struct PathCommand {
     pub feature_id: TypeId,
     pub path: PathBuf,
 }
@@ -237,7 +239,7 @@ where
         for p in &inner_paths {
             if matches!(p.try_exists(), Ok(true)) {
                 let _ = tx.blocking_send(CommandRequest {
-                    command: Command::FileCreated(FileCommand {
+                    command: Command::FileCreated(PathCommand {
                         feature_id: TypeId::of::<T>(),
                         path: p.clone(),
                     }),
@@ -269,7 +271,7 @@ where
                         debug!("notify-event: {de:?}");
                         for p in &de.paths {
                             let _ = tx.blocking_send(CommandRequest {
-                                command: Command::FileModified(FileCommand {
+                                command: Command::FileModified(PathCommand {
                                     feature_id: TypeId::of::<T>(),
                                     path: p.clone(),
                                 }),
@@ -287,6 +289,49 @@ where
         ensure!(p.is_file(), "{p:?} is not a regular existing file");
         debug!("watch {p:?}");
         debouncer.watch(p, RecursiveMode::NonRecursive)?;
+    }
+
+    Ok((
+        debouncer,
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+    ))
+}
+
+pub fn dir_modified_stream<T>(
+    paths: Vec<&Path>,
+) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
+where
+    T: 'static,
+{
+    let (tx, rx) = mpsc::channel(2);
+    let mut debouncer = new_debouncer(
+        Duration::from_secs(2),
+        None,
+        move |res: DebounceEventResult| match res {
+            Ok(debounced_events) => {
+                for de in debounced_events {
+                    if matches!(de.event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
+                        debug!("notify-event: {de:?}");
+                        for p in &de.paths {
+                            let _ = tx.blocking_send(CommandRequest {
+                                command: Command::DirModified(PathCommand {
+                                    feature_id: TypeId::of::<T>(),
+                                    path: p.clone(),
+                                }),
+                                reply: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
+        },
+    )?;
+
+    for p in paths {
+        ensure!(p.is_dir(), "{p:?} is not a regular existing directory");
+        debug!("watch {p:?}");
+        debouncer.watch(p, RecursiveMode::Recursive)?;
     }
 
     Ok((
