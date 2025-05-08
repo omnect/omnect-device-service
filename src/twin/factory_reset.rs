@@ -7,23 +7,32 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
+use notify_debouncer_full::{notify::*, Debouncer, NoCache};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{from_reader, json};
 use serde_repr::*;
-use std::{collections::HashMap, env, fs::read_dir};
+use std::{
+    collections::HashMap,
+    env,
+    fs::{read_dir, File},
+    io::BufReader,
+    path::Path,
+};
 use tokio::sync::mpsc::Sender;
 
-macro_rules! factory_reset_status_path {
+macro_rules! result_path {
     () => {{
         static FACTORY_RESET_STATUS_FILE_PATH_DEFAULT: &'static str =
             "/run/omnect-device-service/omnect-os-initramfs.json";
-        std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
-            .unwrap_or(FACTORY_RESET_STATUS_FILE_PATH_DEFAULT.to_string())
+        Path::new(
+            &std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
+                .unwrap_or(FACTORY_RESET_STATUS_FILE_PATH_DEFAULT.to_string()),
+        )
     }};
 }
 
-macro_rules! factory_reset_config_path {
+macro_rules! config_path {
     () => {{
         static FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT: &'static str =
             "/etc/omnect/factory-reset.json";
@@ -32,12 +41,14 @@ macro_rules! factory_reset_config_path {
     }};
 }
 
-macro_rules! factory_reset_custom_config_dir_path {
+macro_rules! custom_config_dir_path {
     () => {{
         static FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT: &'static str =
             "/etc/omnect/factory-reset.d";
-        std::env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
-            .unwrap_or(FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT.to_string())
+        Path::new(
+            &std::env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+                .unwrap_or(FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT.to_string()),
+        )
     }};
 }
 
@@ -54,6 +65,13 @@ pub enum FactoryResetMode {
 pub struct FactoryResetCommand {
     pub mode: FactoryResetMode,
     pub preserve: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CustomConfig {
+    // only used to parse
+    #[allow(dead_code)]
+    paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize_repr, PartialEq, Serialize_repr)]
@@ -84,6 +102,7 @@ struct FactoryResetReport {
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     report: FactoryResetReport,
+    dir_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
 }
 
 impl Feature for FactoryReset {
@@ -127,14 +146,45 @@ impl Feature for FactoryReset {
         Ok(())
     }
 
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+        let (dir_observer, stream) =
+            dir_modified_stream::<FactoryReset>(vec![custom_config_dir_path!()])
+                .context("refresh_event: cannot create file_modified_stream")?;
+        self.dir_observer = Some(dir_observer);
+        Ok(Some(stream))
+    }
+
     async fn command(&mut self, cmd: &Command) -> CommandResult {
-        info!("factory reset requested: {cmd:?}");
+        match cmd {
+            Command::DirModified(_) => {
+                let keys = FactoryReset::factory_reset_keys()?;
 
-        let Command::FactoryReset(cmd) = cmd else {
-            bail!("unexpected command")
+                if keys != self.report.keys {
+                    self.report.keys = keys;
+
+                    if let Some(tx_reported_properties) = &self.tx_reported_properties {
+                        tx_reported_properties
+                            .send(json!({
+                                "factory_reset": {
+                                    "keys": self.report.keys
+                                }
+                            }))
+                            .await
+                            .context("report_factory_reset_status: send")?;
+                    }
+
+                    web_service::publish(
+                        web_service::PublishChannel::FactoryResetV1,
+                        serde_json::to_value(&self.report).context("context")?,
+                    )
+                    .await;
+                }
+            }
+            Command::FactoryReset(cmd) => {
+                self.reset_to_factory_settings(cmd).await?;
+            }
+            _ => bail!("unexpected command"),
         };
-
-        self.reset_to_factory_settings(cmd).await?;
 
         Ok(None)
     }
@@ -153,18 +203,35 @@ impl FactoryReset {
         Ok(FactoryReset {
             tx_reported_properties: None,
             report,
+            dir_observer: None,
         })
     }
 
     fn factory_reset_keys() -> Result<Vec<String>> {
         let factory_reset_config: HashMap<String, Vec<std::path::PathBuf>> =
-            from_json_file(factory_reset_config_path!())?;
+            from_json_file(config_path!())?;
 
         let mut keys: Vec<String> = factory_reset_config.into_keys().collect();
-        if read_dir(factory_reset_custom_config_dir_path!())
+        if 0 < read_dir(custom_config_dir_path!())
             .context("read factory-reset.d")?
-            .next()
-            .is_some()
+            .filter(|f| {
+                let Ok(f) = f else {
+                    warn!("factory-reset.d: unexpected entry");
+                    return false;
+                };
+                let file_path = f.path();
+                let Ok(reader) = File::open(&file_path) else {
+                    warn!("factory-reset.d: cannot open custom config file '{file_path:?}'");
+                    return false;
+                };
+                let Ok(_): Result<CustomConfig, _> = from_reader(BufReader::new(reader)) else {
+                    warn!("factory-reset.d: cannot parse custom config file '{file_path:?}'");
+                    return false;
+                };
+
+                true
+            })
+            .count()
         {
             keys.push(String::from("applications"))
         }
@@ -176,8 +243,7 @@ impl FactoryReset {
     }
 
     fn factory_reset_result() -> Result<Option<FactoryResetResult>> {
-        let omnect_os_initramfs_json: serde_json::Value =
-            from_json_file(&factory_reset_status_path!())?;
+        let omnect_os_initramfs_json: serde_json::Value = from_json_file(&result_path!())?;
 
         if omnect_os_initramfs_json["factory-reset"].is_null() {
             debug!("factory reset: no result");
@@ -193,6 +259,8 @@ impl FactoryReset {
     }
 
     async fn reset_to_factory_settings(&self, cmd: &FactoryResetCommand) -> CommandResult {
+        info!("factory reset requested: {cmd:?}");
+
         let keys = FactoryReset::factory_reset_keys()?;
         for topic in &cmd.preserve {
             let topic = String::from(topic.to_string().trim_matches('"'));
