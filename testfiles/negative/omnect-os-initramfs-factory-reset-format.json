@@ -1,4 +1,5 @@
 {
+    "fsck": {},
     "factory-reset": {
         "status": "wrong",
         "error": "format"
