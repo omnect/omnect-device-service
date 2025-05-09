@@ -259,7 +259,7 @@ mod tests {
         };
 
         assert!(consent
-            .command(&Command::FileModified(FileCommand {
+            .command(&Command::FileModified(PathCommand {
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
                 path: PathBuf::from_str("my-path").unwrap(),
             }))
@@ -271,7 +271,7 @@ mod tests {
                 .starts_with("report_user_consent: open report_consent_file for read")));
 
         consent
-            .command(&Command::FileModified(FileCommand {
+            .command(&Command::FileModified(PathCommand {
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
                 path: PathBuf::from_str("testfiles/positive/test_component/user_consent.json")
                     .unwrap(),

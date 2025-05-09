@@ -28,8 +28,7 @@ macro_rules! publish_endpoints_path {
 
 #[derive(Debug, strum_macros::Display)]
 pub enum PublishChannel {
-    FactoryResetKeysV1,
-    FactoryResetStatusV1,
+    FactoryResetV1,
     NetworkStatusV1,
     OnlineStatusV1,
     SystemInfoV1,
@@ -40,8 +39,7 @@ pub enum PublishChannel {
 impl PublishChannel {
     fn to_status_string(&self) -> String {
         match self {
-            PublishChannel::FactoryResetKeysV1 => "FactoryResetKeys".to_string(),
-            PublishChannel::FactoryResetStatusV1 => "FactoryResetStatus".to_string(),
+            PublishChannel::FactoryResetV1 => "FactoryReset".to_string(),
             PublishChannel::NetworkStatusV1 => "NetworkStatus".to_string(),
             PublishChannel::OnlineStatusV1 => "OnlineStatus".to_string(),
             PublishChannel::SystemInfoV1 => "SystemInfo".to_string(),
