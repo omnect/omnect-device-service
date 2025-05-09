@@ -257,7 +257,11 @@ impl Feature for SystemInfo {
             }
             Command::FleetId(id) => {
                 self.fleet_id = Some(id.fleet_id.clone());
-                self.report().await?;
+                web_service::publish(
+                    web_service::PublishChannel::SystemInfoV1,
+                    serde_json::to_value(self).context("report: cannot serialize")?,
+                )
+                .await;
             }
             _ => bail!("unexpected command"),
         }

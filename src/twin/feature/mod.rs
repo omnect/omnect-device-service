@@ -1,6 +1,5 @@
-use crate::twin::system_info;
 use crate::twin::{
-    consent, factory_reset, firmware_update, network, reboot, ssh_tunnel, TwinUpdate,
+    consent, factory_reset, firmware_update, network, reboot, ssh_tunnel, system_info, TwinUpdate,
     TwinUpdateState,
 };
 use anyhow::{bail, ensure, Result};
