@@ -1,5 +1,5 @@
 use crate::twin::{
-    consent, factory_reset, firmware_update, network, reboot, ssh_tunnel, TwinUpdate,
+    consent, factory_reset, firmware_update, network, reboot, ssh_tunnel, system_info, TwinUpdate,
     TwinUpdateState,
 };
 use anyhow::{bail, ensure, Result};
@@ -27,6 +27,7 @@ pub enum Command {
     FactoryReset(factory_reset::FactoryResetCommand),
     FileCreated(FileCommand),
     FileModified(FileCommand),
+    FleetId(system_info::FleetIdCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
     LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
@@ -50,6 +51,7 @@ impl Command {
             FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
             FileCreated(cmd) => cmd.feature_id,
             FileModified(cmd) => cmd.feature_id,
+            FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
             GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
             LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -143,6 +145,12 @@ impl Command {
                         Err(e) => error!(
                             "from_desired_property: cannot parse DesiredGeneralConsentCommand {e:#}"
                         ),
+                    },
+                    "fleet_id" => match serde_json::from_value(value.clone()) {
+                        Ok(c) => cmds.push(Command::FleetId(c)),
+                        Err(e) => {
+                            error!("from_desired_property: cannot parse FleetIdCommand {e:#}")
+                        }
                     },
                     "$version" => { /*ignore*/ }
                     _ => warn!("from_desired_property: unhandled desired property {k}"),
@@ -611,6 +619,16 @@ mod tests {
                 value: json!({"desired": {"general_consent": ""}})
             }),
             vec![]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"fleet_id": ""}})
+            }),
+            vec![Command::FleetId(system_info::FleetIdCommand {
+                fleet_id: "".to_string()
+            })]
         );
     }
 }

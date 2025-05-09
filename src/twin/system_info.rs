@@ -8,7 +8,7 @@ use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use futures::StreamExt;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{env, path::Path};
 use sysinfo;
@@ -154,6 +154,11 @@ lazy_static! {
     };
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct FleetIdCommand {
+    pub fleet_id: String,
+}
+
 #[derive(Default, Serialize)]
 struct OsInfo {
     name: String,
@@ -188,6 +193,8 @@ pub struct SystemInfo {
     hardware_info: HardwareInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     reboot_reason: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fleet_id: Option<String>,
 }
 impl Feature for SystemInfo {
     fn name(&self) -> String {
@@ -247,6 +254,14 @@ impl Feature for SystemInfo {
             Command::FileCreated(_) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
                 self.report().await?;
+            }
+            Command::FleetId(id) => {
+                self.fleet_id = Some(id.fleet_id.clone());
+                web_service::publish(
+                    web_service::PublishChannel::SystemInfoV1,
+                    serde_json::to_value(self).context("report: cannot serialize")?,
+                )
+                .await;
             }
             _ => bail!("unexpected command"),
         }
@@ -309,6 +324,7 @@ impl SystemInfo {
                 hostname,
             },
             reboot_reason: reboot_reason::current_reboot_reason(),
+            fleet_id: None,
         })
     }
 
