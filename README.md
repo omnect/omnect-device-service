@@ -915,6 +915,12 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
 curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/reload-network/v1
 ```
 
+### Healthcheck
+
+```
+curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/healthcheck/v1
+```
+
 ### Status updates
 
 omnect-device-service is capable to publish certain properties to a list of defined endpoints. Currently the following properties are published:

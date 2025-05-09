@@ -47,7 +47,6 @@ impl PublishChannel {
             PublishChannel::SystemInfoV1 => "SystemInfo".to_string(),
             PublishChannel::TimeoutsV1 => "Timeouts".to_string(),
             PublishChannel::UpdateValidationStatusV1 => "UpdateValidationStatus".to_string(),
-
         }
     }
 }
@@ -117,6 +116,7 @@ impl WebService {
                 .route("/factory-reset/v1", web::post().to(Self::factory_reset))
                 .route("/fwupdate/load/v1", web::post().to(Self::load_fwupdate))
                 .route("/fwupdate/run/v1", web::post().to(Self::run_fwupdate))
+                .route("/healthcheck/v1", web::post().to(Self::healthcheck))
                 .route("/reboot/v1", web::post().to(Self::reboot))
                 .route("/reload-network/v1", web::post().to(Self::reload_network))
                 .route("/republish/v1/{id}", web::post().to(Self::republish))
@@ -241,6 +241,12 @@ impl WebService {
                 HttpResponse::BadRequest().body(e.to_string())
             }
         }
+    }
+
+    async fn healthcheck(_tx_request: web::Data<mpsc::Sender<CommandRequest>>) -> HttpResponse {
+        debug!("WebService healthcheck");
+
+        HttpResponse::Ok().finish()
     }
 
     async fn reboot(tx_request: web::Data<mpsc::Sender<CommandRequest>>) -> HttpResponse {
