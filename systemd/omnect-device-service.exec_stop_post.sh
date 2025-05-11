@@ -26,9 +26,9 @@ log_reboot_reason=
 # out yet. (we have to gain experience.)
 if [ -f ${barrier_json} ]; then
   # we are run during update validation
-  now=$(cat /proc/uptime | awk '{print $1}')
-  now_ms="${now%%\.*}$(printf %003d $((${now##*\.}*10)))"
-  update_validation_start_ms=$(jq -r .start_monotonic_time_ms ${barrier_json})
+  now_boottime_secs=$(cat /proc/uptime | awk '{print $1}')
+  start_boottime_secs=$(jq -r .start_boottime_secs ${barrier_json})
+  deadline_boottime_secs=$(jq -r .deadline_boottime_secs ${barrier_json})
   restart_count=$(jq -r .restart_count ${barrier_json})
   authenticated=$(jq -r .authenticated ${barrier_json})
   local_update=$(jq -r .local_update ${barrier_json})
@@ -41,7 +41,7 @@ if [ -f ${barrier_json} ]; then
     reboot "omnect-device-service authenticated, but update validation failed"
   fi
 
-  if [ $((${now_ms} - ${update_validation_start_ms})) -ge $((UPDATE_VALIDATION_TIMEOUT_IN_SECS * 1000)) ]; then
+  if [ ${now_boottime_secs} -ge ${deadline_boottime_secs} ]; then
     reboot "update validation timeout"
   fi
 elif [ -f ${update_validation_file} ]; then

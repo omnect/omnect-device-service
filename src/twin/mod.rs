@@ -422,7 +422,8 @@ impl Twin {
                 Some(_) = trigger_watchdog.next() => {
                     systemd::watchdog::WatchdogManager::notify().await?;
                 },
-                _ = signals.next() => {
+                Some(signal) = signals.next() => {
+                    info!("received termination signal: {signal:?}");
                     twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
                     signals.handle().close();
                     return Ok(())

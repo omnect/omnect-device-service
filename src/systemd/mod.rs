@@ -44,6 +44,9 @@ pub async fn reboot() -> Result<()> {
         )
         .await
         .context("reboot: call_method() failed")?;
+
+    debug!("reboot: succeeded to call systemd reboot");
+
     Ok(())
 }
 
