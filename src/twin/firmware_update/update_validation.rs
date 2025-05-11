@@ -159,6 +159,8 @@ impl UpdateValidation {
         debug!("starting {IOT_HUB_DEVICE_UPDATE_SERVICE}");
         fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
 
+        let params = self.params.as_mut().context("validation params missing")?;
+
         // in case of local update we don't take care of starting deviceupdate-agent.service,
         // since it might fail because of missing iothub connection.
         // instead we let deviceupdate-agent.timer doing the job periodically
