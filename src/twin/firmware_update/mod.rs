@@ -74,21 +74,25 @@ impl RunUpdateGuard {
 
         debug!("changed wdt to {RUN_UPDATE_WDT_INTERVAL_SECS}s and saved old one ({wdt:?})");
 
-        systemd::unit::unit_action(
-            IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
-            UnitAction::Stop,
+        tokio::time::timeout(
             Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
-            systemd_zbus::Mode::Replace,
+            systemd::unit::unit_action(
+                IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
+                UnitAction::Stop,
+                systemd_zbus::Mode::Replace,
+            ),
         )
-        .await?;
+        .await??;
 
-        systemd::unit::unit_action(
-            IOT_HUB_DEVICE_UPDATE_SERVICE,
-            UnitAction::Stop,
+        tokio::time::timeout(
             Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
-            systemd_zbus::Mode::Replace,
+            systemd::unit::unit_action(
+                IOT_HUB_DEVICE_UPDATE_SERVICE,
+                UnitAction::Stop,
+                systemd_zbus::Mode::Replace,
+            ),
         )
-        .await?;
+        .await??;
 
         debug!("stopped {IOT_HUB_DEVICE_UPDATE_SERVICE}");
 
@@ -114,22 +118,26 @@ impl Drop for RunUpdateGuard {
                     }
                 }
 
-                if let Err(e) = systemd::unit::unit_action(
-                    IOT_HUB_DEVICE_UPDATE_SERVICE,
-                    UnitAction::Start,
+                if let Err(e) = tokio::time::timeout(
                     Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
-                    systemd_zbus::Mode::Fail,
+                    systemd::unit::unit_action(
+                        IOT_HUB_DEVICE_UPDATE_SERVICE,
+                        UnitAction::Start,
+                        systemd_zbus::Mode::Fail,
+                    ),
                 )
                 .await
                 {
                     error!("failed to restart {IOT_HUB_DEVICE_UPDATE_SERVICE}: {e:#}")
                 }
 
-                if let Err(e) = systemd::unit::unit_action(
-                    IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
-                    UnitAction::Start,
+                if let Err(e) = tokio::time::timeout(
                     Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
-                    systemd_zbus::Mode::Fail,
+                    systemd::unit::unit_action(
+                        IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
+                        UnitAction::Start,
+                        systemd_zbus::Mode::Fail,
+                    ),
                 )
                 .await
                 {

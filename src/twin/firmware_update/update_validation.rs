@@ -169,7 +169,7 @@ impl UpdateValidation {
             nix::time::ClockId::CLOCK_MONOTONIC,
         )?);
         let timeout = self.validation_timeout - (now - self.start_monotonic_time);
-        systemd::wait_for_system_running(timeout).await?;
+        tokio::time::timeout(timeout, systemd::wait_for_system_running()).await??;
 
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degraded" and possibly ignore certain failed services via configuration
@@ -189,13 +189,15 @@ impl UpdateValidation {
         // since it might fail because of missing iothub connection.
         // instead we let deviceupdate-agent.timer doing the job periodically
         if !self.local_update {
-            systemd::unit::unit_action(
-                IOT_HUB_DEVICE_UPDATE_SERVICE,
-                UnitAction::Start,
+            tokio::time::timeout(
                 timeout,
-                systemd_zbus::Mode::Fail,
+                systemd::unit::unit_action(
+                    IOT_HUB_DEVICE_UPDATE_SERVICE,
+                    UnitAction::Start,
+                    systemd_zbus::Mode::Fail,
+                ),
             )
-            .await?;
+            .await??;
         }
 
         debug!("successfully started {IOT_HUB_DEVICE_UPDATE_SERVICE}");
