@@ -39,7 +39,7 @@ use std::{
     path::Path,
     time::{self, Duration},
 };
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, try_join};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 
 #[derive(PartialEq)]
@@ -66,23 +66,28 @@ impl Twin {
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
-        let web_service = web_service::WebService::run(tx_command_request.clone()).await?;
+        let (_, web_service) = try_join!(
+            feature::init(tx_command_request.clone()),
+            web_service::WebService::run(tx_command_request.clone())
+        )?;
+
         /*
             - init features first
             - start with SystemInfo in order to log useful infos asap
+            - ToDo: concurrency by try_join_all
         */
         let features = HashMap::from([
             (
                 TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::new_box(system_info::SystemInfo::new()?),
+                DynFeature::new_box(system_info::SystemInfo::new().await?),
             ),
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::new_box(consent::DeviceUpdateConsent::default()),
+                DynFeature::new_box(consent::DeviceUpdateConsent::new().await?),
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::new_box(factory_reset::FactoryReset::new()?),
+                DynFeature::new_box(factory_reset::FactoryReset::new().await?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -90,15 +95,15 @@ impl Twin {
             ),
             (
                 TypeId::of::<modem_info::ModemInfo>(),
-                DynFeature::new_box(modem_info::ModemInfo::new()),
+                DynFeature::new_box(modem_info::ModemInfo::new().await?),
             ),
             (
                 TypeId::of::<network::Network>(),
-                DynFeature::new_box(network::Network::default()),
+                DynFeature::new_box(network::Network::new().await?),
             ),
             (
                 TypeId::of::<provisioning_config::ProvisioningConfig>(),
-                DynFeature::new_box(provisioning_config::ProvisioningConfig::new()?),
+                DynFeature::new_box(provisioning_config::ProvisioningConfig::new().await?),
             ),
             (
                 TypeId::of::<reboot::Reboot>(),
@@ -332,19 +337,6 @@ impl Twin {
         }
     }
 
-    fn feature_command_request_streams(&mut self) -> Vec<CommandRequestStream> {
-        self.features
-            .values_mut()
-            .filter_map(|f| {
-                if f.is_enabled() {
-                    f.command_request_stream().unwrap()
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
     async fn request_validate_update(&mut self, authenticated: bool) -> Result<()> {
         self.tx_command_request
             .send(CommandRequest {
@@ -385,10 +377,11 @@ impl Twin {
 
         systemd::sd_notify_ready();
 
-        let mut command_requests = twin.feature_command_request_streams();
-        command_requests.push(Self::direct_method_stream(rx_direct_method));
-        command_requests.push(Self::desired_properties_stream(rx_twin_desired));
-        command_requests.push(ReceiverStream::new(rx_command_request).boxed());
+        let command_requests = vec![
+            Self::direct_method_stream(rx_direct_method),
+            Self::desired_properties_stream(rx_twin_desired),
+            ReceiverStream::new(rx_command_request).boxed(),
+        ];
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);

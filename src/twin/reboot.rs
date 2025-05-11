@@ -1,8 +1,4 @@
-use crate::{
-    systemd,
-    twin::{Feature, feature::*},
-    web_service,
-};
+use crate::{systemd, twin::feature::*, web_service};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info};
@@ -52,7 +48,7 @@ impl Feature for Reboot {
         match cmd {
             Command::Reboot => self.reboot().await,
             Command::SetWaitOnlineTimeout(cmd) => self.set_wait_online_timeout(cmd).await,
-            _ => bail!("unexpected command"),
+            _ => bail!("unexpected command: {cmd:?}"),
         }
     }
 }

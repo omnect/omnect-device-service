@@ -9,7 +9,6 @@ use crate::{
     systemd,
     systemd::{unit::UnitAction, watchdog::WatchdogManager},
     twin::{
-        Feature,
         feature::*,
         firmware_update::{adu_types::*, common::*, os_version::*},
     },
@@ -188,7 +187,7 @@ impl Feature for FirmwareUpdate {
                     .await?;
                 Ok(None)
             }
-            _ => bail!("unexpected command"),
+            _ => bail!("unexpected command: {cmd:?}"),
         }
     }
 }

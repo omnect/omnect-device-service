@@ -1,10 +1,9 @@
-use super::{Feature, feature::*};
+use crate::twin::feature::*;
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
-use lazy_static::lazy_static;
 use serde_json::json;
 use std::{env, time::Duration};
-use tokio::{sync::mpsc::Sender, time::interval};
+use tokio::sync::mpsc::Sender;
 
 #[cfg(feature = "modem_info")]
 mod inner {
@@ -300,8 +299,20 @@ mod inner {
     }
 
     impl ModemInfo {
-        pub fn new() -> Self {
-            ModemInfo::default()
+        pub async fn new() -> Result<Self> {
+            let modem_info = ModemInfo::default();
+            if modem_info.is_enabled() {
+                let refresh_interval = env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
+                    .unwrap_or("600".to_string())
+                    .parse::<u64>()
+                    .context("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")?;
+
+                if 0 < refresh_interval {
+                    add_notify_interval::<Self>(Duration::from_secs(refresh_interval)).await?;
+                }
+            }
+
+            Ok(modem_info)
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
@@ -330,16 +341,6 @@ pub use inner::ModemInfo;
 const MODEM_INFO_VERSION: u8 = 1;
 const ID: &str = "modem_info";
 
-lazy_static! {
-    static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
-        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "600";
-        env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
-            .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
-            .parse::<u64>()
-            .expect("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")
-    };
-}
-
 impl Feature for ModemInfo {
     fn name(&self) -> String {
         ID.to_string()
@@ -365,19 +366,9 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
-            Ok(None)
-        } else {
-            Ok(Some(interval_stream::<ModemInfo>(interval(
-                Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
-            ))))
-        }
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         let Command::Interval(_) = cmd else {
-            bail!("unexpected event: {cmd:?}")
+            bail!("unexpected command: {cmd:?}")
         };
 
         self.report(false).await?;

@@ -2,22 +2,24 @@ use crate::twin::{
     TwinUpdate, TwinUpdateState, consent, factory_reset, firmware_update, network, reboot,
     ssh_tunnel, system_info,
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
-use futures::StreamExt;
+use futures_util::StreamExt;
+use inotify::{Inotify, WatchDescriptor, WatchMask, Watches};
 use log::{debug, error, info, warn};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer, notify::*};
 use std::{
-    any::TypeId,
-    path::{Path, PathBuf},
+    any::{TypeId, type_name},
+    collections::HashMap,
+    ffi::c_int,
+    path::Path,
     pin::Pin,
+    sync::LazyLock,
     time::Duration,
 };
 use tokio::{
-    sync::{mpsc, oneshot},
-    task::JoinHandle,
-    time::{Instant, Interval},
+    sync::{Mutex, mpsc, oneshot},
+    task::JoinSet,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,11 +27,8 @@ pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
     DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
-    DirModified(PathCommand),
     FactoryReset(factory_reset::FactoryResetCommand),
     FleetId(system_info::FleetIdCommand),
-    FileCreated(PathCommand),
-    FileModified(PathCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
     LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
@@ -38,8 +37,9 @@ pub enum Command {
     ReloadNetwork,
     RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
-    ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
+    ValidateUpdate(bool),
+    WatchPath(WatchPathCommand),
 }
 
 impl Command {
@@ -50,10 +50,7 @@ impl Command {
             CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
             DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
-            DirModified(cmd) => cmd.feature_id,
             FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
-            FileCreated(cmd) => cmd.feature_id,
-            FileModified(cmd) => cmd.feature_id,
             FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
             GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
@@ -63,8 +60,9 @@ impl Command {
             ReloadNetwork => TypeId::of::<network::Network>(),
             RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
-            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            WatchPath(cmd) => cmd.feature_id,
         }
     }
 
@@ -115,11 +113,7 @@ impl Command {
                 }
             }
             _ => {
-                bail!(
-                    "cannot parse direct method {} with payload {}",
-                    direct_method.name,
-                    direct_method.payload
-                )
+                bail!("cannot parse direct method {direct_method:?} ")
             }
         }
     }
@@ -193,157 +187,181 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        Ok(None)
-    }
-
     async fn command(&mut self, _cmd: &Command) -> CommandResult {
         unimplemented!();
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PathCommand {
-    pub feature_id: TypeId,
-    pub path: PathBuf,
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct IntervalCommand {
     pub feature_id: TypeId,
-    pub instant: Instant,
 }
 
-pub fn interval_stream<T>(interval: Interval) -> CommandRequestStream
-where
-    T: 'static,
-{
-    tokio_stream::wrappers::IntervalStream::new(interval)
-        .map(|i| CommandRequest {
-            command: Command::Interval(IntervalCommand {
-                feature_id: TypeId::of::<T>(),
-                instant: i,
-            }),
-            reply: None,
-        })
-        .boxed()
+#[derive(Clone, Debug)]
+pub struct WatchPathCommand {
+    pub feature_id: TypeId,
+    pub id: core::ffi::c_int,
 }
 
-pub fn file_created_stream<T>(paths: Vec<&Path>) -> Result<(JoinHandle<()>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
+impl PartialEq for WatchPathCommand {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
 
-    let handle = tokio::task::spawn_blocking(move || {
-        loop {
-            for p in &inner_paths {
-                if matches!(p.try_exists(), Ok(true)) {
-                    let _ = tx.blocking_send(CommandRequest {
-                        command: Command::FileCreated(PathCommand {
-                            feature_id: TypeId::of::<T>(),
-                            path: p.clone(),
-                        }),
-                        reply: None,
-                    });
-                    return;
+#[derive(Debug)]
+struct FSWatcher {
+    watches: Watches,
+    features: HashMap<c_int, TypeId>,
+}
+
+/*
+    We chose LazyLock<Mutex<Option<...>>> over OnceLock<Mutex<...>> here only for testing purposes,
+    in order to allow re-initialization for each testcase.
+*/
+static TASKS: LazyLock<Mutex<Option<JoinSet<()>>>> = LazyLock::new(|| Mutex::new(None));
+static FS_WATCHER: LazyLock<Mutex<Option<FSWatcher>>> = LazyLock::new(|| Mutex::new(None));
+static TX_COMMAND_REQUEST: LazyLock<Mutex<Option<mpsc::Sender<CommandRequest>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+pub async fn init(tx_command_request: mpsc::Sender<CommandRequest>) -> Result<()> {
+    *TX_COMMAND_REQUEST.lock().await = Some(tx_command_request.clone());
+
+    let inotify = Inotify::init().context("init: failed to initialize inotify")?;
+    *FS_WATCHER.lock().await = Some(FSWatcher {
+        watches: inotify.watches(),
+        features: HashMap::new(),
+    });
+
+    let mut tasks: JoinSet<_> = JoinSet::new();
+    tasks.spawn(async move {
+        let mut buffer = [0; 1024];
+        let mut stream = inotify
+            .into_event_stream(&mut buffer)
+            .expect("init: failed to get inotify stream");
+        while let Some(event_result) = stream.next().await {
+            match event_result {
+                Ok(event) => {
+                    debug!("inotify: {event:?}");
+
+                    let Some(feature_id) = FS_WATCHER
+                        .lock()
+                        .await
+                        .as_ref()
+                        .expect("init: failed to get FS_WATCHER")
+                        .features
+                        .get(&event.wd.get_watch_descriptor_id())
+                        .cloned()
+                    else {
+                        error!("inotify: unknown wd {:?}", event.wd);
+                        continue;
+                    };
+
+                    if let Err(e) = tx_command_request
+                        .send(CommandRequest {
+                            command: Command::WatchPath(WatchPathCommand {
+                                feature_id,
+                                id: event.wd.get_watch_descriptor_id(),
+                            }),
+                            reply: None,
+                        })
+                        .await
+                    {
+                        error!("inotify: send {e:#?}")
+                    }
                 }
+                Err(e) => error!("inotify: event {e:#?}"),
             }
-            std::thread::sleep(Duration::from_millis(500));
         }
     });
 
-    Ok((
-        handle,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
+    *TASKS.lock().await = Some(tasks);
+
+    Ok(())
 }
 
-pub fn file_modified_stream<T>(
-    paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
+pub(crate) async fn add_fs_watch<T>(path: &Path, mask: WatchMask) -> Result<WatchDescriptor>
+where
+    T: Feature + 'static,
+{
+    debug!("add_fs_watch: {} {path:?} {mask:?}", type_name::<T>());
+
+    let mut watcher = FS_WATCHER.lock().await;
+    let watcher = watcher
+        .as_mut()
+        .context("add_fs_watch: FS_WATCHER doesn't exist")?;
+
+    let wd = watcher
+        .watches
+        .add(path, mask)
+        .context("add_fs_watch: failed to add")?;
+
+    if watcher
+        .features
+        .insert(wd.get_watch_descriptor_id(), TypeId::of::<T>())
+        .is_some()
+    {
+        bail!("add_fs_watch: currently only one feature per watch supported")
+    }
+
+    Ok(wd)
+}
+
+pub async fn remove_fs_watch(wd: WatchDescriptor) -> Result<()> {
+    debug!("remove_fs_watch: {wd:?}");
+
+    let mut watcher = FS_WATCHER.lock().await;
+    let watcher = watcher
+        .as_mut()
+        .context("remove_fs_watch: FS_WATCHER doesn't exist")?;
+
+    watcher.watches.remove(wd.clone())?;
+
+    if watcher
+        .features
+        .remove_entry(&wd.get_watch_descriptor_id())
+        .is_none()
+    {
+        warn!("remove_fs_watch: WatchDescriptor doesn't exist")
+    };
+
+    Ok(())
+}
+
+pub async fn add_notify_interval<T>(interval: Duration) -> Result<()>
 where
     T: 'static,
 {
-    let (tx, rx) = mpsc::channel(2);
-    let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
-        None,
-        move |res: DebounceEventResult| match res {
-            Ok(debounced_events) => {
-                for de in debounced_events {
-                    if let EventKind::Modify(_) = de.event.kind {
-                        debug!("notify-event: {de:?}");
-                        for p in &de.paths {
-                            let _ = tx.blocking_send(CommandRequest {
-                                command: Command::FileModified(PathCommand {
-                                    feature_id: TypeId::of::<T>(),
-                                    path: p.clone(),
-                                }),
-                                reply: None,
-                            });
-                        }
-                    }
+    let feature_id = TypeId::of::<T>();
+
+    debug!("add_notify_interval: {feature_id:?} {interval:?}");
+
+    let Some(tx_command_request) = TX_COMMAND_REQUEST.lock().await.clone() else {
+        bail!("add_notify_interval: sender doesn't exist")
+    };
+
+    TASKS
+        .lock()
+        .await
+        .as_mut()
+        .context("add_notify_interval: TASKS doesn't exist")?
+        .spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            loop {
+                interval.tick().await;
+                if let Err(e) = tx_command_request
+                    .send(CommandRequest {
+                        command: Command::Interval(IntervalCommand { feature_id }),
+                        reply: None,
+                    })
+                    .await
+                {
+                    error!("add_notify_interval: send {e:#?}")
                 }
             }
-            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-        },
-    )?;
+        });
 
-    for p in paths {
-        ensure!(p.is_file(), "{p:?} is not a regular existing file");
-        debug!("watch {p:?}");
-        debouncer.watch(p, RecursiveMode::NonRecursive)?;
-    }
-
-    Ok((
-        debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
-}
-
-pub fn dir_modified_stream<T>(
-    paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
-        None,
-        move |res: DebounceEventResult| match res {
-            Ok(debounced_events) => {
-                for de in debounced_events {
-                    if matches!(de.event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
-                        debug!("notify-event: {de:?}");
-                        for p in &de.paths {
-                            let _ = tx.blocking_send(CommandRequest {
-                                command: Command::DirModified(PathCommand {
-                                    feature_id: TypeId::of::<T>(),
-                                    path: p.clone(),
-                                }),
-                                reply: None,
-                            });
-                        }
-                    }
-                }
-            }
-            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-        },
-    )?;
-
-    for p in paths {
-        ensure!(p.is_dir(), "{p:?} is not a regular existing directory");
-        debug!("watch {p:?}");
-        debouncer.watch(p, RecursiveMode::Recursive)?;
-    }
-
-    Ok((
-        debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -352,7 +370,7 @@ mod tests {
     use crate::twin::factory_reset;
     use reboot::SetWaitOnlineTimeoutCommand;
     use serde_json::json;
-    use std::str::FromStr;
+    use std::path::PathBuf;
     use tokio::sync::oneshot;
 
     #[test]
@@ -443,10 +461,7 @@ mod tests {
             })
             .unwrap(),
             Command::UserConsent(consent::UserConsentCommand {
-                user_consent: std::collections::HashMap::from([(
-                    "foo".to_string(),
-                    "bar".to_string()
-                )]),
+                user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
             })
         );
 
@@ -518,7 +533,7 @@ mod tests {
                     host: "my-host".to_string(),
                     port: 22,
                     user: "usr".to_string(),
-                    socket_path: PathBuf::from_str("/socket").unwrap(),
+                    socket_path: PathBuf::from("/socket"),
                 }
             })
         );
