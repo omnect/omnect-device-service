@@ -1,15 +1,5 @@
 use anyhow::Result;
-use std::time::Duration;
 pub use systemd_zbus::Mode;
-
-#[cfg(not(any(feature = "mock", test)))]
-use {
-    anyhow::{ensure, Context},
-    futures_util::{join, StreamExt},
-    log::debug,
-    systemd_zbus::ManagerProxy,
-    tokio::time::{timeout_at, Instant},
-};
 
 #[derive(Copy, Clone, Debug)]
 pub enum UnitAction {
@@ -20,17 +10,24 @@ pub enum UnitAction {
 }
 
 #[cfg(not(feature = "mock"))]
-pub async fn unit_action(
-    unit: &str,
-    unit_action: UnitAction,
-    timeout: Duration,
-    mode: Mode,
-) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    let system = timeout_at(deadline, zbus::Connection::system()).await??;
-    let manager = timeout_at(deadline, ManagerProxy::new(&system)).await??;
+pub async fn unit_action(unit: &str, unit_action: UnitAction, mode: Mode) -> Result<()> {
+    use anyhow::Context;
+    use log::debug;
+    use systemd_zbus::ManagerProxy;
+    use tokio_stream::StreamExt;
 
-    let mut job_removed_stream = timeout_at(deadline, manager.receive_job_removed()).await??;
+    debug!("unit_action: {unit} {unit_action:?} {mode:?}");
+
+    let connection = zbus::Connection::system()
+        .await
+        .context("failed to create connection")?;
+    let manager: ManagerProxy<'_> = ManagerProxy::new(&connection)
+        .await
+        .context("failed to create manager")?;
+    let job_removed_stream = manager
+        .receive_job_removed()
+        .await
+        .context("failed to create job_removed_stream")?;
 
     let action = |&unit_action| async move {
         match unit_action {
@@ -41,55 +38,25 @@ pub async fn unit_action(
         }
     };
 
-    let (job_removed, job) = join!(
-        timeout_at(deadline, job_removed_stream.next()),
-        timeout_at(deadline, action(&unit_action))
-    );
-
-    let job = job
-        .context(format!("systemd unit {unit_action:?} \"{unit}\" failed"))??
+    let job = action(&unit_action)
+        .await
+        .context("unit action failed")?
         .into_inner();
 
-    let job_removed = job_removed
-        .context("systemd job_removed_stream")?
-        .context("failed to get next item in job removed stream")?;
+    job_removed_stream
+        .filter(|job_removed| {
+            if let Ok(args) = job_removed.args() {
+                return args.job() == &job && args.result == "done";
+            };
+            false
+        })
+        .next()
+        .await;
 
-    let job_removed_args = job_removed.args().context("get removed args")?;
-
-    debug!("job removed: {job_removed_args:?}");
-    if job_removed_args.job() == &job {
-        ensure!(
-            job_removed_args.result == "done",
-            "systemd (1) unit {unit_action:?} \"{unit}\" isn't done: {}",
-            job_removed_args.result
-        );
-        return Ok(());
-    }
-
-    loop {
-        let job_removed = timeout_at(deadline, job_removed_stream.next())
-            .await?
-            .context("no job_removed signal received")?;
-
-        let job_removed_args = job_removed.args()?;
-        debug!("job removed: {job_removed_args:?}");
-        if job_removed_args.job() == &job {
-            ensure!(
-                job_removed_args.result == "done",
-                "systemd (2) unit {unit_action:?} \"{unit}\" isn't done: {}",
-                job_removed_args.result
-            );
-            return Ok(());
-        }
-    }
+    Ok(())
 }
 
 #[cfg(feature = "mock")]
-pub async fn unit_action(
-    _unit: &str,
-    _unit_action: UnitAction,
-    _timeout: Duration,
-    _mode: Mode,
-) -> Result<()> {
+pub async fn unit_action(_unit: &str, _unit_action: UnitAction, _mode: Mode) -> Result<()> {
     Ok(())
 }
