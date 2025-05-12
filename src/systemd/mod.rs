@@ -2,7 +2,7 @@ pub mod networkd;
 pub mod unit;
 pub mod watchdog;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::info;
 use sd_notify::NotifyState;
 use std::sync::Once;
@@ -48,12 +48,15 @@ pub async fn reboot() -> Result<()> {
 }
 
 pub async fn wait_for_system_running() -> Result<()> {
-    let system = zbus::Connection::system().await?;
+    let connection = zbus::Connection::system()
+        .await
+        .context("wait_for_system_running: failed to create connection")?;
     // here we use manager which explicitly doesn't cache the system state
-    let manager = ManagerProxy::builder(&system)
+    let manager = ManagerProxy::builder(&connection)
         .uncached_properties(&["SystemState"])
         .build()
-        .await?;
+        .await
+        .context("wait_for_system_running: failed to create manager")?;
 
     if manager.system_state().await? != "running" {
         manager

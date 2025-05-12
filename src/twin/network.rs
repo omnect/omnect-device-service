@@ -90,15 +90,13 @@ impl Feature for Network {
         match cmd {
             Command::Interval(_) => {}
             Command::ReloadNetwork => {
-                tokio::time::timeout(
+                unit::unit_action_with_timeout(
+                    NETWORK_SERVICE,
+                    unit::UnitAction::Reload,
+                    systemd_zbus::Mode::Fail,
                     Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
-                    unit::unit_action(
-                        NETWORK_SERVICE,
-                        unit::UnitAction::Reload,
-                        systemd_zbus::Mode::Fail,
-                    ),
                 )
-                .await??
+                .await?
             }
             _ => bail!("unexpected command"),
         }
