@@ -9,9 +9,15 @@ echo SERVICE_RESULT=${SERVICE_RESULT}, EXIT_CODE=${EXIT_CODE}, EXIT_STATUS=${EXI
 
 function reboot() {
   echo "reboot triggered by ${script}: ${1}"
-  /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
+  [ "${log_reboot_reason}" ] && \
+      /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
+
+# reboot reason loggin shall only happen if omnect-device-service exited with
+# en error
+log_reboot_reason=
+[ "${EXIT_STATUS}" = 0 ] || log_reboot_reason=1
 
 # for now we ignore SERVICE_RESULT and EXIT_STATUS. however it does potentially
 # make sense to reboot on certain combinations even if restart_count < max_restart_count
