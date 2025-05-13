@@ -28,8 +28,6 @@ use update_validation::UpdateValidation;
 
 static LOAD_UPDATE_WDT_INTERVAL_SECS: u64 = 120;
 static RUN_UPDATE_WDT_INTERVAL_SECS: u64 = 600;
-static UNIT_ACTION_TIMEOUT_SECS: u64 = 30;
-
 struct LoadUpdateGuard {
     wdt: Option<Duration>,
 }
@@ -74,18 +72,16 @@ impl RunUpdateGuard {
 
         debug!("changed wdt to {RUN_UPDATE_WDT_INTERVAL_SECS}s and saved old one ({wdt:?})");
 
-        systemd::unit::unit_action_with_timeout(
+        systemd::unit::unit_action(
             IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
             UnitAction::Stop,
             systemd_zbus::Mode::Replace,
-            Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
         )
         .await?;
-        systemd::unit::unit_action_with_timeout(
+        systemd::unit::unit_action(
             IOT_HUB_DEVICE_UPDATE_SERVICE,
             UnitAction::Stop,
             systemd_zbus::Mode::Replace,
-            Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
         )
         .await?;
 
@@ -113,22 +109,20 @@ impl Drop for RunUpdateGuard {
                     }
                 }
 
-                if let Err(e) = systemd::unit::unit_action_with_timeout(
+                if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
                     UnitAction::Start,
                     systemd_zbus::Mode::Fail,
-                    Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
                 )
                 .await
                 {
                     error!("failed to restart {IOT_HUB_DEVICE_UPDATE_SERVICE}: {e:#}")
                 }
 
-                if let Err(e) = systemd::unit::unit_action_with_timeout(
+                if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
                     UnitAction::Start,
                     systemd_zbus::Mode::Fail,
-                    Duration::from_secs(UNIT_ACTION_TIMEOUT_SECS),
                 )
                 .await
                 {

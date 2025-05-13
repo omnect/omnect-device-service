@@ -23,7 +23,6 @@ lazy_static! {
 }
 
 static NETWORK_SERVICE: &str = "systemd-networkd.service";
-static NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS: u64 = 15;
 
 #[derive(PartialEq, Serialize)]
 pub struct Address {
@@ -90,11 +89,10 @@ impl Feature for Network {
         match cmd {
             Command::Interval(_) => {}
             Command::ReloadNetwork => {
-                unit::unit_action_with_timeout(
+                unit::unit_action(
                     NETWORK_SERVICE,
                     unit::UnitAction::Reload,
                     systemd_zbus::Mode::Fail,
-                    Duration::from_secs(NETWORK_SERVICE_RELOAD_TIMEOUT_IN_SECS),
                 )
                 .await?
             }

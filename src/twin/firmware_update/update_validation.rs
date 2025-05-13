@@ -22,15 +22,28 @@ static UPDATE_VALIDATION_COMPLETE_BARRIER_FILE: &str =
 // this file is used to determine a recovery after a failed update validation
 static UPDATE_VALIDATION_FAILED: &str = "/run/omnect-device-service/omnect_validate_update_failed";
 static UPDATE_VALIDATION_TIMEOUT_IN_SECS_DEFAULT: u64 = 300;
-static UPDATE_VALIDATION_DEADLINE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 enum UpdateValidationStatus {
     #[default]
     NoUpdate,
     ValidatingTrial(u8),
     Recovered,
     Succeeded,
+}
+
+impl UpdateValidationStatus {
+    fn from() -> Self {
+        if let Ok(true) = Path::new(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).try_exists() {
+            UpdateValidationStatus::ValidatingTrial(1)
+        } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
+            UpdateValidationStatus::ValidatingTrial(0)
+        } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FAILED).try_exists() {
+            UpdateValidationStatus::Recovered
+        } else {
+            UpdateValidationStatus::NoUpdate
+        }
+    }
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -53,27 +66,29 @@ pub struct UpdateValidation {
 
 impl UpdateValidation {
     pub async fn new(tx_validated: oneshot::Sender<()>) -> Result<Self> {
-        let mut new_self = UpdateValidation::default();
+        let new_self = match UpdateValidationStatus::from() {
+            UpdateValidationStatus::ValidatingTrial(trial) => {
+                Self::start_validation(trial == 0, tx_validated)?
+            }
+            status => {
+                if let Err(e) = tx_validated.send(()) {
+                    error!("failed to send validated state: {e:#?}")
+                }
+                UpdateValidation {
+                    status,
+                    ..Default::default()
+                }
+            }
+        };
+        info!("update validation status: {:?}", new_self.status);
+        new_self.report().await;
+        Ok(new_self)
+    }
 
-        if let Ok(true) = Path::new(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).try_exists() {
-            // we detected update validation before, but were not validated before
-            let mut params: UpdateValidationParams =
-                from_json_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)?;
-            params.restart_count += 1;
-            info!("retry start ({})", params.restart_count);
-            to_json_file(&params, UPDATE_VALIDATION_COMPLETE_BARRIER_FILE, false)?;
-            let timeout = Self::remaining_timeout(&params.start_boottime_secs)?;
-            let _deadline = *UPDATE_VALIDATION_DEADLINE.get_or_init(|| Instant::now() + timeout);
-            new_self.status = UpdateValidationStatus::ValidatingTrial(params.restart_count);
-            new_self.params = Some(params);
-        } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FILE).try_exists() {
-            info!("first start");
-
-            let start_boottime_secs: u64 =
-                nix::time::clock_gettime(nix::time::ClockId::CLOCK_MONOTONIC)?.tv_sec() as u64;
+    fn start_validation(first_start: bool, tx_validated: oneshot::Sender<()>) -> Result<Self> {
+        let params = if first_start {
+            let start_boottime_secs = sysinfo::System::boot_time();
             let deadline_boottime_secs = start_boottime_secs + Self::configured_timeout();
-            let timeout = Self::remaining_timeout(&start_boottime_secs)?;
-            let _deadline = *UPDATE_VALIDATION_DEADLINE.get_or_init(|| Instant::now() + timeout);
 
             // check if there is an update validation config
             let mut local_update = false;
@@ -83,70 +98,41 @@ impl UpdateValidation {
                 local_update = config.local;
             };
 
-            let params = UpdateValidationParams {
+            UpdateValidationParams {
                 start_boottime_secs,
                 deadline_boottime_secs,
                 local_update,
                 ..Default::default()
-            };
-
-            to_json_file(&params, UPDATE_VALIDATION_COMPLETE_BARRIER_FILE, true)?;
-
-            new_self.params = Some(params);
-            new_self.status = UpdateValidationStatus::ValidatingTrial(0);
-        } else if let Ok(true) = Path::new(UPDATE_VALIDATION_FAILED).try_exists() {
-            info!("recovered after update validation failed");
-            new_self.status = UpdateValidationStatus::Recovered;
-            if let Err(e) = &tx_validated.send(()) {
-                error!("failed to send validated state: {e:#?}")
             }
-            new_self.report().await;
-            return Ok(new_self);
         } else {
-            info!("no update to be validated");
-            new_self.status = UpdateValidationStatus::NoUpdate;
-            if let Err(e) = &tx_validated.send(()) {
-                error!("failed to send validated state: {e:#?}")
-            }
-            new_self.report().await;
-            return Ok(new_self);
-        }
+            // we detected update validation before, but were not validated before
+            let mut params: UpdateValidationParams =
+                from_json_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE)?;
+            params.restart_count += 1;
+            params
+        };
 
-        if matches!(new_self.status, UpdateValidationStatus::ValidatingTrial(_)) {
-            let (tx_cancel_timer, rx_cancel_timer) = oneshot::channel();
-            let deadline = *UPDATE_VALIDATION_DEADLINE.get().context("context")?;
-            new_self.tx_cancel_timer = Some(tx_cancel_timer);
-            new_self.join_handle = Some(tokio::spawn(async move {
-                info!("reboot timer started");
-                match timeout_at(deadline, rx_cancel_timer).await {
-                    Err(_) => {
-                        error!("update validation timed out: write reboot reason and reboot");
-                        if let Err(e) = reboot_reason::write_reboot_reason(
-                            "swupdate-validation-failed",
-                            "timer expired",
-                        ) {
-                            error!("update validation timed out: failed to write reboot reason with {e:#}");
-                        }
-                        if let Err(e) = systemd::reboot().await {
-                            error!(
-                                "update validation timed out: failed to trigger reboot with {e:#}"
-                            );
-                        }
-                    }
-                    _ => info!("reboot timer canceled."),
-                }
-            }));
-        }
-        new_self.tx_validated = Some(tx_validated);
-        new_self.report().await;
-        Ok(new_self)
+        to_json_file(
+            &params,
+            UPDATE_VALIDATION_COMPLETE_BARRIER_FILE,
+            first_start,
+        )?;
+
+        let mut update_validation = UpdateValidation {
+            status: UpdateValidationStatus::ValidatingTrial(params.restart_count),
+            params: Some(params),
+            tx_validated: Some(tx_validated),
+            ..Default::default()
+        };
+
+        update_validation.start_timeout()?;
+        Ok(update_validation)
     }
 
     pub async fn set_authenticated(&mut self, authenticated: bool) -> Result<()> {
         if matches!(self.status, UpdateValidationStatus::ValidatingTrial(_)) {
-            let Some(params) = self.params.as_mut() else {
-                bail!("validation params missing")
-            };
+            let params = self.params.as_mut().context("validation params missing")?;
+
             params.authenticated = authenticated;
             debug!(
                 "authenticated: {}, local update: {}",
@@ -166,11 +152,7 @@ impl UpdateValidation {
     async fn validate(&mut self) -> Result<()> {
         debug!("started");
 
-        timeout_at(
-            *UPDATE_VALIDATION_DEADLINE.get().context("context")?,
-            systemd::wait_for_system_running(),
-        )
-        .await??;
+        systemd::wait_for_system_running().await?;
 
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degraded" and possibly ignore certain failed services via configuration
@@ -181,19 +163,16 @@ impl UpdateValidation {
         debug!("starting {IOT_HUB_DEVICE_UPDATE_SERVICE}");
         fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
 
-        let Some(params) = self.params.as_mut() else {
-            bail!("validation params missing")
-        };
+        let params = self.params.as_mut().context("validation params missing")?;
 
         // in case of local update we don't take care of starting deviceupdate-agent.service,
         // since it might fail because of missing iothub connection.
         // instead we let deviceupdate-agent.timer doing the job periodically
         if !params.local_update {
-            systemd::unit::unit_action_with_deadline(
+            systemd::unit::unit_action(
                 IOT_HUB_DEVICE_UPDATE_SERVICE,
                 UnitAction::Start,
                 systemd_zbus::Mode::Fail,
-                *UPDATE_VALIDATION_DEADLINE.get().context("context")?,
             )
             .await?;
         }
@@ -248,13 +227,16 @@ impl UpdateValidation {
     }
 
     async fn check(&mut self) -> Result<()> {
-        let Some(params) = &self.params else {
-            bail!("validation params missing")
-        };
-        // prolong watchdog interval for update validation phase
-        let saved_interval =
-            WatchdogManager::interval(Self::remaining_timeout(&params.start_boottime_secs)?)
-                .await?;
+        let params = self.params.as_mut().context("validation params missing")?;
+
+        // prolong watchdog interval for update validation phase by twice the remaining
+        // update cancellation timer
+        let saved_interval = WatchdogManager::interval(
+            Self::remaining_timeout(&params.start_boottime_secs)
+                .checked_mul(2)
+                .context("watchdog duration overflow")?,
+        )
+        .await?;
 
         if let Err(e) = self.validate().await {
             if let Err(e) = reboot_reason::write_reboot_reason(
@@ -292,6 +274,35 @@ impl UpdateValidation {
         .await;
     }
 
+    fn start_timeout(&mut self) -> Result<()> {
+        let params = self.params.as_mut().context("validation params missing")?;
+        let (tx_cancel_timer, rx_cancel_timer) = oneshot::channel();
+        let deadline = Instant::now() + Self::remaining_timeout(&params.start_boottime_secs);
+        self.tx_cancel_timer = Some(tx_cancel_timer);
+        self.join_handle = Some(tokio::spawn(async move {
+            info!("reboot timer started");
+            match timeout_at(deadline, rx_cancel_timer).await {
+                Err(_) => {
+                    error!("update validation timed out: write reboot reason and reboot");
+                    if let Err(e) = reboot_reason::write_reboot_reason(
+                        "swupdate-validation-failed",
+                        "timer expired",
+                    ) {
+                        error!(
+                            "update validation timed out: failed to write reboot reason with {e:#}"
+                        );
+                    }
+                    if let Err(e) = systemd::reboot().await {
+                        error!("update validation timed out: failed to trigger reboot with {e:#}");
+                    }
+                }
+                _ => info!("reboot timer canceled."),
+            }
+        }));
+
+        Ok(())
+    }
+
     fn configured_timeout() -> u64 {
         let mut timeout_secs = UPDATE_VALIDATION_TIMEOUT_IN_SECS_DEFAULT;
         if let Ok(secs) = env::var("UPDATE_VALIDATION_TIMEOUT_IN_SECS") {
@@ -305,15 +316,12 @@ impl UpdateValidation {
         timeout_secs
     }
 
-    fn remaining_timeout(start_boottime_secs: &u64) -> Result<Duration> {
+    fn remaining_timeout(start_boottime_secs: &u64) -> Duration {
         let timeout_secs = Self::configured_timeout();
 
-        let Ok(now_boottime_secs) = nix::time::clock_gettime(nix::time::ClockId::CLOCK_BOOTTIME)
-        else {
-            bail!("ignore");
-        };
+        let now_boottime_secs = sysinfo::System::boot_time();
 
-        Ok(Duration::from_secs(start_boottime_secs + timeout_secs)
-            - Duration::from(now_boottime_secs))
+        Duration::from_secs(start_boottime_secs + timeout_secs)
+            - Duration::from_secs(now_boottime_secs)
     }
 }

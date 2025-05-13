@@ -18,6 +18,11 @@ function reboot() {
 # or update validation has not timed out yet. (we have to gain experience.)
 if [ -f ${barrier_json} ]; then
   # we are run during update validation
+
+  # actually ods takes care of validation timeout (deadline_boottime_secs)
+  # as 2nd lin e of defense we take care here 10s later
+  deadline_extra_secs=10
+
   now_boottime_secs=$(cat /proc/uptime | awk '{print $1}')
   start_boottime_secs=$(jq -r .start_boottime_secs ${barrier_json})
   deadline_boottime_secs=$(jq -r .deadline_boottime_secs ${barrier_json})
@@ -33,7 +38,7 @@ if [ -f ${barrier_json} ]; then
     reboot "omnect-device-service authenticated, but update validation failed"
   fi
 
-  if [ ${now_boottime_secs} -ge ${deadline_boottime_secs} ]; then
+  if [ ${now_boottime_secs} -ge $((${deadline_boottime_secs} + ${deadline_extra_secs})) ]; then
     reboot "update validation timeout"
   fi
 elif [ -f ${update_validation_file} ]; then

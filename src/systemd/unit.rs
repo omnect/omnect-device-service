@@ -1,7 +1,5 @@
-use anyhow::{Context, Result};
-use log::debug;
+use anyhow::Result;
 pub use systemd_zbus::Mode;
-use tokio::time::{Duration, Instant};
 
 #[derive(Copy, Clone, Debug)]
 pub enum UnitAction {
@@ -11,37 +9,14 @@ pub enum UnitAction {
     Stop,
 }
 
-pub async fn unit_action_with_timeout(
-    unit: &str,
-    unit_action: UnitAction,
-    mode: Mode,
-    timeout: Duration,
-) -> Result<()> {
-    debug!("unit_action_with_timeout: {unit} {unit_action:?} {mode:?}");
-
-    tokio::time::timeout(timeout, unit_action_impl(unit, unit_action, mode))
-        .await
-        .context("unit action timed out")?
-}
-
-pub async fn unit_action_with_deadline(
-    unit: &str,
-    unit_action: UnitAction,
-    mode: Mode,
-    deadline: Instant,
-) -> Result<()> {
-    debug!("unit_action_with_deadline: {unit} {unit_action:?} {mode:?}");
-
-    tokio::time::timeout_at(deadline, unit_action_impl(unit, unit_action, mode))
-        .await
-        .context("unit action timed out")?
-}
-
 #[cfg(not(feature = "mock"))]
-async fn unit_action_impl(unit: &str, unit_action: UnitAction, mode: Mode) -> Result<()> {
+pub async fn unit_action(unit: &str, unit_action: UnitAction, mode: Mode) -> Result<()> {
     use anyhow::Context;
+    use log::debug;
     use systemd_zbus::ManagerProxy;
     use tokio_stream::StreamExt;
+
+    debug!("unit_action: {unit} {unit_action:?} {mode:?}");
 
     let connection = zbus::Connection::system()
         .await
@@ -82,6 +57,6 @@ async fn unit_action_impl(unit: &str, unit_action: UnitAction, mode: Mode) -> Re
 }
 
 #[cfg(feature = "mock")]
-async fn unit_action_impl(_unit: &str, _unit_action: UnitAction, _mode: Mode) -> Result<()> {
+pub async fn unit_action(_unit: &str, _unit_action: UnitAction, _mode: Mode) -> Result<()> {
     Ok(())
 }
