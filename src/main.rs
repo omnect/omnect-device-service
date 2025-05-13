@@ -47,5 +47,6 @@ async fn main() {
         process::exit(1);
     }
 
-    info!("application shutdown")
+    info!("application shutdown");
+    process::exit(0)
 }
