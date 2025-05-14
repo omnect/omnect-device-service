@@ -51,10 +51,10 @@ async fn main() {
 
     // FIXME:
     //   under some circumstances the app can hang at termination what can be
-    //   worked aroung by explicitly issuing exit here.
+    //   worked around by explicitly issuing exit here.
     //   to ease further examination of that problem allow setting an
     //   environment variable to skip the workaround.
-    if let Err(dont_explicitly_exit) = env::var("DONT_EXPLICITLY_EXIT_ON_TERMINATION") {
+    if let Err(_) = env::var("DONT_EXPLICITLY_EXIT_ON_TERMINATION") {
         // ensure that we terminate here right now
         process::exit(0);
     }
