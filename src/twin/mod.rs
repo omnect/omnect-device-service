@@ -313,6 +313,7 @@ impl Twin {
         if let Some(ws) = &self.web_service {
             ws.shutdown().await;
         }
+        info!("twin shutdown complete");
     }
 
     async fn reset_client_with_delay(&mut self, timeout: Option<time::Duration>) {

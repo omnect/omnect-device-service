@@ -138,6 +138,7 @@ impl UpdateValidation {
                     }
                     _ => info!("reboot timer canceled."),
                 }
+                debug!("update validation timed out: after match!");
             }));
         }
         new_self.tx_validated = Some(tx_validated);
