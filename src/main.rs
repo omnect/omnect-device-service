@@ -6,7 +6,7 @@ pub mod web_service;
 
 use env_logger::{Builder, Env, Target};
 use log::{error, info};
-use std::{io::Write, process};
+use std::{env, io::Write, process};
 use twin::Twin;
 
 #[tokio::main]
