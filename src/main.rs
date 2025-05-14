@@ -54,7 +54,7 @@ async fn main() {
     //   worked around by explicitly issuing exit here.
     //   to ease further examination of that problem allow setting an
     //   environment variable to skip the workaround.
-    if let Err(_) = env::var("DONT_EXPLICITLY_EXIT_ON_TERMINATION") {
+    if env::var("DONT_EXPLICITLY_EXIT_ON_TERMINATION").is_err() {
         // ensure that we terminate here right now
         process::exit(0);
     }
