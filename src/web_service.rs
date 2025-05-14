@@ -170,6 +170,7 @@ impl WebService {
         debug!("WebService shutdown");
 
         self.srv_handle.stop(false).await;
+
         debug!("WebService shutdown complete");
     }
 

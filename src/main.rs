@@ -48,5 +48,7 @@ async fn main() {
     }
 
     info!("application shutdown");
+
+    // ensure that we terminate here right now
     process::exit(0)
 }
