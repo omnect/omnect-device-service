@@ -14,14 +14,16 @@ function reboot() {
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
 
-# reboot reason loggin shall only happen if omnect-device-service exited with
+# reboot reason logging shall only happen if omnect-device-service exited with
 # en error
 log_reboot_reason=
 [ "${EXIT_STATUS}" = 0 ] || log_reboot_reason=1
 
-# for now we ignore SERVICE_RESULT and EXIT_STATUS. however it does potentially
-# make sense to reboot on certain combinations even if restart_count < max_restart_count
-# or update validation has not timed out yet. (we have to gain experience.)
+# for now we ignore SERVICE_RESULT and EXIT_STATUS for the decision to reboot
+# the system.
+# however, it does potentially make sense to reboot on certain combinations
+# even if restart_count < max_restart_count or update validation has not timed
+# out yet. (we have to gain experience.)
 if [ -f ${barrier_json} ]; then
   # we are run during update validation
   now=$(cat /proc/uptime | awk '{print $1}')
