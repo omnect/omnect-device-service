@@ -958,6 +958,7 @@ curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/
   }
 }'
 ```
+As a result of registration, the current status is published to the registered endpoint.
 
 A client should unregister an endpoint if no updates must received anymore (e.g. because the client application exits)
 

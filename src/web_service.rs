@@ -51,13 +51,13 @@ impl PublishChannel {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct Header {
     name: String,
     value: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct PublishEndpoint {
     url: String,
     headers: Vec<Header>,
@@ -185,14 +185,14 @@ impl WebService {
                 PUBLISH_ENDPOINTS
                     .lock()
                     .await
-                    .insert(request.id, request.endpoint);
+                    .insert(request.id, request.endpoint.clone());
 
                 if let Err(e) = save_publish_endpoints().await {
                     error!("couldn't write endpoints: {e:#}");
                     return HttpResponse::InternalServerError().body(e.to_string());
                 }
 
-                HttpResponse::Ok().finish()
+                republish_to_endpoint(&request.endpoint).await
             }
             Err(e) => {
                 error!("couldn't parse PublishEndpointRequest from body: {e:#}");
@@ -289,16 +289,7 @@ impl WebService {
             return HttpResponse::BadRequest().body("id not found");
         };
 
-        for (channel, value) in PUBLISH_CHANNEL_MAP.lock().await.iter() {
-            let msg = json!({"channel": channel, "data": value});
-
-            if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
-                error!("republish: {e:#}");
-                return HttpResponse::InternalServerError().body(e.to_string());
-            }
-        }
-
-        HttpResponse::Ok().finish()
+        republish_to_endpoint(endpoint).await
     }
 
     async fn status(_tx_request: web::Data<mpsc::Sender<CommandRequest>>) -> HttpResponse {
@@ -416,6 +407,19 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
             error!("publish: {e:#}");
         }
     }
+}
+
+async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
+    for (channel, value) in PUBLISH_CHANNEL_MAP.lock().await.iter() {
+        let msg = json!({"channel": channel, "data": value});
+
+        if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
+            error!("republish: {e:#}");
+            return HttpResponse::InternalServerError().body(e.to_string());
+        }
+    }
+
+    HttpResponse::Ok().finish()
 }
 
 async fn publish_to_endpoint(msg: &serde_json::Value, endpoint: &PublishEndpoint) -> Result<()> {
