@@ -1,5 +1,4 @@
-use anyhow::{Context, Result};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct UpdateValidationConfig {
@@ -73,34 +72,3 @@ pub(crate) use no_bootloader_updated_file_path;
 pub(crate) use pubkey_file_path;
 pub(crate) use update_folder_path;
 pub(crate) use update_validation_config_path;
-
-pub fn to_json_file<T, P>(value: &T, path: P, create: bool) -> Result<()>
-where
-    T: ?Sized + Serialize,
-    P: AsRef<std::path::Path> + std::fmt::Display,
-{
-    serde_json::to_writer_pretty(
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create(create)
-            .truncate(true)
-            .open(&path)
-            .context(format!("failed to open for write: {path}"))?,
-        value,
-    )
-    .context(format!("failed to write to: {path}"))
-}
-
-pub fn from_json_file<P, T>(path: P) -> Result<T>
-where
-    P: AsRef<std::path::Path> + std::fmt::Display,
-    T: DeserializeOwned,
-{
-    serde_json::from_reader(
-        std::fs::OpenOptions::new()
-            .read(true)
-            .open(&path)
-            .context(format!("failed to open for read: {path}"))?,
-    )
-    .context(format!("failed to read from: {path}"))
-}

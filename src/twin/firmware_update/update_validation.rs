@@ -1,7 +1,9 @@
 use crate::{
-    bootloader_env, reboot_reason,
+    bootloader_env,
+    common::{from_json_file, to_json_file, RootPartition},
+    reboot_reason,
     systemd::{self, unit::UnitAction, watchdog::WatchdogManager},
-    twin::{firmware_update::common::*, system_info::RootPartition, web_service},
+    twin::{firmware_update::common::*, web_service},
 };
 use anyhow::{bail, Context, Result};
 use log::{debug, error, info};

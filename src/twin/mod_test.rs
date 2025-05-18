@@ -678,7 +678,7 @@ pub mod mod_test {
 
             assert!(err.chain().any(|e| e
                 .to_string()
-                .starts_with("report_user_consent: serde_json::from_reader")));
+                .starts_with("failed to deserialize json from: ")));
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);

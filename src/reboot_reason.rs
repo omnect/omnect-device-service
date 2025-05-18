@@ -1,5 +1,4 @@
-// reboot reason handling
-
+use crate::common::from_json_file;
 use anyhow::{Context, Result};
 use log::warn;
 use regex_lite::Regex;
@@ -80,14 +79,7 @@ pub fn current_reboot_reason() -> Option<serde_json::Value> {
             .max_by_key(|k| k.file_name())
             .context("failed to identify current reboot reason folder")?;
 
-        let json = serde_json::from_reader::<_, serde_json::Value>(
-            std::fs::OpenOptions::new()
-                .read(true)
-                .open(dir.path().join(REBOOT_REASON_FILE_NAME))
-                .context("failed to open reboot reason file")?,
-        )
-        .context("failed to parse json from reboot reason file")?;
-
+        let json: serde_json::Value = from_json_file(dir.path().join(REBOOT_REASON_FILE_NAME))?;
         let reason = &json["reboot_reason"]["reason"]
             .as_str()
             .context("failed to get reason")?;

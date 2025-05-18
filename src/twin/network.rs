@@ -291,31 +291,22 @@ impl Network {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::from_json_file;
     use super::*;
-    use std::fs::OpenOptions;
 
     #[test]
     fn networkd_parse_interfaces_ok() {
-        let json: serde_json::Value = serde_json::from_reader(
-            OpenOptions::new()
-                .read(true)
-                .open("testfiles/positive/systemd-networkd-link-description.json")
-                .unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            from_json_file("testfiles/positive/systemd-networkd-link-description.json").unwrap();
 
         assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 2)
     }
 
     #[test]
     fn networkd_parse_interfaces_missing_mac() {
-        let json: serde_json::Value = serde_json::from_reader(
-            OpenOptions::new()
-                .read(true)
-                .open("testfiles/negative/systemd-networkd-link-description-missing-mac.json")
-                .unwrap(),
-        )
-        .unwrap();
+        let json: serde_json::Value =
+            from_json_file("testfiles/negative/systemd-networkd-link-description-missing-mac.json")
+                .unwrap();
 
         assert_eq!(Network::parse_interfaces(&json).unwrap().len(), 1)
     }

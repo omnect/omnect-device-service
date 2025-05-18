@@ -4,12 +4,13 @@ mod os_version;
 pub mod update_validation;
 
 use crate::{
-    bootloader_env, reboot_reason, systemd,
+    bootloader_env,
+    common::{from_json_file, path_ends_with, to_json_file, RootPartition},
+    reboot_reason, systemd,
     systemd::{unit::UnitAction, watchdog::WatchdogManager},
     twin::{
         feature::*,
         firmware_update::{adu_types::*, common::*, os_version::*},
-        system_info::RootPartition,
         Feature,
     },
 };
@@ -151,7 +152,7 @@ pub struct RunUpdateCommand {
 }
 
 pub struct FirmwareUpdate {
-    swu_file_path: Option<String>,
+    swu_file_path: Option<PathBuf>,
     update_validation: UpdateValidation,
 }
 
@@ -236,21 +237,15 @@ impl FirmwareUpdate {
                 "entry path expected at root of archive"
             );
 
-            let Ok(path) = Path::new(&update_folder_path!())
-                .join(path.display().to_string())
-                .into_os_string()
-                .into_string()
-            else {
-                bail!("failed to create target path for entry")
-            };
+            let path = Path::new(&update_folder_path!()).join(path);
 
-            if path.ends_with(".swu") {
+            if path_ends_with(&path, ".swu") {
                 file.unpack(&path).context("failed to unpack *.swu")?;
                 swu_sha = BASE64_STANDARD.encode(Sha256::digest(
                     std::fs::read(&path).context("failed to read *.swu for hash")?,
                 ));
                 swu_path = Some(path);
-            } else if path.ends_with(".swu.importManifest.json") {
+            } else if path_ends_with(&path, ".swu.importManifest.json") {
                 file.unpack(&path)
                     .context("failed to unpack *.swu.importManifest.json")?;
                 manifest_sha1 = format!(
@@ -260,8 +255,8 @@ impl FirmwareUpdate {
                             .context("failed to read *.swu.importManifest.json for hash")?
                     )
                 );
-                manifest_path = Some(path.clone());
-            } else if path.ends_with(".swu.importManifest.json.sha256") {
+                manifest_path = Some(path);
+            } else if path_ends_with(&path, ".swu.importManifest.json.sha256") {
                 file.unpack(&path)
                     .context("failed to unpack *.swu.importManifest.json.sha256")?;
                 manifest_sha2 = fs::read_to_string(path)
@@ -289,8 +284,7 @@ impl FirmwareUpdate {
             bail!("*.swu missing");
         };
 
-        let swu_filename = PathBuf::from(&swu_path);
-        let Some(swu_filename) = swu_filename.file_name() else {
+        let Some(swu_filename) = swu_path.file_name() else {
             bail!("failed to get *.swu filename from path");
         };
 
@@ -416,7 +410,10 @@ impl FirmwareUpdate {
     }
 
     #[cfg(not(feature = "mock"))]
-    fn swupdate(swu_file_path: &str, selection: &str) -> Result<()> {
+    fn swupdate<P>(swu_file_path: P, selection: &str) -> Result<()>
+    where
+        P: AsRef<std::ffi::OsStr>,
+    {
         let stdio = std::process::Stdio::from(
             std::fs::OpenOptions::new()
                 .write(true)
@@ -431,7 +428,7 @@ impl FirmwareUpdate {
                 .arg("swupdate")
                 .arg("-v")
                 .arg("-i")
-                .arg(swu_file_path)
+                .arg(&swu_file_path)
                 .arg("-k")
                 .arg(pubkey_file_path!())
                 .arg("-e")
@@ -444,8 +441,12 @@ impl FirmwareUpdate {
         );
         Ok(())
     }
+
     #[cfg(feature = "mock")]
-    fn swupdate(_swu_file_path: &str, _selection: &str) -> Result<()> {
+    fn swupdate<P>(_swu_file_path: P, _selection: &str) -> Result<()>
+    where
+        P: AsRef<std::ffi::OsStr>,
+    {
         Ok(())
     }
 
