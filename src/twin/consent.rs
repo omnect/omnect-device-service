@@ -1,4 +1,5 @@
 use crate::{
+    common::{from_json_file, to_json_file},
     consent_path,
     twin::{feature::*, Feature},
 };
@@ -11,7 +12,6 @@ use serde_json::json;
 use std::{
     collections::HashMap,
     env,
-    fs::OpenOptions,
     path::{Path, PathBuf},
 };
 use tokio::sync::mpsc::Sender;
@@ -127,31 +127,11 @@ impl DeviceUpdateConsent {
                 "user_consent: invalid component name: {component}"
             );
 
-            let path_string = format!("{}/{}/user_consent.json", consent_path!(), component);
-            let path = Path::new(&path_string);
-            let path_canonicalized = path.canonicalize().context(format!(
-                "user_consent: invalid path {}",
-                path.to_string_lossy()
-            ))?;
-
-            // ensure path is valid and absolute and not a link
-            ensure!(
-                path_canonicalized
-                    .to_string_lossy()
-                    .eq(path_string.as_str()),
-                "user_consent: non-absolute path {}",
-                path.to_string_lossy()
-            );
-
-            serde_json::to_writer_pretty(
-                OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .open(path)
-                    .context("user_consent: open user_consent.json for write")?,
+            to_json_file(
                 &json!({ "consent": version }),
-            )
-            .context("user_consent: serde_json::to_writer_pretty")?;
+                format!("{}/{}/user_consent.json", consent_path!(), component),
+                false,
+            )?;
         }
 
         Ok(None)
@@ -166,13 +146,8 @@ impl DeviceUpdateConsent {
         new_consents.sort_by_key(|name| name.to_string());
         new_consents.dedup();
 
-        let mut current_config: ConsentConfig = serde_json::from_reader(
-            OpenOptions::new()
-                .read(true)
-                .open(format!("{}/consent_conf.json", consent_path!()))
-                .context("update_general_consent: open consent_conf.json for read")?,
-        )
-        .context("update_general_consent: serde_json::from_reader")?;
+        let mut current_config: ConsentConfig =
+            from_json_file(format!("{}/consent_conf.json", consent_path!()))?;
 
         current_config.general_consent.iter_mut().for_each(|s| {
             *s = s.to_lowercase();
@@ -186,15 +161,11 @@ impl DeviceUpdateConsent {
 
         current_config.general_consent = new_consents;
 
-        serde_json::to_writer_pretty(
-            OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(format!("{}/consent_conf.json", consent_path!()))
-                .context("update_general_consent: open consent_conf.json for write")?,
+        to_json_file(
             &current_config,
-        )
-        .context("update_general_consent: serde_json::to_writer_pretty")?;
+            format!("{}/consent_conf.json", consent_path!()),
+            false,
+        )?;
 
         self.report_general_consent()
             .await
@@ -204,31 +175,18 @@ impl DeviceUpdateConsent {
     }
 
     async fn report_general_consent(&self) -> Result<()> {
-        self.report_consent(
-            serde_json::from_reader(
-                OpenOptions::new()
-                    .read(true)
-                    .open(format!("{}/consent_conf.json", consent_path!()))
-                    .context("report_general_consent: open consent_conf.json fo read")?,
-            )
-            .context("report_general_consent: serde_json::from_reader")?,
-        )
+        self.report_consent(from_json_file(format!(
+            "{}/consent_conf.json",
+            consent_path!()
+        ))?)
         .await
         .context("report_general_consent: report_consent")
     }
 
     async fn report_user_consent(&self, report_consent_file: &Path) -> Result<()> {
-        self.report_consent(
-            serde_json::from_reader(
-                OpenOptions::new()
-                    .read(true)
-                    .open(report_consent_file)
-                    .context("report_user_consent: open report_consent_file for read")?,
-            )
-            .context("report_user_consent: serde_json::from_reader")?,
-        )
-        .await
-        .context("report_user_consent: report_consent")
+        self.report_consent(from_json_file(report_consent_file)?)
+            .await
+            .context("report_user_consent: report_consent")
     }
 
     async fn report_consent(&self, value: serde_json::Value) -> Result<()> {
@@ -266,9 +224,7 @@ mod tests {
             .await
             .unwrap_err()
             .chain()
-            .any(|e| e
-                .to_string()
-                .starts_with("report_user_consent: open report_consent_file for read")));
+            .any(|e| e.to_string().starts_with("failed to open for read: ")));
 
         consent
             .command(&Command::FileModified(FileCommand {
@@ -302,9 +258,7 @@ mod tests {
             .await
             .unwrap_err()
             .chain()
-            .any(|e| e
-                .to_string()
-                .starts_with("update_general_consent: open consent_conf.json for read")));
+            .any(|e| e.to_string().starts_with("failed to open for read: ")));
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let consent_conf_file = tmp_dir.path().join("consent_conf.json");
@@ -323,7 +277,7 @@ mod tests {
             .chain()
             .any(|e| e
                 .to_string()
-                .starts_with("update_general_consent: serde_json::from_reader")));
+                .starts_with("failed to deserialize json from: ")));
 
         std::fs::copy("testfiles/positive/consent_conf.json", &consent_conf_file).unwrap();
 
@@ -345,13 +299,7 @@ mod tests {
             }}))
         );
 
-        let consent_conf: ConsentConfig = serde_json::from_reader(
-            OpenOptions::new()
-                .read(true)
-                .open(&consent_conf_file)
-                .unwrap(),
-        )
-        .unwrap();
+        let consent_conf: ConsentConfig = from_json_file(&consent_conf_file).unwrap();
 
         assert_eq!(
             consent_conf,
@@ -406,7 +354,7 @@ mod tests {
             .await
             .unwrap_err()
             .chain()
-            .any(|e| e.to_string().starts_with("user_consent: invalid path")));
+            .any(|e| e.to_string().starts_with("failed to open for write: ")));
 
         let tmp_dir = tempfile::tempdir().unwrap();
         std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());

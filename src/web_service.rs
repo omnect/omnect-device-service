@@ -1,4 +1,7 @@
-use crate::twin::feature::*;
+use crate::{
+    common::{from_json_file, to_json_file},
+    twin::feature::*,
+};
 use actix_server::ServerHandle;
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
 use anyhow::{bail, Context, Result};
@@ -7,7 +10,7 @@ use log::{debug, error, info};
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, fs::OpenOptions, path::Path, str::FromStr, sync::LazyLock};
+use std::{collections::HashMap, path::Path, str::FromStr, sync::LazyLock};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
@@ -93,13 +96,7 @@ impl WebService {
         info!("WebService is enabled");
 
         if matches!(Path::new(&publish_endpoints_path!()).try_exists(), Ok(true)) {
-            *PUBLISH_ENDPOINTS.lock().await = serde_json::from_reader(
-                OpenOptions::new()
-                    .read(true)
-                    .open(publish_endpoints_path!())
-                    .context("run: open PUBLISH_ENDPOINTS_PATH for read")?,
-            )
-            .context("run: read PUBLISH_ENDPOINTS_PATH")?;
+            *PUBLISH_ENDPOINTS.lock().await = from_json_file(publish_endpoints_path!())?;
         }
 
         let srv = HttpServer::new(move || {
@@ -465,16 +462,11 @@ async fn publish_to_endpoint(msg: &serde_json::Value, endpoint: &PublishEndpoint
 }
 
 async fn save_publish_endpoints() -> Result<()> {
-    serde_json::to_writer_pretty(
-        OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(publish_endpoints_path!())
-            .context("save_publish_endpoints: open PUBLISH_ENDPOINTS_PATH for write")?,
+    to_json_file(
         &*PUBLISH_ENDPOINTS.lock().await,
+        publish_endpoints_path!(),
+        true,
     )
-    .context("save_publish_endpoints: serde_json::to_writer_pretty")
 }
 
 #[cfg(test)]
