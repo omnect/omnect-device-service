@@ -2,6 +2,7 @@ use crate::common::from_json_file;
 use anyhow::{Context, Result};
 use log::warn;
 use regex_lite::Regex;
+use std::env;
 
 #[cfg(not(feature = "mock"))]
 static REBOOT_REASON_SCRIPT: &str = "/usr/sbin/omnect_reboot_reason.sh";
@@ -9,11 +10,9 @@ static REBOOT_REASON_DIR_REGEX: &str = r"^\d{6}\+\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\
 static REBOOT_REASON_FILE_NAME: &str = "reboot-reason.json";
 
 macro_rules! reboot_reason_dir_path {
-    () => {{
-        static REBOOT_REASON_DIR_PATH_DEFAULT: &'static str = "/var/lib/omnect/reboot-reason/";
-        std::env::var("REBOOT_REASON_DIR_PATH")
-            .unwrap_or(REBOOT_REASON_DIR_PATH_DEFAULT.to_string())
-    }};
+    () => {
+        env::var("REBOOT_REASON_DIR_PATH").unwrap_or("/var/lib/omnect/reboot-reason/".to_string())
+    };
 }
 
 #[cfg(not(feature = "mock"))]

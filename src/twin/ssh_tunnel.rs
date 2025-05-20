@@ -7,15 +7,19 @@ use azure_iot_sdk::client::IotMessage;
 use log::{debug, error, info, warn};
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::json;
-use std::env;
-use std::ops::Drop;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::str;
-use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use std::{
+    env,
+    ops::Drop,
+    path::{Path, PathBuf},
+    process::Stdio,
+    str,
+    sync::Arc,
+};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    process::{Child, Command},
+    sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError},
+};
 use uuid::Uuid;
 
 static MAX_ACTIVE_TUNNELS: usize = 5;
@@ -25,38 +29,36 @@ static SSH_PORT: u16 = 22;
 static SSH_TUNNEL_USER: &str = "ssh_tunnel_user";
 
 macro_rules! ssh_tunnel_data {
-    () => {{
-        static SSH_TUNNEL_DIR_PATH_DEFAULT: &'static str = "/run/omnect-device-service/ssh-tunnel";
-        std::env::var("SSH_TUNNEL_DIR_PATH").unwrap_or(SSH_TUNNEL_DIR_PATH_DEFAULT.to_string())
-    }};
+    () => {
+        Path::new(
+            &env::var("SSH_TUNNEL_DIR_PATH")
+                .unwrap_or("/run/omnect-device-service/ssh-tunnel".to_string()),
+        )
+    };
 }
 
 macro_rules! pub_key_path {
-    ($name:expr) => {{
-        PathBuf::from(&format!(r"{}/{}.pub", ssh_tunnel_data!(), $name))
-    }};
+    ($name:expr) => {
+        ssh_tunnel_data!().join(format!("{}.pub", $name))
+    };
 }
 
 macro_rules! priv_key_path {
-    ($name:expr) => {{
-        PathBuf::from(&format!(r"{}/{}", ssh_tunnel_data!(), $name))
-    }};
+    ($name:expr) => {
+        ssh_tunnel_data!().join($name)
+    };
 }
 
 macro_rules! control_socket_path {
-    ($name:expr) => {{
-        PathBuf::from(&format!(r"{}/{}-socket", ssh_tunnel_data!(), $name))
-    }};
+    ($name:expr) => {
+        ssh_tunnel_data!().join(format!("{}-socket", $name))
+    };
 }
 
 macro_rules! device_cert_file {
-    () => {{
-        if cfg!(feature = "mock") {
-            std::env::var("DEVICE_CERT_FILE").unwrap_or("/mnt/cert/ssh/root_ca".to_string())
-        } else {
-            "/mnt/cert/ssh/root_ca".to_string()
-        }
-    }};
+    () => {
+        Path::new(&env::var("DEVICE_CERT_FILE").unwrap_or("/mnt/cert/ssh/root_ca".to_string()))
+    };
 }
 
 #[allow(dead_code)]
@@ -216,7 +218,7 @@ impl SshTunnel {
         info!("ssh pub key requested");
 
         let (priv_key_path, pub_key_path) = (
-            priv_key_path!(args.tunnel_id),
+            priv_key_path!(&args.tunnel_id),
             pub_key_path!(args.tunnel_id),
         );
         Self::create_key_pair(priv_key_path).await?;

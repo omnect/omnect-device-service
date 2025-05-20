@@ -12,7 +12,7 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, path::Path, str::FromStr, sync::LazyLock};
+use std::{collections::HashMap, env, path::Path, str::FromStr, sync::LazyLock};
 use tokio::{
     sync::{Mutex, mpsc, oneshot},
     time::Duration,
@@ -41,12 +41,10 @@ static PUBLISH_CLIENT: LazyLock<Mutex<ClientWithMiddleware>> = LazyLock::new(|| 
 });
 
 macro_rules! publish_endpoints_path {
-    () => {{
-        static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str =
-            "/run/omnect-device-service/publish_endpoints.json";
-        std::env::var("PUBLISH_ENDPOINTS_PATH")
-            .unwrap_or(PUBLISH_ENDPOINTS_PATH_DEFAULT.to_string())
-    }};
+    () => {
+        env::var("PUBLISH_ENDPOINTS_PATH")
+            .unwrap_or("/run/omnect-device-service/publish_endpoints.json".to_string())
+    };
 }
 
 #[derive(Debug, strum_macros::Display)]
@@ -92,7 +90,7 @@ struct PublishEndpointRequest {
 
 lazy_static! {
     static ref IS_WEBSERVICE_ENABLED: bool = {
-        std::env::var("DISABLE_WEBSERVICE")
+        env::var("DISABLE_WEBSERVICE")
             .unwrap_or("false".to_string())
             .to_lowercase()
             != "true"

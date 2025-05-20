@@ -23,7 +23,7 @@ use {
 use azure_iot_sdk::client::{IotHubClient, IotHubClientBuilder};
 
 use crate::{systemd, twin::feature::Command, web_service};
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use azure_iot_sdk::client::*;
 use dotenvy;
 use feature::*;
@@ -37,6 +37,7 @@ use signal_hook_tokio::Signals;
 use std::{
     any::TypeId,
     collections::HashMap,
+    env,
     path::Path,
     time::{self, Duration},
 };
@@ -215,7 +216,9 @@ impl Twin {
                 match reason {
                     UnauthenticatedReason::BadCredential
                     | UnauthenticatedReason::CommunicationError => {
-                        error!("Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time");
+                        error!(
+                            "Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time"
+                        );
 
                         /*
                         here we start all over again. reason: there are situations where we get
@@ -375,10 +378,10 @@ impl Twin {
         let (tx_validated, mut rx_validated) = oneshot::channel();
 
         // load env vars from /usr/lib/os-release, e.g. to determine feature availability
-        dotenvy::from_path_override(Path::new(&format!(
-            "{}/os-release",
-            std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/usr/lib".to_string())
-        )))?;
+        dotenvy::from_path_override(
+            Path::new(&env::var("OS_RELEASE_DIR_PATH").unwrap_or("/usr/lib".to_string()))
+                .join("os-release"),
+        )?;
 
         let mut twin = Self::new(
             tx_command_request,
@@ -478,7 +481,7 @@ impl Twin {
         info!("start client and wait for authentication...");
 
         builder.build_module_client(
-            &std::env::var("CONNECTION_STRING").context("connection string missing")?,
+            &env::var("CONNECTION_STRING").context("connection string missing")?,
         )
     }
 

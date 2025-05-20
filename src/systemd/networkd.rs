@@ -1,22 +1,20 @@
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use freedesktop_entry_parser::parse_entry;
 use regex_lite::RegexBuilder;
-use std::time::Duration;
+use std::{env, time::Duration};
 
 macro_rules! service_file_path {
-    () => {{
-        const SERVICE_FILE_PATH_DEFAULT: &'static str =
-            "/lib/systemd/system/systemd-networkd-wait-online.service";
-        std::env::var("WAIT_ONLINE_SERVICE_FILE_PATH")
-            .unwrap_or(SERVICE_FILE_PATH_DEFAULT.to_string())
-    }};
+    () => {
+        env::var("WAIT_ONLINE_SERVICE_FILE_PATH")
+            .unwrap_or("/lib/systemd/system/systemd-networkd-wait-online.service".to_string())
+    };
 }
 
 macro_rules! env_file_path {
-    () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/omnect/systemd-networkd-wait-online.env";
-        std::env::var("ENV_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
-    }};
+    () => {
+        env::var("ENV_FILE_PATH")
+            .unwrap_or("/etc/omnect/systemd-networkd-wait-online.env".to_string())
+    };
 }
 
 #[cfg(not(feature = "mock"))]
@@ -153,42 +151,52 @@ mod tests {
     #[test]
     fn networkd_wait_online_timeout_invalid_input() {
         crate::common::set_env_var("WAIT_ONLINE_SERVICE_FILE_PATH", "");
-        assert!(networkd_wait_online_timeout()
-            .unwrap_err()
-            .to_string()
-            .starts_with("service file missing"));
+        assert!(
+            networkd_wait_online_timeout()
+                .unwrap_err()
+                .to_string()
+                .starts_with("service file missing")
+        );
         crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-no-execstart.service",
         );
-        assert!(networkd_wait_online_timeout()
-            .unwrap_err()
-            .to_string()
-            .starts_with("ExecStart entry missing"));
+        assert!(
+            networkd_wait_online_timeout()
+                .unwrap_err()
+                .to_string()
+                .starts_with("ExecStart entry missing")
+        );
         crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-timeout.service",
         );
-        assert!(networkd_wait_online_timeout()
-            .unwrap_err()
-            .to_string()
-            .starts_with("unexpected timeout config in ExecStart"));
+        assert!(
+            networkd_wait_online_timeout()
+                .unwrap_err()
+                .to_string()
+                .starts_with("unexpected timeout config in ExecStart")
+        );
         crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-no-envfile.service",
         );
-        assert!(networkd_wait_online_timeout()
-            .unwrap_err()
-            .to_string()
-            .starts_with("EnvironmentFile entry missing"));
+        assert!(
+            networkd_wait_online_timeout()
+                .unwrap_err()
+                .to_string()
+                .starts_with("EnvironmentFile entry missing")
+        );
         crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-envfile.service",
         );
-        assert!(networkd_wait_online_timeout()
-            .unwrap_err()
-            .to_string()
-            .starts_with("unexpected path in EnvironmentFile"));
+        assert!(
+            networkd_wait_online_timeout()
+                .unwrap_err()
+                .to_string()
+                .starts_with("unexpected path in EnvironmentFile")
+        );
 
         crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
@@ -198,10 +206,12 @@ mod tests {
             "ENV_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-timeout.env",
         );
-        assert!(networkd_wait_online_timeout()
-            .unwrap_err()
-            .to_string()
-            .starts_with("cannot parse OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS"));
+        assert!(
+            networkd_wait_online_timeout()
+                .unwrap_err()
+                .to_string()
+                .starts_with("cannot parse OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS")
+        );
 
         crate::common::remove_env_var("WAIT_ONLINE_SERVICE_FILE_PATH");
         crate::common::remove_env_var("ENV_FILE_PATH");

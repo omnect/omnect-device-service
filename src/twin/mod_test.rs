@@ -2,7 +2,6 @@
 #[allow(clippy::module_inception)]
 pub mod mod_test {
     use super::super::*;
-    use crate::{consent_path, history_consent_path};
     use azure_iot_sdk::client::{
         AuthenticationObserver, DirectMethod, DirectMethodObserver, TwinObserver,
     };
@@ -13,7 +12,7 @@ pub mod mod_test {
     use mockall::{automock, predicate::*};
     use rand::{
         distr::Alphanumeric,
-        {rng, Rng},
+        {Rng, rng},
     };
     use serde_json::json;
     use std::fs::{copy, create_dir_all, remove_dir_all};
@@ -133,7 +132,7 @@ pub mod mod_test {
 
     struct TestConfig {
         twin: Twin,
-        //dir: PathBuf,
+        dir: PathBuf,
     }
 
     impl TestCase {
@@ -188,8 +187,11 @@ pub mod mod_test {
                 format!("{}/factory-reset.json", test_env.dirpath()),
             );
             crate::common::set_env_var(
-                "FACTORY_RESET_STATUS_FILE_PATH",
-                format!("{}/omnect-os-initramfs-factory-reset.json", test_env.dirpath()),
+                "FACTORY_RESET_RESULT_FILE_PATH",
+                format!(
+                    "{}/omnect-os-initramfs-factory-reset.json",
+                    test_env.dirpath()
+                ),
             );
             crate::common::set_env_var(
                 "FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH",
@@ -202,13 +204,19 @@ pub mod mod_test {
             );
             crate::common::set_env_var(
                 "EST_CERT_FILE_PATH",
-                format!("{}/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
+                format!(
+                    "{}/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer",
+                    test_env.dirpath()
+                ),
             );
             crate::common::set_env_var(
                 "DEVICE_CERT_FILE",
                 format!("{}/ssh_root_ca.pub", test_env.dirpath()),
             );
-            crate::common::set_env_var("REBOOT_REASON_DIR_PATH", "testfiles/positive/reboot_reason");
+            crate::common::set_env_var(
+                "REBOOT_REASON_DIR_PATH",
+                "testfiles/positive/reboot_reason",
+            );
 
             env_vars
                 .iter()
@@ -252,7 +260,7 @@ pub mod mod_test {
             // create test config
             let mut config = TestConfig {
                 twin,
-                //dir: PathBuf::from(test_env.dirpath()),
+                dir: PathBuf::from(test_env.dirpath()),
             };
 
             // set testcase specific mock expectaions
@@ -280,7 +288,7 @@ pub mod mod_test {
             crate::common::remove_env_var("WPA_SUPPLICANT_DIR_PATH");
             crate::common::remove_env_var("WAIT_ONLINE_SERVICE_FILE_PATH");
             crate::common::remove_env_var("FACTORY_RESET_CONFIG_FILE_PATH");
-            crate::common::remove_env_var("FACTORY_RESET_STATUS_FILE_PATH");
+            crate::common::remove_env_var("FACTORY_RESET_RESULT_FILE_PATH");
             crate::common::remove_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH");
             crate::common::remove_env_var("IDENTITY_CONFIG_FILE_PATH");
             crate::common::remove_env_var("EST_CERT_FILE_PATH");
@@ -564,12 +572,14 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &'_ mut TestConfig| {
-            assert!(!test_attr
-                .twin
-                .features
-                .get_mut(&TypeId::of::<factory_reset::FactoryReset>())
-                .unwrap()
-                .is_enabled());
+            assert!(
+                !test_attr
+                    .twin
+                    .features
+                    .get_mut(&TypeId::of::<factory_reset::FactoryReset>())
+                    .unwrap()
+                    .is_enabled()
+            );
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
         };
 
@@ -601,9 +611,10 @@ pub mod mod_test {
         let test = |test_attr: &mut TestConfig| {
             let err = block_on(async { test_attr.twin.connect_twin().await }).unwrap_err();
 
-            assert!(err.chain().any(|e| e
-                .to_string()
-                .starts_with("failed to deserialize json from: ")));
+            assert!(err.chain().any(|e| {
+                e.to_string()
+                    .starts_with("failed to deserialize json from: ")
+            }));
         };
 
         TestCase::run(test_files, vec![], env_vars, expect, test);
@@ -651,7 +662,7 @@ pub mod mod_test {
                 OpenOptions::new()
                     .write(true)
                     .truncate(true)
-                    .open(history_consent_path!())
+                    .open(&test_attr.dir.join("history_consent.json"))
                     .unwrap(),
                 &json!({
                     "user_consent_history": {
@@ -665,16 +676,18 @@ pub mod mod_test {
 
             let cmd = block_on(async { ev_stream.next().await }).unwrap();
 
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .features
-                    .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
-                    .unwrap()
-                    .command(&cmd.command)
-                    .await
-            })
-            .is_ok());
+            assert!(
+                block_on(async {
+                    test_attr
+                        .twin
+                        .features
+                        .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
+                        .unwrap()
+                        .command(&cmd.command)
+                        .await
+                })
+                .is_ok()
+            );
 
             std::thread::sleep(Duration::from_secs(2));
         };
@@ -702,21 +715,23 @@ pub mod mod_test {
 
             let (tx, _rx) = tokio::sync::oneshot::channel();
 
-            assert!(block_on(async {
-                test_attr
-                    .twin
-                    .handle_request(CommandRequest {
-                        command: feature::Command::from_direct_method(&DirectMethod {
-                            name: "user_consent".to_string(),
-                            payload: json!({"test_component": "1.0.0"}),
-                            responder: tx,
+            assert!(
+                block_on(async {
+                    test_attr
+                        .twin
+                        .handle_request(CommandRequest {
+                            command: feature::Command::from_direct_method(&DirectMethod {
+                                name: "user_consent".to_string(),
+                                payload: json!({"test_component": "1.0.0"}),
+                                responder: tx,
+                            })
+                            .unwrap(),
+                            reply: None,
                         })
-                        .unwrap(),
-                        reply: None,
-                    })
-                    .await
-            })
-            .is_ok());
+                        .await
+                })
+                .is_ok()
+            );
         };
 
         TestCase::run(test_files, test_dirs, vec![], expect, test);

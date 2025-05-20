@@ -1,9 +1,9 @@
 use crate::{
     systemd::{networkd, unit},
-    twin::{feature::*, Feature},
+    twin::{Feature, feature::*},
     web_service,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
@@ -15,7 +15,7 @@ use tokio::{sync::mpsc::Sender, time::interval};
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
         const REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT: &str = "60";
-        std::env::var("REFRESH_NETWORK_STATUS_INTERVAL_SECS")
+        env::var("REFRESH_NETWORK_STATUS_INTERVAL_SECS")
             .unwrap_or(REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
             .expect("cannot parse REFRESH_NETWORK_STATUS_INTERVAL_SECS env var")
@@ -289,8 +289,8 @@ impl Network {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::from_json_file;
     use super::*;
+    use crate::common::from_json_file;
 
     #[test]
     fn networkd_parse_interfaces_ok() {
