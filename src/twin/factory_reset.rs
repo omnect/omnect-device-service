@@ -1,5 +1,7 @@
 use crate::{
-    bootloader_env, reboot_reason, systemd,
+    bootloader_env,
+    common::from_json_file,
+    reboot_reason, systemd,
     twin::{feature::*, Feature},
     web_service,
 };
@@ -9,34 +11,28 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::*;
-use std::{collections::HashMap, env, fs::read_dir, fs::File, io::BufReader};
+use std::{collections::HashMap, env, fs::read_dir};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
 macro_rules! factory_reset_status_path {
     () => {{
-        static FACTORY_RESET_STATUS_FILE_PATH_DEFAULT: &'static str =
-            "/run/omnect-device-service/omnect-os-initramfs.json";
-        std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
-            .unwrap_or(FACTORY_RESET_STATUS_FILE_PATH_DEFAULT.to_string())
+        env::var("FACTORY_RESET_STATUS_FILE_PATH")
+            .unwrap_or("/run/omnect-device-service/omnect-os-initramfs.json".to_string())
     }};
 }
 
 macro_rules! factory_reset_config_path {
     () => {{
-        static FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT: &'static str =
-            "/etc/omnect/factory-reset.json";
-        std::env::var("FACTORY_RESET_CONFIG_FILE_PATH")
-            .unwrap_or(FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT.to_string())
+        env::var("FACTORY_RESET_CONFIG_FILE_PATH")
+            .unwrap_or("/etc/omnect/factory-reset.json".to_string())
     }};
 }
 
 macro_rules! factory_reset_custom_config_dir_path {
     () => {{
-        static FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT: &'static str =
-            "/etc/omnect/factory-reset.d";
-        std::env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
-            .unwrap_or(FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT.to_string())
+        env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+            .unwrap_or("/etc/omnect/factory-reset.d".to_string())
     }};
 }
 
@@ -112,10 +108,7 @@ impl FactoryReset {
 
     fn factory_reset_keys() -> Result<Vec<String>> {
         let factory_reset_config: HashMap<String, Vec<std::path::PathBuf>> =
-            serde_json::from_reader(BufReader::new(
-                File::open(factory_reset_config_path!()).context("open factory-reset.json")?,
-            ))
-            .context("parsing factory reset config")?;
+            from_json_file(factory_reset_config_path!())?;
 
         let mut keys: Vec<String> = factory_reset_config.into_keys().collect();
         if read_dir(factory_reset_custom_config_dir_path!())
@@ -202,10 +195,8 @@ impl FactoryReset {
     }
 
     fn factory_reset_status() -> Result<Option<&'static str>> {
-        let omnect_os_initramfs_json: serde_json::Value = serde_json::from_reader(BufReader::new(
-            File::open(factory_reset_status_path!()).context("open omnect-os-initramfs.json")?,
-        ))
-        .context("parsing factory reset status")?;
+        let omnect_os_initramfs_json: serde_json::Value =
+            from_json_file(factory_reset_status_path!())?;
 
         let factory_reset = &omnect_os_initramfs_json["factory-reset"];
         anyhow::ensure!(factory_reset.is_object(), "factory-reset is not an object");
@@ -325,7 +316,7 @@ mod tests {
         assert!(FactoryReset::factory_reset_keys()
             .unwrap_err()
             .to_string()
-            .starts_with("open factory-reset.json"));
+            .starts_with("failed to open for read: "));
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let file_path = tmp_dir.path().join("factory-reset.json");
@@ -355,7 +346,7 @@ mod tests {
         assert!(FactoryReset::factory_reset_status()
             .unwrap_err()
             .to_string()
-            .starts_with("open omnect-os-initramfs.json"));
+            .starts_with("failed to open for read: "));
 
         std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",

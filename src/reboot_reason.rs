@@ -1,5 +1,4 @@
-// reboot reason handling
-
+use crate::common::from_json_file;
 use anyhow::{Context, Result};
 use log::warn;
 use regex_lite::Regex;
@@ -11,9 +10,8 @@ static REBOOT_REASON_FILE_NAME: &str = "reboot-reason.json";
 
 macro_rules! reboot_reason_dir_path {
     () => {{
-        static REBOOT_REASON_DIR_PATH_DEFAULT: &'static str = "/var/lib/omnect/reboot-reason/";
         std::env::var("REBOOT_REASON_DIR_PATH")
-            .unwrap_or(REBOOT_REASON_DIR_PATH_DEFAULT.to_string())
+            .unwrap_or("/var/lib/omnect/reboot-reason/".to_string())
     }};
 }
 
@@ -80,13 +78,7 @@ pub fn current_reboot_reason() -> Option<serde_json::Value> {
             .max_by_key(|k| k.file_name())
             .context("failed to identify current reboot reason folder")?;
 
-        let json: serde_json::Value = serde_json::from_reader(
-            std::fs::OpenOptions::new()
-                .read(true)
-                .open(dir.path().join(REBOOT_REASON_FILE_NAME))
-                .context("failed to open reboot reason file")?,
-        )
-        .context("failed to parse json from reboot reason file")?;
+        let json: serde_json::Value = from_json_file(dir.path().join(REBOOT_REASON_FILE_NAME))?;
 
         Ok(json
             .get("reboot_reason")

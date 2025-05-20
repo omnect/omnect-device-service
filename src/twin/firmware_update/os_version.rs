@@ -5,8 +5,7 @@ use std::{cmp::Ordering, fmt, fs};
 
 macro_rules! sw_versions_path {
     () => {{
-        static SW_VERSIONS_PATH_DEFAULT: &'static str = "/etc/sw-versions";
-        std::env::var("SW_VERSIONS_PATH").unwrap_or(SW_VERSIONS_PATH_DEFAULT.to_string())
+        std::env::var("SW_VERSIONS_PATH").unwrap_or("/etc/sw-versions".to_string())
     }};
 }
 

@@ -1,4 +1,5 @@
 use crate::{
+    common::RootPartition,
     reboot_reason,
     twin::{feature::*, Feature},
     web_service,
@@ -28,85 +29,6 @@ lazy_static! {
             .parse::<u64>()
             .expect("cannot parse REFRESH_SYSTEM_INFO_INTERVAL_SECS env var")
     };
-}
-
-pub enum RootPartition {
-    A,
-    B,
-}
-
-impl RootPartition {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::A => "a",
-            Self::B => "b",
-        }
-    }
-
-    pub fn from_index_string(index: String) -> Result<Self> {
-        match index
-            .parse::<u8>()
-            .context("cannot parse root partition index")?
-        {
-            2 => Ok(Self::A),
-            3 => Ok(Self::B),
-            _ => bail!("invalid root partition index"),
-        }
-    }
-
-    pub fn index(&self) -> u8 {
-        match self {
-            Self::A => 2,
-            Self::B => 3,
-        }
-    }
-
-    pub fn root_update_params(&self) -> &str {
-        match self {
-            Self::A => "stable,copy1",
-            Self::B => "stable,copy2",
-        }
-    }
-
-    pub fn bootloader_update_params(&self) -> &str {
-        "stable,bootloader"
-    }
-
-    pub fn other(&self) -> Self {
-        match self {
-            Self::A => Self::B,
-            Self::B => Self::A,
-        }
-    }
-
-    #[cfg(not(feature = "mock"))]
-    pub fn current() -> Result<RootPartition> {
-        static DEV_OMNECT: &str = "/dev/omnect/";
-
-        let current_root = std::fs::read_link(DEV_OMNECT.to_owned() + "rootCurrent")
-            .context("current_root: getting current root device")?;
-
-        if current_root
-            == std::fs::read_link(DEV_OMNECT.to_owned() + "rootA")
-                .context("current_root: getting rootA")?
-        {
-            return Ok(RootPartition::A);
-        }
-
-        if current_root
-            == std::fs::read_link(DEV_OMNECT.to_owned() + "rootB")
-                .context("current_root: getting rootB")?
-        {
-            return Ok(RootPartition::B);
-        }
-
-        bail!("current_root: device booted from unknown root")
-    }
-
-    #[cfg(feature = "mock")]
-    pub fn current() -> Result<RootPartition> {
-        Ok(RootPartition::A)
-    }
 }
 
 #[derive(Serialize)]
