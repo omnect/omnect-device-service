@@ -10,9 +10,8 @@ static REBOOT_REASON_FILE_NAME: &str = "reboot-reason.json";
 
 macro_rules! reboot_reason_dir_path {
     () => {{
-        static REBOOT_REASON_DIR_PATH_DEFAULT: &'static str = "/var/lib/omnect/reboot-reason/";
         std::env::var("REBOOT_REASON_DIR_PATH")
-            .unwrap_or(REBOOT_REASON_DIR_PATH_DEFAULT.to_string())
+            .unwrap_or("/var/lib/omnect/reboot-reason/".to_string())
     }};
 }
 

@@ -2,7 +2,6 @@
 #[allow(clippy::module_inception)]
 pub mod mod_test {
     use super::super::*;
-    use crate::{consent_path, history_consent_path};
     use azure_iot_sdk::client::{
         AuthenticationObserver, DirectMethod, DirectMethodObserver, TwinObserver,
     };
@@ -138,7 +137,7 @@ pub mod mod_test {
 
     struct TestConfig {
         twin: Twin,
-        //dir: PathBuf,
+        dir: PathBuf,
     }
 
     impl TestCase {
@@ -254,7 +253,7 @@ pub mod mod_test {
             // create test config
             let mut config = TestConfig {
                 twin,
-                //dir: PathBuf::from(test_env.dirpath()),
+                dir: PathBuf::from(test_env.dirpath()),
             };
 
             // set testcase specific mock expectaions
@@ -740,7 +739,7 @@ pub mod mod_test {
                 OpenOptions::new()
                     .write(true)
                     .truncate(true)
-                    .open(history_consent_path!())
+                    .open(&test_attr.dir.join("history_consent.json"))
                     .unwrap(),
                 &json!({
                     "user_consent_history": {

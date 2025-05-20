@@ -22,10 +22,8 @@ static PUBLISH_ENDPOINTS: LazyLock<Mutex<HashMap<String, PublishEndpoint>>> =
 
 macro_rules! publish_endpoints_path {
     () => {{
-        static PUBLISH_ENDPOINTS_PATH_DEFAULT: &'static str =
-            "/run/omnect-device-service/publish_endpoints.json";
         std::env::var("PUBLISH_ENDPOINTS_PATH")
-            .unwrap_or(PUBLISH_ENDPOINTS_PATH_DEFAULT.to_string())
+            .unwrap_or("/run/omnect-device-service/publish_endpoints.json".to_string())
     }};
 }
 

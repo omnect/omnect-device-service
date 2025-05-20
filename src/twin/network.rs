@@ -291,8 +291,8 @@ impl Network {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::from_json_file;
     use super::*;
+    use crate::common::from_json_file;
 
     #[test]
     fn networkd_parse_interfaces_ok() {
