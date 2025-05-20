@@ -1,6 +1,5 @@
 use crate::{
     common::{from_json_file, to_json_file},
-    consent_path,
     twin::{feature::*, Feature},
 };
 use anyhow::{bail, ensure, Context, Result};
@@ -9,31 +8,30 @@ use log::{info, warn};
 use notify_debouncer_full::{notify::*, Debouncer, NoCache};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    collections::HashMap,
-    env,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, env, path::Path};
 use tokio::sync::mpsc::Sender;
 
-#[macro_export]
 macro_rules! consent_path {
     () => {{
-        static CONSENT_DIR_PATH_DEFAULT: &'static str = "/etc/omnect/consent";
-        std::env::var("CONSENT_DIR_PATH").unwrap_or(CONSENT_DIR_PATH_DEFAULT.to_string())
+        Path::new(&std::env::var("CONSENT_DIR_PATH").unwrap_or("/etc/omnect/consent".to_string()))
+    }};
+}
+
+macro_rules! general_consent_path {
+    () => {{
+        consent_path!().join("consent_conf.json")
     }};
 }
 
 macro_rules! request_consent_path {
     () => {{
-        PathBuf::from(&format!(r"{}/request_consent.json", consent_path!()))
+        consent_path!().join("request_consent.json")
     }};
 }
 
-#[macro_export]
 macro_rules! history_consent_path {
     () => {{
-        PathBuf::from(&format!(r"{}/history_consent.json", consent_path!()))
+        consent_path!().join("history_consent.json")
     }};
 }
 
@@ -81,9 +79,12 @@ impl Feature for DeviceUpdateConsent {
     ) -> Result<()> {
         self.tx_reported_properties = Some(tx_reported_properties.clone());
 
-        self.report_general_consent().await?;
-        self.report_user_consent(&request_consent_path!()).await?;
-        self.report_user_consent(&history_consent_path!()).await
+        self.report_consent(from_json_file(general_consent_path!())?)
+            .await?;
+        self.report_consent(from_json_file(request_consent_path!())?)
+            .await?;
+        self.report_consent(from_json_file(history_consent_path!())?)
+            .await
     }
 
     fn command_request_stream(&mut self) -> CommandRequestStreamResult {
@@ -99,7 +100,7 @@ impl Feature for DeviceUpdateConsent {
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::FileModified(file) => {
-                self.report_user_consent(&file.path).await?;
+                self.report_consent(from_json_file(&file.path)?).await?;
             }
             Command::DesiredGeneralConsent(cmd) => {
                 self.update_general_consent(cmd).await?;
@@ -129,7 +130,7 @@ impl DeviceUpdateConsent {
 
             to_json_file(
                 &json!({ "consent": version }),
-                format!("{}/{}/user_consent.json", consent_path!(), component),
+                consent_path!().join(component).join("user_consent.json"),
                 false,
             )?;
         }
@@ -146,8 +147,7 @@ impl DeviceUpdateConsent {
         new_consents.sort_by_key(|name| name.to_string());
         new_consents.dedup();
 
-        let mut current_config: ConsentConfig =
-            from_json_file(format!("{}/consent_conf.json", consent_path!()))?;
+        let mut current_config: ConsentConfig = from_json_file(general_consent_path!())?;
 
         current_config.general_consent.iter_mut().for_each(|s| {
             *s = s.to_lowercase();
@@ -161,32 +161,12 @@ impl DeviceUpdateConsent {
 
         current_config.general_consent = new_consents;
 
-        to_json_file(
-            &current_config,
-            format!("{}/consent_conf.json", consent_path!()),
-            false,
-        )?;
+        to_json_file(&current_config, general_consent_path!(), false)?;
 
-        self.report_general_consent()
-            .await
-            .context("update_general_consent: report_general_consent")?;
+        self.report_consent(serde_json::to_value(current_config)?)
+            .await?;
 
         Ok(None)
-    }
-
-    async fn report_general_consent(&self) -> Result<()> {
-        self.report_consent(from_json_file(format!(
-            "{}/consent_conf.json",
-            consent_path!()
-        ))?)
-        .await
-        .context("report_general_consent: report_consent")
-    }
-
-    async fn report_user_consent(&self, report_consent_file: &Path) -> Result<()> {
-        self.report_consent(from_json_file(report_consent_file)?)
-            .await
-            .context("report_user_consent: report_consent")
     }
 
     async fn report_consent(&self, value: serde_json::Value) -> Result<()> {
@@ -203,7 +183,7 @@ impl DeviceUpdateConsent {
 
 #[cfg(test)]
 mod tests {
-    use std::{any::TypeId, str::FromStr};
+    use std::any::TypeId;
 
     use super::*;
     use tempfile;
@@ -219,7 +199,7 @@ mod tests {
         assert!(consent
             .command(&Command::FileModified(FileCommand {
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
-                path: PathBuf::from_str("my-path").unwrap(),
+                path: Path::new("my-path").to_path_buf(),
             }))
             .await
             .unwrap_err()
@@ -229,8 +209,8 @@ mod tests {
         consent
             .command(&Command::FileModified(FileCommand {
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
-                path: PathBuf::from_str("testfiles/positive/test_component/user_consent.json")
-                    .unwrap(),
+                path: Path::new("testfiles/positive/test_component/user_consent.json")
+                    .to_path_buf(),
             }))
             .await
             .unwrap();

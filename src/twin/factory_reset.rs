@@ -17,28 +17,22 @@ use tokio::sync::mpsc::Sender;
 
 macro_rules! factory_reset_status_path {
     () => {{
-        static FACTORY_RESET_STATUS_FILE_PATH_DEFAULT: &'static str =
-            "/run/omnect-device-service/omnect-os-initramfs.json";
-        std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
-            .unwrap_or(FACTORY_RESET_STATUS_FILE_PATH_DEFAULT.to_string())
+        env::var("FACTORY_RESET_STATUS_FILE_PATH")
+            .unwrap_or("/run/omnect-device-service/omnect-os-initramfs.json".to_string())
     }};
 }
 
 macro_rules! factory_reset_config_path {
     () => {{
-        static FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT: &'static str =
-            "/etc/omnect/factory-reset.json";
-        std::env::var("FACTORY_RESET_CONFIG_FILE_PATH")
-            .unwrap_or(FACTORY_RESET_CONFIG_FILE_PATH_DEFAULT.to_string())
+        env::var("FACTORY_RESET_CONFIG_FILE_PATH")
+            .unwrap_or("/etc/omnect/factory-reset.json".to_string())
     }};
 }
 
 macro_rules! factory_reset_custom_config_dir_path {
     () => {{
-        static FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT: &'static str =
-            "/etc/omnect/factory-reset.d";
-        std::env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
-            .unwrap_or(FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH_DEFAULT.to_string())
+        env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+            .unwrap_or("/etc/omnect/factory-reset.d".to_string())
     }};
 }
 

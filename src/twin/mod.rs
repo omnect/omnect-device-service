@@ -366,10 +366,10 @@ impl Twin {
         let (tx_validated, mut rx_validated) = oneshot::channel();
 
         // load env vars from /usr/lib/os-release, e.g. to determine feature availability
-        dotenvy::from_path_override(Path::new(&format!(
-            "{}/os-release",
-            std::env::var("OS_RELEASE_DIR_PATH").unwrap_or_else(|_| "/usr/lib".to_string())
-        )))?;
+        dotenvy::from_path_override(
+            Path::new(&std::env::var("OS_RELEASE_DIR_PATH").unwrap_or("/usr/lib".to_string()))
+                .join("os-release"),
+        )?;
 
         let mut twin = Self::new(
             tx_command_request,
