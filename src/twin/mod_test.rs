@@ -57,29 +57,25 @@ pub mod mod_test {
     #[allow(dead_code)]
     struct MyIotHub {}
 
+    #[allow(dead_code)]
     #[automock]
     impl MyIotHub {
-        #[allow(dead_code)]
         pub fn builder() -> MyIotHubBuilder {
             MyIotHubBuilder {}
         }
 
-        #[allow(dead_code)]
         pub fn sdk_version_string() -> String {
             "".to_string()
         }
 
-        #[allow(dead_code)]
         pub fn twin_report(&self, _reported: serde_json::Value) -> Result<()> {
             Ok(())
         }
 
-        #[allow(dead_code)]
         pub fn send_d2c_message(&self, mut _message: IotMessage) -> Result<()> {
             Ok(())
         }
 
-        #[allow(dead_code)]
         pub async fn shutdown(&mut self, _timeout: Duration) {}
     }
 
@@ -316,13 +312,8 @@ pub mod mod_test {
                         "version": "4.0.17.123456"
                     },
                     "reboot_reason": {
-                        "datetime": "".to_string(),
-                        "timeepoch": "".to_string(),
-                        "uptime": "".to_string(),
-                        "boot_id": "".to_string(),
-                        "os_version": "".to_string(),
-                        "reason": "power-loss".to_string(),
-                        "extra_info": "".to_string()
+                        "current_boot_id": "56e51a56-f85f-4abd-95bb-fc2335d9b696",
+                        "reason": "power-loss"
                     }
                 }})))
                 .times(2)
@@ -514,13 +505,8 @@ pub mod mod_test {
                         "version": "4.0.17.123456"
                     },
                     "reboot_reason": {
-                        "datetime": "".to_string(),
-                        "timeepoch": "".to_string(),
-                        "uptime": "".to_string(),
-                        "boot_id": "".to_string(),
-                        "os_version": "".to_string(),
-                        "reason": "power-loss".to_string(),
-                        "extra_info": "".to_string()
+                        "current_boot_id": "56e51a56-f85f-4abd-95bb-fc2335d9b696",
+                        "reason": "power-loss"
                     }
                 }})))
                 .times(1)

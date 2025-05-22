@@ -80,7 +80,7 @@ pub fn current_reboot_reason() -> Option<serde_json::Value> {
             .max_by_key(|k| k.file_name())
             .context("failed to identify current reboot reason folder")?;
 
-        let json: serde_json::Value = serde_json::from_reader(
+        let json = serde_json::from_reader::<_, serde_json::Value>(
             std::fs::OpenOptions::new()
                 .read(true)
                 .open(dir.path().join(REBOOT_REASON_FILE_NAME))
@@ -88,10 +88,17 @@ pub fn current_reboot_reason() -> Option<serde_json::Value> {
         )
         .context("failed to parse json from reboot reason file")?;
 
-        Ok(json
-            .get("reboot_reason")
-            .context("failed to get reboot_reason from json")?
-            .clone())
+        let reason = &json["reboot_reason"]["reason"]
+            .as_str()
+            .context("failed to get reason")?;
+        let current_boot_id = &json["report"]["boot_id"]
+            .as_str()
+            .context("failed to get boot_id")?;
+
+        Ok(serde_json::json!({
+            "current_boot_id": current_boot_id,
+            "reason": reason
+        }))
     };
 
     current_reboot_reason_impl()
@@ -115,13 +122,8 @@ mod tests {
         assert_eq!(
             current_reboot_reason(),
             Some(json!( {
-                "datetime": "".to_string(),
-                "timeepoch": "".to_string(),
-                "uptime": "".to_string(),
-                "boot_id": "".to_string(),
-                "os_version": "".to_string(),
-                "reason": "power-loss".to_string(),
-                "extra_info": "".to_string()
+                "current_boot_id": "56e51a56-f85f-4abd-95bb-fc2335d9b696",
+                "reason": "power-loss"
             }))
         );
     }
