@@ -5,17 +5,14 @@ use std::time::Duration;
 
 macro_rules! service_file_path {
     () => {{
-        const SERVICE_FILE_PATH_DEFAULT: &'static str =
-            "/lib/systemd/system/systemd-networkd-wait-online.service";
         std::env::var("WAIT_ONLINE_SERVICE_FILE_PATH")
-            .unwrap_or(SERVICE_FILE_PATH_DEFAULT.to_string())
+            .unwrap_or("/lib/systemd/system/systemd-networkd-wait-online.service".to_string())
     }};
 }
 
 macro_rules! env_file_path {
     () => {{
-        const ENV_FILE_PATH_DEFAULT: &'static str = "/etc/omnect/systemd-networkd-wait-online.env";
-        std::env::var("ENV_FILE_PATH").unwrap_or(ENV_FILE_PATH_DEFAULT.to_string())
+        std::env::var("ENV_FILE_PATH").unwrap_or("/etc/omnect/systemd-networkd-wait-online.env".to_string())
     }};
 }
 
