@@ -170,7 +170,7 @@ impl UpdateValidation {
         debug!("started");
         systemd::wait_for_system_running()
             .await
-            .context("validate: wait_for_system_running timed out")?;
+            .context("validate: wait_for_system_running failed")?;
 
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degraded" and possibly ignore certain failed services via configuration
