@@ -168,11 +168,9 @@ impl UpdateValidation {
 
     async fn validate(&mut self) -> Result<()> {
         debug!("started");
-        let now = Duration::from(nix::time::clock_gettime(
-            nix::time::ClockId::CLOCK_MONOTONIC,
-        )?);
-        let timeout = self.validation_timeout - (now - self.start_monotonic_time);
-        systemd::wait_for_system_running(timeout).await?;
+        systemd::wait_for_system_running()
+            .await
+            .context("validate: wait_for_system_running failed")?;
 
         /* ToDo: if it returns with an error, we may want to handle the state
          * "degraded" and possibly ignore certain failed services via configuration
@@ -183,11 +181,6 @@ impl UpdateValidation {
         debug!("starting {IOT_HUB_DEVICE_UPDATE_SERVICE}");
         fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
 
-        let now = Duration::from(nix::time::clock_gettime(
-            nix::time::ClockId::CLOCK_MONOTONIC,
-        )?);
-        let timeout = self.validation_timeout - (now - self.start_monotonic_time);
-
         // in case of local update we don't take care of starting deviceupdate-agent.service,
         // since it might fail because of missing iothub connection.
         // instead we let deviceupdate-agent.timer doing the job periodically
@@ -195,7 +188,6 @@ impl UpdateValidation {
             systemd::unit::unit_action(
                 IOT_HUB_DEVICE_UPDATE_SERVICE,
                 UnitAction::Start,
-                timeout,
                 systemd_zbus::Mode::Fail,
             )
             .await?;
