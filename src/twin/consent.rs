@@ -262,7 +262,7 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let consent_conf_file = tmp_dir.path().join("consent_conf.json");
-        std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
+        crate::common::set_env_var("CONSENT_DIR_PATH", tmp_dir.path());
 
         std::fs::copy("testfiles/negative/consent_conf.json", &consent_conf_file).unwrap();
 
@@ -357,7 +357,7 @@ mod tests {
             .any(|e| e.to_string().starts_with("failed to open for write: ")));
 
         let tmp_dir = tempfile::tempdir().unwrap();
-        std::env::set_var("CONSENT_DIR_PATH", tmp_dir.path());
+        crate::common::set_env_var("CONSENT_DIR_PATH", tmp_dir.path());
         let foo_dir = tmp_dir.path().join("foo");
         std::fs::create_dir(foo_dir.clone()).unwrap();
         std::fs::copy(

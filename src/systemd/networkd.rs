@@ -152,12 +152,12 @@ mod tests {
 
     #[test]
     fn networkd_wait_online_timeout_invalid_input() {
-        std::env::set_var("WAIT_ONLINE_SERVICE_FILE_PATH", "");
+        crate::common::set_env_var("WAIT_ONLINE_SERVICE_FILE_PATH", "");
         assert!(networkd_wait_online_timeout()
             .unwrap_err()
             .to_string()
             .starts_with("service file missing"));
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-no-execstart.service",
         );
@@ -165,7 +165,7 @@ mod tests {
             .unwrap_err()
             .to_string()
             .starts_with("ExecStart entry missing"));
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-timeout.service",
         );
@@ -173,7 +173,7 @@ mod tests {
             .unwrap_err()
             .to_string()
             .starts_with("unexpected timeout config in ExecStart"));
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-no-envfile.service",
         );
@@ -181,7 +181,7 @@ mod tests {
             .unwrap_err()
             .to_string()
             .starts_with("EnvironmentFile entry missing"));
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-envfile.service",
         );
@@ -190,11 +190,11 @@ mod tests {
             .to_string()
             .starts_with("unexpected path in EnvironmentFile"));
 
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-default-timeout.service",
         );
-        std::env::set_var(
+        crate::common::set_env_var(
             "ENV_FILE_PATH",
             "testfiles/negative/systemd-networkd-wait-online-invalid-timeout.env",
         );
@@ -203,27 +203,27 @@ mod tests {
             .to_string()
             .starts_with("cannot parse OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS"));
 
-        std::env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
-        std::env::remove_var("ENV_FILE_PATH");
+        crate::common::remove_env_var("WAIT_ONLINE_SERVICE_FILE_PATH");
+        crate::common::remove_env_var("ENV_FILE_PATH");
     }
 
     #[test]
     fn networkd_wait_online_timeout_ok() {
         let _ = fs::remove_file("/tmp/systemd-networkd-wait-online1.env");
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online-no-envfile.service",
         );
-        std::env::set_var("ENV_FILE_PATH", "/tmp/systemd-networkd-wait-online1.env");
+        crate::common::set_env_var("ENV_FILE_PATH", "/tmp/systemd-networkd-wait-online1.env");
         assert_eq!(
             networkd_wait_online_timeout().unwrap(),
             Some(Duration::from_secs(300))
         );
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online-env1.service",
         );
-        std::env::set_var(
+        crate::common::set_env_var(
             "ENV_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online1.env",
         );
@@ -231,20 +231,20 @@ mod tests {
             networkd_wait_online_timeout().unwrap(),
             Some(Duration::from_secs(1))
         );
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online-env2.service",
         );
-        std::env::set_var(
+        crate::common::set_env_var(
             "ENV_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online2.env",
         );
         assert_eq!(networkd_wait_online_timeout().unwrap(), None);
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online-env3.service",
         );
-        std::env::set_var(
+        crate::common::set_env_var(
             "ENV_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online3.env",
         );
@@ -253,18 +253,18 @@ mod tests {
             Some(Duration::from_secs(300))
         );
 
-        std::env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
-        std::env::remove_var("ENV_FILE_PATH");
+        crate::common::remove_env_var("WAIT_ONLINE_SERVICE_FILE_PATH");
+        crate::common::remove_env_var("ENV_FILE_PATH");
     }
 
     #[test]
     fn set_networkd_wait_online_timeout_ok() {
         let _ = fs::remove_file("/tmp/systemd-networkd-wait-online1.env");
-        std::env::set_var(
+        crate::common::set_env_var(
             "WAIT_ONLINE_SERVICE_FILE_PATH",
             "testfiles/positive/systemd-networkd-wait-online-no-envfile.service",
         );
-        std::env::set_var("ENV_FILE_PATH", "/tmp/systemd-networkd-wait-online1.env");
+        crate::common::set_env_var("ENV_FILE_PATH", "/tmp/systemd-networkd-wait-online1.env");
         assert!(set_networkd_wait_online_timeout(Some(Duration::from_secs(100))).is_ok());
         assert_eq!(
             fs::read_to_string("/tmp/systemd-networkd-wait-online1.env").unwrap(),
@@ -283,7 +283,7 @@ mod tests {
             "env=1\nOMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS=\"0\""
         );
 
-        std::env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
-        std::env::remove_var("ENV_FILE_PATH");
+        crate::common::remove_env_var("WAIT_ONLINE_SERVICE_FILE_PATH");
+        crate::common::remove_env_var("ENV_FILE_PATH");
     }
 }

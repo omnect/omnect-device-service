@@ -230,12 +230,12 @@ mod tests {
         .unwrap();
         std::fs::create_dir_all(custom_dir_path.clone()).unwrap();
 
-        std::env::set_var(
+        crate::common::set_env_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_succeeded",
         );
-        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path.clone());
-        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+        crate::common::set_env_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path.clone());
+        crate::common::set_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
 
         let mut factory_reset = FactoryReset::new().unwrap();
 
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn factory_reset_keys_test() {
-        std::env::set_var(
+        crate::common::set_env_var(
             "FACTORY_RESET_CONFIG_FILE_PATH",
             "testfiles/positive/factory-rest.json",
         );
@@ -300,7 +300,7 @@ mod tests {
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let file_path = tmp_dir.path().join("factory-reset.json");
-        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+        crate::common::set_env_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
 
         std::fs::copy(
             "testfiles/positive/factory-reset.json",
@@ -315,20 +315,20 @@ mod tests {
 
         let custom_dir_path = tmp_dir.path().join("factory-reset.d");
         std::fs::create_dir(custom_dir_path.clone()).unwrap();
-        std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+        crate::common::set_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
 
         FactoryReset::factory_reset_keys().unwrap();
     }
 
     #[test]
     fn factory_reset_status_test() {
-        std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
+        crate::common::set_env_var("FACTORY_RESET_STATUS_FILE_PATH", "");
         assert!(FactoryReset::factory_reset_result()
             .unwrap_err()
             .to_string()
             .starts_with("failed to open for read"));
 
-        std::env::set_var(
+        crate::common::set_env_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/negative/factory-reset-status_unexpected_factory_reset_format",
         );
@@ -337,7 +337,7 @@ mod tests {
             .to_string()
             .starts_with("failed to parse factory reset result from initramfs"));
 
-        std::env::set_var(
+        crate::common::set_env_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_succeeded",
         );
@@ -351,7 +351,7 @@ mod tests {
             }
         );
 
-        std::env::set_var(
+        crate::common::set_env_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_normal_boot",
         );
