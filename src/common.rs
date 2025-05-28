@@ -117,3 +117,20 @@ where
 {
     path.as_ref().to_string_lossy().ends_with(end)
 }
+
+#[cfg(test)]
+pub fn set_env_var<K, V>(key: K, value: V)
+where
+    K: AsRef<std::ffi::OsStr>,
+    V: AsRef<std::ffi::OsStr>,
+{
+    unsafe { std::env::set_var(key, value) };
+}
+
+#[cfg(test)]
+pub fn remove_env_var<K>(key: K)
+where
+    K: AsRef<std::ffi::OsStr>,
+{
+    unsafe { std::env::remove_var(key) };
+}
