@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "https://github.com/omnect/omnect-device-service.git"
-version = "0.40.6"
+version = "0.41.0"
 
 [dependencies]
 actix-server = { version = "2.3", default-features = false }
@@ -36,6 +36,8 @@ regex-lite = { version = "0.1", default-features = true }
 reqwest = { version = "0.12", default-features = false, features = [
   "default-tls",
 ] }
+reqwest-middleware = { version = "0.4", default-features = false }
+reqwest-retry = { version = "0.7", default-features = false }
 sd-notify = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }

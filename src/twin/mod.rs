@@ -87,7 +87,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::boxed(factory_reset::FactoryReset::new()),
+                DynFeature::boxed(factory_reset::FactoryReset::new()?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -138,10 +138,10 @@ impl Twin {
         Ok(twin)
     }
 
-    async fn connect_twin(&mut self) -> Result<()> {
-        let client = self.client.as_ref().context("client not present")?;
+    fn feature_info(&self) -> serde_json::Value {
+        let mut features = serde_json::Map::new();
 
-        // report feature availability
+        // report feature availability and version
         for f in self.features.values() {
             let value = if f.is_enabled() {
                 json!({ "version": f.version() })
@@ -149,8 +149,17 @@ impl Twin {
                 json!(null)
             };
 
-            client.twin_report(json!({ f.name(): value }))?;
+            features.insert(f.name(), value);
         }
+
+        serde_json::Value::Object(features)
+    }
+
+    async fn connect_twin(&mut self) -> Result<()> {
+        let client = self.client.as_ref().context("client not present")?;
+
+        // report feature availability and version
+        client.twin_report(self.feature_info())?;
 
         // connect twin channels
         for f in self.features.values_mut() {
