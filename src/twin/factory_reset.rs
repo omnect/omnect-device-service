@@ -120,7 +120,7 @@ impl Feature for FactoryReset {
                 "factory_reset": &self.report
             }))
             .await
-            .context("report_factory_reset_status: send")?;
+            .context("connect_twin: send")?;
 
         self.tx_reported_properties = Some(tx_reported_properties);
 
