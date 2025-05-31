@@ -15,7 +15,6 @@ pub mod mod_test {
         distr::Alphanumeric,
         {rng, Rng},
     };
-    use regex::Regex;
     use serde_json::json;
     use std::fs::{copy, create_dir_all, remove_dir_all};
     use std::{env, fs::OpenOptions, path::PathBuf, time::Duration};
@@ -209,6 +208,7 @@ pub mod mod_test {
                 "DEVICE_CERT_FILE",
                 format!("{}/ssh_root_ca.pub", test_env.dirpath()),
             );
+            std::env::set_var("REBOOT_REASON_DIR_PATH", "testfiles/positive/reboot_reason");
 
             env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
 
@@ -297,15 +297,26 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .with(eq(json!({"system_info":{"version":1,}})))
+                .with(eq(json!({
+                    "device_update_consent": {"version": 1},
+                    "factory_reset": {"version": 3},
+                    "firmware_update": {"version": 1},
+                    "modem_info": null,
+                    "network_status": {"version": 3},
+                    "provisioning_config": {"version": 1},
+                    "reboot": {"version": 2},
+                    "ssh_tunnel": {"version": 2},
+                    "system_info": {"version": 1},
+                    "wifi_commissioning": null,
+                })))
                 .times(2)
                 .returning(|_| Ok(()));
-            let s = IotHubClient::sdk_version_string();
+
             mock.expect_twin_report()
                 .with(eq(json!({
                 "system_info":{
                     "omnect_device_service_version": env!("CARGO_PKG_VERSION"),
-                    "azure_sdk_version": s,
+                    "azure_sdk_version": IotHubClient::sdk_version_string(),
                     "boot_time": null,
                     "os": {
                         "name": "OMNECT-gateway-devel",
@@ -320,41 +331,11 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"factory_reset":{"version":2}})))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"firmware_update":{"version":1}})))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"ssh_tunnel":{"version":2}})))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
                     }
                 })))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"device_update_consent":{"version":1}})))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"modem_info":null})))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version":3}})))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -391,16 +372,6 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"reboot":{"version":2}})))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({ "wifi_commissioning": null })))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(
                     json!({"wait_online_timeout_secs":{"nanos":0, "secs": 300}}),
                 ))
@@ -425,33 +396,16 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .withf(|val| {
-                    let reported = format!("{:?}", val);
-                    let reported = reported.as_str();
-
-                    let re = format!(
-                        "{}{}{}",
-                        regex::escape(
-                            r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,
-                        ),
-                        UTC_REGEX,
-                        regex::escape(r#""), "status": String("succeeded")}}}"#,),
-                    );
-
-                    let re = Regex::new(re.as_str()).unwrap();
-                    re.is_match(reported)})
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(
-                    json!({"factory_reset":{"keys":["certificates", "firewall", "network"]}}),
-                ))
-                .times(2)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"provisioning_config":{"version": 1}})))
+                .with(eq(json!({
+                    "factory_reset": {
+                        "keys": vec!["certificates", "firewall", "network"],
+                        "result": {
+                            "error": "-",
+                            "paths": [],
+                            "status": 0,
+                        },
+                    }
+                })))
                 .times(2)
                 .returning(|_| Ok(()));
 
@@ -491,9 +445,21 @@ pub mod mod_test {
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report()
-                .with(eq(json!({"system_info":{"version":1,}})))
+                .with(eq(json!({
+                    "device_update_consent": {"version": 1},
+                    "factory_reset": null,
+                    "firmware_update": {"version": 1},
+                    "modem_info": null,
+                    "network_status": {"version": 3},
+                    "provisioning_config": {"version": 1},
+                    "reboot": {"version": 2},
+                    "ssh_tunnel": {"version": 2},
+                    "system_info": {"version": 1},
+                    "wifi_commissioning": null,
+                })))
                 .times(1)
                 .returning(|_| Ok(()));
+
             let s = IotHubClient::sdk_version_string();
             mock.expect_twin_report()
                 .with(eq(json!({"system_info":{
@@ -513,41 +479,11 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({ "factory_reset": null })))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"ssh_tunnel":{"version":2}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"firmware_update":{"version":1}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(json!({
                     "ssh_tunnel":{
                         "ca_pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMYssopiqyI+lCGoRCDwE+iBbAqfr1190RcTXzSFYLp tester@TestDevice",
                     }
                 })))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"device_update_consent":{"version":1}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"modem_info":null})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"network_status":{"version": 3}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -584,16 +520,6 @@ pub mod mod_test {
                 .returning(|_| Ok(()));
 
             mock.expect_twin_report()
-                .with(eq(json!({"reboot":{"version":2}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({ "wifi_commissioning": null })))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
                 .with(eq(
                     json!({"wait_online_timeout_secs":{"nanos":0, "secs": 300}}),
                 ))
@@ -614,11 +540,6 @@ pub mod mod_test {
 
             mock.expect_twin_report()
                 .with(eq(json!({"device_update_consent":{"user_consent_history":{"swupdate":["<version>"]}}})))
-                .times(1)
-                .returning(|_| Ok(()));
-
-            mock.expect_twin_report()
-                .with(eq(json!({"provisioning_config":{"version": 1}})))
                 .times(1)
                 .returning(|_| Ok(()));
 
@@ -670,7 +591,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(12).returning(|_| Ok(()));
+            mock.expect_twin_report().times(3).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {
@@ -694,7 +615,7 @@ pub mod mod_test {
         ];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(20).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
 
             mock.expect_twin_report()
                 .with(eq(json!({
@@ -769,7 +690,7 @@ pub mod mod_test {
         let test_dirs = vec!["testfiles/positive/test_component"];
 
         let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().times(20).returning(|_| Ok(()));
+            mock.expect_twin_report().times(10).returning(|_| Ok(()));
         };
 
         let test = |test_attr: &mut TestConfig| {

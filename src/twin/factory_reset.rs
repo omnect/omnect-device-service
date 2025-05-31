@@ -7,12 +7,11 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::*;
 use std::{collections::HashMap, env, fs::read_dir};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
 
 macro_rules! factory_reset_status_path {
@@ -57,8 +56,34 @@ pub struct FactoryResetCommand {
     pub preserve: Vec<String>,
 }
 
+#[derive(Debug, Deserialize_repr, PartialEq, Serialize_repr)]
+#[repr(u8)]
+pub enum FactoryResetStatus {
+    ModeSupported = 0,
+    ModeUnsupported = 1,
+    BackupRestoreError = 2,
+    ConfigurationError = 3,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct FactoryResetResult {
+    status: FactoryResetStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
+    error: String,
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct FactoryResetReport {
+    keys: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<FactoryResetResult>,
+}
+
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
+    report: FactoryResetReport,
 }
 
 impl Feature for FactoryReset {
@@ -75,8 +100,14 @@ impl Feature for FactoryReset {
     }
 
     async fn connect_web_service(&self) -> Result<()> {
-        self.report_factory_reset_keys().await?;
-        self.handle_factory_reset_status().await
+        web_service::publish(
+            web_service::PublishChannel::FactoryResetV1,
+            serde_json::to_value(&self.report)
+                .context("connect_web_service: failed to serialize")?,
+        )
+        .await;
+
+        Ok(())
     }
 
     async fn connect_twin(
@@ -84,9 +115,16 @@ impl Feature for FactoryReset {
         tx_reported_properties: Sender<serde_json::Value>,
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
+        tx_reported_properties
+            .send(json!({
+                "factory_reset": &self.report
+            }))
+            .await
+            .context("connect_twin: send")?;
+
         self.tx_reported_properties = Some(tx_reported_properties);
-        self.report_factory_reset_keys().await?;
-        self.handle_factory_reset_status().await
+
+        Ok(())
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
@@ -103,13 +141,19 @@ impl Feature for FactoryReset {
 }
 
 impl FactoryReset {
-    const FACTORY_RESET_VERSION: u8 = 2;
+    const FACTORY_RESET_VERSION: u8 = 3;
     const ID: &'static str = "factory_reset";
 
-    pub fn new() -> Self {
-        FactoryReset {
+    pub fn new() -> Result<Self> {
+        let report = FactoryResetReport {
+            keys: FactoryReset::factory_reset_keys()?,
+            result: FactoryReset::factory_reset_result()?,
+        };
+
+        Ok(FactoryReset {
             tx_reported_properties: None,
-        }
+            report,
+        })
     }
 
     fn factory_reset_keys() -> Result<Vec<String>> {
@@ -131,27 +175,21 @@ impl FactoryReset {
         Ok(keys)
     }
 
-    async fn report_factory_reset_keys(&self) -> Result<()> {
-        // get keys on each call, since factory_reset.d could have changes
-        let keys = FactoryReset::factory_reset_keys()?;
-        web_service::publish(
-            web_service::PublishChannel::FactoryResetKeysV1,
-            json!({"keys": keys}),
-        )
-        .await;
+    fn factory_reset_result() -> Result<Option<FactoryResetResult>> {
+        let omnect_os_initramfs_json: serde_json::Value =
+            from_json_file(&factory_reset_status_path!())?;
 
-        let Some(tx) = &self.tx_reported_properties else {
-            warn!("report_factory_reset_keys: skip since tx_reported_properties is None");
-            return Ok(());
-        };
+        if omnect_os_initramfs_json["factory-reset"].is_null() {
+            debug!("factory reset: no result");
+            return Ok(None);
+        }
 
-        tx.send(json!({
-            "factory_reset": {
-                "keys": keys,
-            }
-        }))
-        .await
-        .context("report_factory_reset_status: send")
+        let result = serde_json::from_value(omnect_os_initramfs_json["factory-reset"].clone())
+            .context("failed to parse factory reset result from initramfs")?;
+
+        info!("factory reset result: {result:#?}");
+
+        Ok(Some(result))
     }
 
     async fn reset_to_factory_settings(&self, cmd: &FactoryResetCommand) -> CommandResult {
@@ -164,7 +202,7 @@ impl FactoryReset {
         }
 
         bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
-        self.report_factory_reset_status("in_progress").await?;
+
         if let Err(e) =
             reboot_reason::write_reboot_reason("factory-reset", "initiated by portal or API")
         {
@@ -173,107 +211,33 @@ impl FactoryReset {
         systemd::reboot().await?;
         Ok(None)
     }
-
-    async fn report_factory_reset_status(&self, status: &str) -> Result<()> {
-        // ToDo why is that not the same format as for the cloud?
-        web_service::publish(
-            web_service::PublishChannel::FactoryResetStatusV1,
-            json!({"factory_reset_status": status}),
-        )
-        .await;
-
-        let Some(tx) = &self.tx_reported_properties else {
-            warn!("report_factory_reset_status: skip since tx_reported_properties is None");
-            return Ok(());
-        };
-
-        tx.send(json!({
-            "factory_reset": {
-                "status": {
-                    "status": status,
-                    "date": OffsetDateTime::now_utc().format(&Rfc3339)
-                    .context("report_factory_reset_status: format time to Rfc3339")?,
-                }
-            }
-        }))
-        .await
-        .context("report_factory_reset_status: send")
-    }
-
-    fn factory_reset_status() -> Result<Option<&'static str>> {
-        let omnect_os_initramfs_json: serde_json::Value =
-            from_json_file(factory_reset_status_path!())?;
-
-        let factory_reset = &omnect_os_initramfs_json["factory-reset"];
-        anyhow::ensure!(factory_reset.is_object(), "factory-reset is not an object");
-
-        let mut factory_reset_status = String::from("");
-        let status = &factory_reset["status"];
-        let error = &factory_reset["error"];
-        if !status.is_null() {
-            factory_reset_status = format!(
-                "{}:{}",
-                status.to_string().trim_matches('"'),
-                error.to_string().trim_matches('"')
-            );
-        }
-
-        debug!("factory_reset_status: {factory_reset_status}");
-        // ToDo more stati
-        match factory_reset_status.as_str() {
-            "0:0" => Ok(Some("succeeded")),
-            "1:-" => bail!("unexpected factory reset type"),
-            "2:-" => bail!("unexpected restore setting"),
-            "" => Ok(None),
-            _ => bail!("unexpected factory reset status format"),
-        }
-    }
-
-    async fn handle_factory_reset_status(&self) -> Result<()> {
-        match Self::factory_reset_status() {
-            Ok(Some(status)) => {
-                info!("factory reset status: {status}");
-                self.report_factory_reset_status(status).await
-            }
-            Ok(None) => {
-                info!("factory reset status: normal boot without factory reset");
-                Ok(())
-            }
-            Err(e) => {
-                warn!("factory reset status: {e:#}");
-                self.report_factory_reset_status(e.to_string().as_str())
-                    .await
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use regex::Regex;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn factory_reset_test() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("factory-reset.json");
+        let config_file_path = temp_dir.path().join("factory-reset.json");
         let custom_dir_path = temp_dir.path().join("factory-reset.d");
 
         std::fs::copy(
             "testfiles/positive/factory-reset.json",
-            file_path.clone().as_path(),
+            config_file_path.clone().as_path(),
         )
         .unwrap();
         std::fs::create_dir_all(custom_dir_path.clone()).unwrap();
 
-        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", file_path.clone());
+        std::env::set_var(
+            "FACTORY_RESET_STATUS_FILE_PATH",
+            "testfiles/positive/factory-reset-status_succeeded",
+        );
+        std::env::set_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path.clone());
         std::env::set_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
 
-        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
-
-        let mut factory_reset = FactoryReset {
-            tx_reported_properties: Some(tx_reported_properties),
-        };
+        let mut factory_reset = FactoryReset::new().unwrap();
 
         assert!(factory_reset
             .command(&Command::FactoryReset(FactoryResetCommand {
@@ -299,18 +263,28 @@ mod tests {
             .await
             .unwrap();
 
-        let reported = format!("{:?}", rx_reported_properties.recv().await.unwrap());
-        const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+        let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
+        let (tx_outgoing_message, mut _rx_outgoing_message) = tokio::sync::mpsc::channel(100);
 
-        let re = format!(
-            "{}{}{}",
-            regex::escape(r#"Object {"factory_reset": Object {"status": Object {"date": String(""#,),
-            UTC_REGEX,
-            regex::escape(r#""), "status": String("in_progress")}}}"#,),
+        factory_reset
+            .connect_twin(tx_reported_properties, tx_outgoing_message)
+            .await
+            .unwrap();
+
+        let reported: FactoryResetResult = serde_json::from_value(
+            rx_reported_properties.recv().await.unwrap()["factory_reset"]["result"].clone(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            reported,
+            FactoryResetResult {
+                status: FactoryResetStatus::ModeSupported,
+                error: "-".to_string(),
+                context: None,
+                paths: vec![],
+            }
         );
-
-        let re = Regex::new(re.as_str()).unwrap();
-        assert!(re.is_match(&reported));
     }
 
     #[test]
@@ -349,51 +323,38 @@ mod tests {
     #[test]
     fn factory_reset_status_test() {
         std::env::set_var("FACTORY_RESET_STATUS_FILE_PATH", "");
-        assert!(FactoryReset::factory_reset_status()
+        assert!(FactoryReset::factory_reset_result()
             .unwrap_err()
             .to_string()
-            .starts_with("failed to open for read: "));
-
-        std::env::set_var(
-            "FACTORY_RESET_STATUS_FILE_PATH",
-            "testfiles/negative/factory-reset-status_unexpected_reset_type",
-        );
-        assert!(FactoryReset::factory_reset_status()
-            .unwrap_err()
-            .to_string()
-            .starts_with("unexpected factory reset type"));
-
-        std::env::set_var(
-            "FACTORY_RESET_STATUS_FILE_PATH",
-            "testfiles/negative/factory-reset-status_unexpected_reset_settings",
-        );
-        assert!(FactoryReset::factory_reset_status()
-            .unwrap_err()
-            .to_string()
-            .starts_with("unexpected restore setting"));
+            .starts_with("failed to open for read"));
 
         std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/negative/factory-reset-status_unexpected_factory_reset_format",
         );
-        assert!(FactoryReset::factory_reset_status()
+        assert!(FactoryReset::factory_reset_result()
             .unwrap_err()
             .to_string()
-            .starts_with("unexpected factory reset status format"));
+            .starts_with("failed to parse factory reset result from initramfs"));
 
         std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_succeeded",
         );
         assert_eq!(
-            FactoryReset::factory_reset_status().unwrap().unwrap(),
-            "succeeded"
+            FactoryReset::factory_reset_result().unwrap().unwrap(),
+            FactoryResetResult {
+                status: FactoryResetStatus::ModeSupported,
+                error: "-".to_string(),
+                paths: vec![],
+                context: None,
+            }
         );
 
         std::env::set_var(
             "FACTORY_RESET_STATUS_FILE_PATH",
             "testfiles/positive/factory-reset-status_normal_boot",
         );
-        assert!(FactoryReset::factory_reset_status().unwrap().is_none());
+        assert!(FactoryReset::factory_reset_result().unwrap().is_none());
     }
 }
