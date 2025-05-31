@@ -696,7 +696,7 @@ mod tests {
         };
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp_file = tmp_dir.path().join("some-ca-file");
-        env::set_var("DEVICE_CERT_FILE", &tmp_file);
+        crate::common::set_env_var("DEVICE_CERT_FILE", &tmp_file);
 
         let _response = ssh_tunnel.report().await.unwrap();
 
@@ -724,7 +724,7 @@ mod tests {
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
-        env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
+        crate::common::set_env_var("DEVICE_CERT_FILE", &tmp_file.path());
 
         std::fs::write(&tmp_file, format!("{CERTIFICATE_DATA}\n")).unwrap();
 
@@ -754,7 +754,7 @@ mod tests {
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
-        env::set_var("DEVICE_CERT_FILE", &tmp_file.path());
+        crate::common::set_env_var("DEVICE_CERT_FILE", &tmp_file.path());
 
         let _response = ssh_tunnel
             .command(&FeatureCommand::DesiredUpdateDeviceSshCa(
@@ -791,7 +791,7 @@ mod tests {
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
         let tmp_dir = tempfile::tempdir().unwrap();
-        env::set_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
+        crate::common::set_env_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
 
         // test creation of pub key
         let tunnel_id = "b054a76d-520c-40a9-b401-0f6bfb7cee9b".to_string();
@@ -847,7 +847,7 @@ mod tests {
         let tmp_dir = tempfile::tempdir().unwrap();
         let cert_path = tmp_dir.path().join("cert.pub");
         std::fs::copy("testfiles/positive/cert.pub", cert_path.clone()).unwrap();
-        env::set_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
+        crate::common::set_env_var("SSH_TUNNEL_DIR_PATH", tmp_dir.path());
 
         // test successful
         ssh_tunnel
