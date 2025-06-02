@@ -3,17 +3,20 @@ use crate::{
     twin::feature::*,
 };
 use actix_server::ServerHandle;
-use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
+use actix_web::{App, HttpResponse, HttpServer, http::StatusCode, web};
 use anyhow::{Context, Result};
 use lazy_static::lazy_static;
 use log::{debug, error, info};
-use reqwest::{header, Client};
+use reqwest::{Client, header};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::HashMap, path::Path, str::FromStr, sync::LazyLock};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::{
+    sync::{Mutex, mpsc, oneshot},
+    time::Duration,
+};
 
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
@@ -25,13 +28,13 @@ static PUBLISH_CLIENT: LazyLock<Mutex<ClientWithMiddleware>> = LazyLock::new(|| 
     Mutex::new(
         ClientBuilder::new(
             Client::builder()
-                .timeout(tokio::time::Duration::from_secs(3))
+                .timeout(Duration::from_secs(3))
                 .danger_accept_invalid_certs(true)
                 .build()
                 .expect("building ClientWithMiddleware failed"),
         )
         .with(RetryTransientMiddleware::new_with_policy(
-            ExponentialBackoff::builder().build_with_max_retries(10),
+            ExponentialBackoff::builder().build_with_total_retry_duration(Duration::from_secs(15)),
         ))
         .build(),
     )
@@ -470,7 +473,7 @@ async fn save_publish_endpoints() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{test, App};
+    use actix_web::{App, test};
 
     use super::*;
 
