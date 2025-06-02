@@ -473,9 +473,9 @@ mod tests {
         std::fs::copy("testfiles/positive/du-config.json", &du_config_file).unwrap();
         std::fs::copy("testfiles/positive/sw-versions", &sw_versions_file).unwrap();
         std::fs::create_dir_all(&update_folder).unwrap();
-        std::env::set_var("UPDATE_FOLDER_PATH", update_folder);
-        std::env::set_var("DEVICE_UPDATE_PATH", du_config_file);
-        std::env::set_var("SW_VERSIONS_PATH", sw_versions_file);
+        crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
+        crate::common::set_env_var("DEVICE_UPDATE_PATH", du_config_file);
+        crate::common::set_env_var("SW_VERSIONS_PATH", sw_versions_file);
         let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
         let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
 
@@ -498,9 +498,9 @@ mod tests {
         let sw_versions_file = tmp_dir.path().join("sw-versions");
         std::fs::copy("testfiles/positive/du-config.json", &du_config_file).unwrap();
         std::fs::create_dir_all(&update_folder).unwrap();
-        std::env::set_var("UPDATE_FOLDER_PATH", update_folder);
-        std::env::set_var("DEVICE_UPDATE_PATH", du_config_file);
-        std::env::set_var("SW_VERSIONS_PATH", &sw_versions_file);
+        crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
+        crate::common::set_env_var("DEVICE_UPDATE_PATH", du_config_file);
+        crate::common::set_env_var("SW_VERSIONS_PATH", &sw_versions_file);
         let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
         let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
 
@@ -544,9 +544,9 @@ mod tests {
         let sw_versions_file = tmp_dir.path().join("sw-versions");
         std::fs::copy("testfiles/positive/sw-versions", &sw_versions_file).unwrap();
         std::fs::create_dir_all(&update_folder).unwrap();
-        std::env::set_var("UPDATE_FOLDER_PATH", update_folder);
-        std::env::set_var("DEVICE_UPDATE_PATH", &du_config_file);
-        std::env::set_var("SW_VERSIONS_PATH", sw_versions_file);
+        crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
+        crate::common::set_env_var("DEVICE_UPDATE_PATH", &du_config_file);
+        crate::common::set_env_var("SW_VERSIONS_PATH", sw_versions_file);
         let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
         let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
 

@@ -172,45 +172,47 @@ pub mod mod_test {
             test_env.mkdir("empty-dir");
 
             // set env vars
-            env::set_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var("WPA_SUPPLICANT_DIR_PATH", test_env.dirpath().as_str());
-            env::set_var(
+            crate::common::set_env_var("SSH_TUNNEL_DIR_PATH", test_env.dirpath().as_str());
+            crate::common::set_env_var("OS_RELEASE_DIR_PATH", test_env.dirpath().as_str());
+            crate::common::set_env_var("CONSENT_DIR_PATH", test_env.dirpath().as_str());
+            crate::common::set_env_var("WPA_SUPPLICANT_DIR_PATH", test_env.dirpath().as_str());
+            crate::common::set_env_var(
                 "WAIT_ONLINE_SERVICE_FILE_PATH",
                 format!(
                     "{}/systemd-networkd-wait-online.service",
                     test_env.dirpath()
                 ),
             );
-            env::set_var(
+            crate::common::set_env_var(
                 "FACTORY_RESET_CONFIG_FILE_PATH",
                 format!("{}/factory-reset.json", test_env.dirpath()),
             );
-            env::set_var(
+            crate::common::set_env_var(
                 "FACTORY_RESET_STATUS_FILE_PATH",
                 format!("{}/factory-reset-status_succeeded", test_env.dirpath()),
             );
-            env::set_var(
+            crate::common::set_env_var(
                 "FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH",
                 format!("{}/empty-dir", test_env.dirpath()),
             );
-            env::set_var("CONNECTION_STRING", "my-constr");
-            env::set_var(
+            crate::common::set_env_var("CONNECTION_STRING", "my-constr");
+            crate::common::set_env_var(
                 "IDENTITY_CONFIG_FILE_PATH",
                 format!("{}/config.toml.est", test_env.dirpath()),
             );
-            env::set_var(
+            crate::common::set_env_var(
                 "EST_CERT_FILE_PATH",
                 format!("{}/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer", test_env.dirpath()),
             );
-            env::set_var(
+            crate::common::set_env_var(
                 "DEVICE_CERT_FILE",
                 format!("{}/ssh_root_ca.pub", test_env.dirpath()),
             );
-            std::env::set_var("REBOOT_REASON_DIR_PATH", "testfiles/positive/reboot_reason");
+            crate::common::set_env_var("REBOOT_REASON_DIR_PATH", "testfiles/positive/reboot_reason");
 
-            env_vars.iter().for_each(|env| env::set_var(env.0, env.1));
+            env_vars
+                .iter()
+                .for_each(|env| crate::common::set_env_var(env.0, env.1));
 
             // create iothub client mock
             let ctx = MockMyIotHub::builder_context();
@@ -272,17 +274,19 @@ pub mod mod_test {
             }
 
             // cleanup env vars
-            env::remove_var("SSH_TUNNEL_DIR_PATH");
-            env::remove_var("OS_RELEASE_DIR_PATH");
-            env::remove_var("CONSENT_DIR_PATH");
-            env::remove_var("WPA_SUPPLICANT_DIR_PATH");
-            env::remove_var("WAIT_ONLINE_SERVICE_FILE_PATH");
-            env::remove_var("FACTORY_RESET_CONFIG_FILE_PATH");
-            env::remove_var("FACTORY_RESET_STATUS_FILE_PATH");
-            env::remove_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH");
-            env::remove_var("IDENTITY_CONFIG_FILE_PATH");
-            env::remove_var("EST_CERT_FILE_PATH");
-            env_vars.iter().for_each(|e| env::remove_var(e.0));
+            crate::common::remove_env_var("SSH_TUNNEL_DIR_PATH");
+            crate::common::remove_env_var("OS_RELEASE_DIR_PATH");
+            crate::common::remove_env_var("CONSENT_DIR_PATH");
+            crate::common::remove_env_var("WPA_SUPPLICANT_DIR_PATH");
+            crate::common::remove_env_var("WAIT_ONLINE_SERVICE_FILE_PATH");
+            crate::common::remove_env_var("FACTORY_RESET_CONFIG_FILE_PATH");
+            crate::common::remove_env_var("FACTORY_RESET_STATUS_FILE_PATH");
+            crate::common::remove_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH");
+            crate::common::remove_env_var("IDENTITY_CONFIG_FILE_PATH");
+            crate::common::remove_env_var("EST_CERT_FILE_PATH");
+            env_vars
+                .iter()
+                .for_each(|e| crate::common::remove_env_var(e.0));
         }
     }
 
