@@ -91,7 +91,7 @@ impl Feature for DeviceUpdateConsent {
             request_consent_path!().as_path(),
             history_consent_path!().as_path(),
         ])
-        .context("refresh_event: cannot create file_modified_stream")?;
+        .context("command_request_stream: cannot create file_modified_stream")?;
         self.file_observer = Some(file_observer);
         Ok(Some(stream))
     }
@@ -217,7 +217,7 @@ mod tests {
         };
 
         assert!(consent
-            .command(&Command::FileModified(FileCommand {
+            .command(&Command::FileModified(PathCommand {
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
                 path: PathBuf::from_str("my-path").unwrap(),
             }))
@@ -227,7 +227,7 @@ mod tests {
             .any(|e| e.to_string().starts_with("failed to open for read: ")));
 
         consent
-            .command(&Command::FileModified(FileCommand {
+            .command(&Command::FileModified(PathCommand {
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
                 path: PathBuf::from_str("testfiles/positive/test_component/user_consent.json")
                     .unwrap(),

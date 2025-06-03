@@ -157,7 +157,7 @@ pub mod mod_test {
             // copy test files and dirs
             test_env.copy_file("testfiles/positive/systemd-networkd-wait-online.service");
             test_env.copy_file("testfiles/positive/factory-reset.json");
-            test_env.copy_file("testfiles/positive/factory-reset-status_succeeded");
+            test_env.copy_file("testfiles/positive/omnect-os-initramfs-factory-reset.json");
             test_env.copy_file("testfiles/positive/config.toml.est");
             test_env.copy_file("testfiles/positive/deviceid1-bd732105ef89cf8edd2606a5309c8a26b7b5599a4e124a0fe6199b6b2f60e655.cer");
             test_env.copy_file("testfiles/positive/ssh_root_ca.pub");
@@ -189,7 +189,7 @@ pub mod mod_test {
             );
             crate::common::set_env_var(
                 "FACTORY_RESET_STATUS_FILE_PATH",
-                format!("{}/factory-reset-status_succeeded", test_env.dirpath()),
+                format!("{}/omnect-os-initramfs-factory-reset.json", test_env.dirpath()),
             );
             crate::common::set_env_var(
                 "FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH",
