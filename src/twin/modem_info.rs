@@ -1,5 +1,5 @@
-use super::{feature::*, Feature};
-use anyhow::{bail, Context, Result};
+use super::{Feature, feature::*};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
@@ -18,9 +18,9 @@ mod inner {
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
     use zbus::{
+        Connection,
         fdo::{DBusProxy, ObjectManagerProxy},
         zvariant::OwnedObjectPath,
-        Connection,
     };
 
     #[derive(PartialEq, Serialize)]
@@ -333,7 +333,7 @@ const ID: &str = "modem_info";
 lazy_static! {
     static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
         const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "600";
-        std::env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
+        env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
             .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
             .expect("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")

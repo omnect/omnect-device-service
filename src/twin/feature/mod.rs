@@ -1,13 +1,13 @@
 use crate::twin::{
-    consent, factory_reset, firmware_update, network, reboot, ssh_tunnel, system_info, TwinUpdate,
-    TwinUpdateState,
+    TwinUpdate, TwinUpdateState, consent, factory_reset, firmware_update, network, reboot,
+    ssh_tunnel, system_info,
 };
-use anyhow::{bail, ensure, Result};
+use anyhow::{Result, bail, ensure};
 use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
 use futures::StreamExt;
 use log::{debug, error, info, warn};
-use notify_debouncer_full::{new_debouncer, notify::*, DebounceEventResult, Debouncer, NoCache};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer, notify::*};
 use std::{
     any::TypeId,
     path::{Path, PathBuf},
@@ -235,20 +235,22 @@ where
     let (tx, rx) = mpsc::channel(2);
     let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
 
-    tokio::task::spawn_blocking(move || loop {
-        for p in &inner_paths {
-            if matches!(p.try_exists(), Ok(true)) {
-                let _ = tx.blocking_send(CommandRequest {
-                    command: Command::FileCreated(PathCommand {
-                        feature_id: TypeId::of::<T>(),
-                        path: p.clone(),
-                    }),
-                    reply: None,
-                });
-                return;
+    tokio::task::spawn_blocking(move || {
+        loop {
+            for p in &inner_paths {
+                if matches!(p.try_exists(), Ok(true)) {
+                    let _ = tx.blocking_send(CommandRequest {
+                        command: Command::FileCreated(PathCommand {
+                            feature_id: TypeId::of::<T>(),
+                            path: p.clone(),
+                        }),
+                        reply: None,
+                    });
+                    return;
+                }
             }
+            std::thread::sleep(Duration::from_millis(500));
         }
-        std::thread::sleep(Duration::from_millis(500));
     });
 
     tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
@@ -352,31 +354,37 @@ mod tests {
     #[test]
     fn from_direct_method_test() {
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "unknown".to_string(),
-            payload: json!({}),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "unknown".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .is_err()
+        );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "factory_reset".to_string(),
-            payload: json!({}),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .is_err()
+        );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "factory_reset".to_string(),
-            payload: json!({
-                "mode": 0,
-                "preserve": ["1"],
-            }),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 0,
+                    "preserve": ["1"],
+                }),
+                responder,
+            })
+            .is_err()
+        );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
@@ -413,12 +421,14 @@ mod tests {
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "user_consent".to_string(),
-            payload: json!({"foo": 1}),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "user_consent".to_string(),
+                payload: json!({"foo": 1}),
+                responder,
+            })
+            .is_err()
+        );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
@@ -437,12 +447,14 @@ mod tests {
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "close_ssh_tunnel".to_string(),
-            payload: json!({"tunnel_id": "no-uuid"}),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "close_ssh_tunnel".to_string(),
+                payload: json!({"tunnel_id": "no-uuid"}),
+                responder,
+            })
+            .is_err()
+        );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
@@ -458,12 +470,14 @@ mod tests {
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "get_ssh_pub_key".to_string(),
-            payload: json!({"tunnel_id": "no-uuid"}),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "get_ssh_pub_key".to_string(),
+                payload: json!({"tunnel_id": "no-uuid"}),
+                responder,
+            })
+            .is_err()
+        );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
@@ -554,12 +568,14 @@ mod tests {
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert!(Command::from_direct_method(&DirectMethod {
-            name: "set_wait_online_timeout".to_string(),
-            payload: json!({"timeout_secs": "1"}),
-            responder,
-        })
-        .is_err());
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "set_wait_online_timeout".to_string(),
+                payload: json!({"timeout_secs": "1"}),
+                responder,
+            })
+            .is_err()
+        );
     }
 
     #[test]

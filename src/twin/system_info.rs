@@ -1,10 +1,10 @@
 use crate::{
     common::RootPartition,
     reboot_reason,
-    twin::{feature::*, Feature},
+    twin::{Feature, feature::*},
     web_service,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use futures::StreamExt;
 use lazy_static::lazy_static;
@@ -16,7 +16,7 @@ use sysinfo;
 use time::format_description::well_known::Rfc3339;
 use tokio::{
     sync::mpsc,
-    time::{interval, Duration},
+    time::{Duration, interval},
 };
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
@@ -24,7 +24,7 @@ static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootlo
 lazy_static! {
     static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
         const REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT: &str = "60";
-        std::env::var("REFRESH_SYSTEM_INFO_INTERVAL_SECS")
+        env::var("REFRESH_SYSTEM_INFO_INTERVAL_SECS")
             .unwrap_or(REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
             .expect("cannot parse REFRESH_SYSTEM_INFO_INTERVAL_SECS env var")

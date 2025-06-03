@@ -23,26 +23,22 @@ use tokio::sync::mpsc::Sender;
 
 macro_rules! result_path {
     () => {
-        Path::new(
-            &std::env::var("FACTORY_RESET_STATUS_FILE_PATH")
-                .unwrap_or("/run/omnect-device-service/omnect-os-initramfs.json".to_string()),
-        )
+        env::var("FACTORY_RESET_RESULT_FILE_PATH")
+            .unwrap_or("/run/omnect-device-service/omnect-os-initramfs.json".to_string())
     };
 }
 
 macro_rules! config_path {
     () => {
-        std::env::var("FACTORY_RESET_CONFIG_FILE_PATH")
+        env::var("FACTORY_RESET_CONFIG_FILE_PATH")
             .unwrap_or("/etc/omnect/factory-reset.json".to_string())
     };
 }
 
 macro_rules! custom_config_dir_path {
     () => {
-        Path::new(
-            &std::env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
-                .unwrap_or("/etc/omnect/factory-reset.d".to_string()),
-        )
+        env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+            .unwrap_or("/etc/omnect/factory-reset.d".to_string())
     };
 }
 
@@ -142,7 +138,7 @@ impl Feature for FactoryReset {
 
     fn command_request_stream(&mut self) -> CommandRequestStreamResult {
         let (dir_observer, stream) =
-            dir_modified_stream::<FactoryReset>(vec![custom_config_dir_path!()])
+            dir_modified_stream::<FactoryReset>(vec![&Path::new(&custom_config_dir_path!())])
                 .context("command_request_stream: cannot create dir_modified_stream")?;
         self.dir_observer = Some(dir_observer);
         Ok(Some(stream))
@@ -296,7 +292,7 @@ mod tests {
         std::fs::create_dir_all(custom_dir_path.clone()).unwrap();
 
         crate::common::set_env_var(
-            "FACTORY_RESET_STATUS_FILE_PATH",
+            "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-factory-reset.json",
         );
         crate::common::set_env_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path.clone());
@@ -393,7 +389,7 @@ mod tests {
 
     #[test]
     fn factory_reset_status_test() {
-        crate::common::set_env_var("FACTORY_RESET_STATUS_FILE_PATH", "");
+        crate::common::set_env_var("FACTORY_RESET_RESULT_FILE_PATH", "");
         assert!(
             FactoryReset::factory_reset_result()
                 .unwrap_err()
@@ -402,7 +398,7 @@ mod tests {
         );
 
         crate::common::set_env_var(
-            "FACTORY_RESET_STATUS_FILE_PATH",
+            "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/negative/omnect-os-initramfs-factory-reset-format.json",
         );
         assert!(
@@ -413,7 +409,7 @@ mod tests {
         );
 
         crate::common::set_env_var(
-            "FACTORY_RESET_STATUS_FILE_PATH",
+            "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-factory-reset.json",
         );
         assert_eq!(
@@ -427,7 +423,7 @@ mod tests {
         );
 
         crate::common::set_env_var(
-            "FACTORY_RESET_STATUS_FILE_PATH",
+            "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-normal-boot.json",
         );
         assert!(FactoryReset::factory_reset_result().unwrap().is_none());

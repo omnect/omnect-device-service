@@ -1,5 +1,5 @@
-use crate::twin::{feature::*, Feature};
-use anyhow::{bail, ensure, Context, Result};
+use crate::twin::{Feature, feature::*};
+use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
@@ -12,7 +12,7 @@ use tokio::{sync::mpsc::Sender, time::interval};
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
         const REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &str = "180";
-        std::env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
+        env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
             .unwrap_or(REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT.to_string())
             .parse::<u64>()
             .expect("cannot parse REFRESH_EST_EXPIRY_INTERVAL_SECS env var")
@@ -268,10 +268,12 @@ mod tests {
     #[test]
     fn provisioning_config_test() {
         crate::common::set_env_var("IDENTITY_CONFIG_FILE_PATH", "");
-        assert!(ProvisioningConfig::new()
-            .unwrap_err()
-            .to_string()
-            .starts_with("provisioning_config: cannot read"));
+        assert!(
+            ProvisioningConfig::new()
+                .unwrap_err()
+                .to_string()
+                .starts_with("provisioning_config: cannot read")
+        );
 
         crate::common::set_env_var(
             "IDENTITY_CONFIG_FILE_PATH",

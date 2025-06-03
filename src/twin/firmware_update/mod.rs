@@ -5,17 +5,17 @@ pub mod update_validation;
 
 use crate::{
     bootloader_env,
-    common::{from_json_file, path_ends_with, to_json_file, RootPartition},
+    common::{RootPartition, from_json_file, path_ends_with, to_json_file},
     reboot_reason, systemd,
     systemd::{unit::UnitAction, watchdog::WatchdogManager},
     twin::{
+        Feature,
         feature::*,
         firmware_update::{adu_types::*, common::*, os_version::*},
-        Feature,
     },
 };
-use anyhow::{bail, ensure, Context, Result};
-use base64::{prelude::BASE64_STANDARD, Engine};
+use anyhow::{Context, Result, bail, ensure};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use log::{debug, error, info};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -102,7 +102,9 @@ impl Drop for RunUpdateGuard {
         if !(self.succeeded) {
             let wdt = self.wdt.take();
 
-            debug!("run update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}");
+            debug!(
+                "run update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}"
+            );
 
             tokio::spawn(async move {
                 if let Some(wdt) = wdt {
@@ -209,7 +211,7 @@ impl FirmwareUpdate {
         self.swu_file_path = None;
 
         let _guard = LoadUpdateGuard::new().await?;
-        let du_config: DeviceUpdateConfig = from_json_file(&du_config_path!())?;
+        let du_config: DeviceUpdateConfig = from_json_file(du_config_path!())?;
         let current_version = OmnectOsVersion::from_sw_versions_file()?;
         let mut ar = Archive::new(fs::File::open(path).context("failed to open archive")?);
         let mut swu_path = None;
@@ -325,7 +327,9 @@ impl FirmwareUpdate {
             bail!("downgrades not allowed ({new_version} < {current_version} )")
         }
 
-        info!("successfully loaded update (current version: {current_version} new version: {new_version})");
+        info!(
+            "successfully loaded update (current version: {current_version} new version: {new_version})"
+        );
 
         self.swu_file_path = Some(swu_path);
 
@@ -516,9 +520,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err
-            .chain()
-            .any(|e| e.to_string().starts_with("downgrades not allowed")));
+        assert!(
+            err.chain()
+                .any(|e| e.to_string().starts_with("downgrades not allowed"))
+        );
 
         fs::write(
             sw_versions_file,
@@ -531,9 +536,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.chain().any(|e| e
-            .to_string()
-            .starts_with("version 4.0.24.557123921 already installed")));
+        assert!(err.chain().any(|e| {
+            e.to_string()
+                .starts_with("version 4.0.24.557123921 already installed")
+        }));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -576,9 +582,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.chain().any(|e| e
-            .to_string()
-            .starts_with("failed to verify compatibility: manufacturer")));
+        assert!(err.chain().any(|e| {
+            e.to_string()
+                .starts_with("failed to verify compatibility: manufacturer")
+        }));
 
         du_config.agents[0].manufacturer = "conplement-ag".to_string();
 
@@ -593,9 +600,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.chain().any(|e| e
-            .to_string()
-            .starts_with("failed to verify compatibility: model")));
+        assert!(err.chain().any(|e| {
+            e.to_string()
+                .starts_with("failed to verify compatibility: model")
+        }));
 
         du_config.agents[0].model = "omnect-raspberrypi4-64-gateway-devel".to_string();
 
@@ -610,8 +618,9 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.chain().any(|e| e
-            .to_string()
-            .starts_with("failed to verify compatibility: compatibilityid")));
+        assert!(err.chain().any(|e| {
+            e.to_string()
+                .starts_with("failed to verify compatibility: compatibilityid")
+        }));
     }
 }
