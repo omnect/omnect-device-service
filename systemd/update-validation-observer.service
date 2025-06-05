@@ -1,0 +1,5 @@
+[Unit]
+Description=Observe update validation timer service
+
+[Service]
+ExecStart=/usr/bin/update-validation-observer.sh

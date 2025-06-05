@@ -1,13 +1,13 @@
 use crate::{
     bootloader_env,
     common::from_json_file,
-    reboot_reason, systemd,
+    systemd,
     twin::{Feature, feature::*},
     web_service,
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use notify_debouncer_full::{Debouncer, NoCache, notify::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json};
@@ -263,13 +263,7 @@ impl FactoryReset {
         }
 
         bootloader_env::set("factory-reset", &serde_json::to_string(&cmd)?)?;
-
-        if let Err(e) =
-            reboot_reason::write_reboot_reason("factory-reset", "initiated by portal or API")
-        {
-            error!("reset_to_factory_settings: failed to write reboot reason with {e:#}");
-        }
-        systemd::reboot().await?;
+        systemd::reboot("factory-reset", "initiated by portal or API").await?;
         Ok(None)
     }
 }

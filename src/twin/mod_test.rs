@@ -237,13 +237,11 @@ pub mod mod_test {
             let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
             let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
             let (tx_web_service, _rx_web_service) = mpsc::channel(100);
-            let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
 
             let mut twin = block_on(Twin::new(
                 tx_web_service,
                 tx_reported_properties,
                 tx_outgoing_message,
-                tx_validated,
             ))
             .unwrap();
 

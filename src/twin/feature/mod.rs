@@ -16,6 +16,7 @@ use std::{
 };
 use tokio::{
     sync::{mpsc, oneshot},
+    task::JoinHandle,
     time::{Instant, Interval},
 };
 
@@ -37,7 +38,7 @@ pub enum Command {
     ReloadNetwork,
     RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
-    ValidateUpdateAuthenticated(bool),
+    ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
 }
 
@@ -62,7 +63,7 @@ impl Command {
             ReloadNetwork => TypeId::of::<network::Network>(),
             RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
-            ValidateUpdateAuthenticated(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
         }
     }
@@ -228,14 +229,14 @@ where
         .boxed()
 }
 
-pub fn file_created_stream<T>(paths: Vec<&Path>) -> CommandRequestStream
+pub fn file_created_stream<T>(paths: Vec<&Path>) -> Result<(JoinHandle<()>, CommandRequestStream)>
 where
     T: 'static,
 {
     let (tx, rx) = mpsc::channel(2);
     let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
 
-    tokio::task::spawn_blocking(move || {
+    let handle = tokio::task::spawn_blocking(move || {
         loop {
             for p in &inner_paths {
                 if matches!(p.try_exists(), Ok(true)) {
@@ -253,7 +254,10 @@ where
         }
     });
 
-    tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
+    Ok((
+        handle,
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+    ))
 }
 
 pub fn file_modified_stream<T>(

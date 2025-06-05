@@ -1,18 +1,17 @@
 use crate::{
     bootloader_env,
     common::{RootPartition, from_json_file, to_json_file},
-    reboot_reason,
-    systemd::{self, unit::UnitAction, watchdog::WatchdogManager},
+    systemd::{self, unit::UnitAction},
     twin::{firmware_update::common::*, web_service},
 };
-use anyhow::{Context, Result, bail};
-use log::{debug, error, info};
+use anyhow::{Context, Result};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, sync::Arc, time::SystemTime};
 use tokio::{
-    sync::oneshot,
-    time::{Duration, Instant, timeout_at},
+    sync::{RwLock, oneshot},
+    time::{Duration, timeout},
 };
 
 // this file is used to detect if we have to validate an update
@@ -25,7 +24,7 @@ static UPDATE_VALIDATION_FAILED_FILE: &str =
     "/run/omnect-device-service/omnect_validate_update_failed";
 static UPDATE_VALIDATION_TIMEOUT_IN_SECS_DEFAULT: u64 = 300;
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 enum UpdateValidationStatus {
     #[default]
     NoUpdate,
@@ -48,62 +47,41 @@ impl UpdateValidationStatus {
     }
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct UpdateValidationParams {
-    start_boottime_secs: u64,
-    deadline_boottime_secs: u64,
+    deadline_timestamp: SystemTime,
     restart_count: u8,
-    authenticated: bool,
-    local_update: bool,
 }
 
 #[derive(Default)]
 pub struct UpdateValidation {
     params: Option<UpdateValidationParams>,
-    tx_validated: Option<oneshot::Sender<()>>,
     tx_cancel_timer: Option<oneshot::Sender<()>>,
-    status: UpdateValidationStatus,
+    status: Arc<RwLock<UpdateValidationStatus>>,
+    local_update: bool,
 }
 
 impl UpdateValidation {
-    pub async fn new(tx_validated: oneshot::Sender<()>) -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let new_self = match UpdateValidationStatus::init() {
-            UpdateValidationStatus::ValidatingTrial(trial) => {
-                Self::start_validation(trial == 0, tx_validated)?
-            }
-            status => {
-                if let Err(e) = tx_validated.send(()) {
-                    error!("failed to send validated state: {e:#?}")
-                }
-                UpdateValidation {
-                    status,
-                    ..Default::default()
-                }
-            }
+            UpdateValidationStatus::ValidatingTrial(trial) => Self::start_validation(trial == 0)?,
+            status => UpdateValidation {
+                status: Arc::new(RwLock::new(status)),
+                ..Default::default()
+            },
         };
         info!("update validation status: {:?}", new_self.status);
         new_self.report().await;
         Ok(new_self)
     }
 
-    fn start_validation(first_start: bool, tx_validated: oneshot::Sender<()>) -> Result<Self> {
+    fn start_validation(first_start: bool) -> Result<Self> {
         let params = if first_start {
-            let start_boottime_secs = sysinfo::System::boot_time();
-            let deadline_boottime_secs = start_boottime_secs + Self::timeout_secs();
-
-            // check if there is an update validation config
-            let mut local_update = false;
-            if let Ok(true) = Path::new(&update_validation_config_path!()).try_exists() {
-                let config: UpdateValidationConfig =
-                    from_json_file(update_validation_config_path!())?;
-                local_update = config.local;
-            };
-
             UpdateValidationParams {
-                start_boottime_secs,
-                deadline_boottime_secs,
-                local_update,
-                ..Default::default()
+                deadline_timestamp: SystemTime::now()
+                    .checked_add(Duration::from_secs(Self::timeout_secs()))
+                    .context("failed to build deadline timestamp")?,
+                restart_count: 0,
             }
         } else {
             // we detected update validation before, but were not validated before
@@ -119,10 +97,20 @@ impl UpdateValidation {
             first_start,
         )?;
 
+        // check if there is an update validation config
+        let mut local_update = false;
+        if let Ok(true) = Path::new(&update_validation_config_path!()).try_exists() {
+            local_update =
+                from_json_file::<_, UpdateValidationConfig>(update_validation_config_path!())?
+                    .local;
+        };
+
         let mut update_validation = UpdateValidation {
-            status: UpdateValidationStatus::ValidatingTrial(params.restart_count),
+            status: Arc::new(RwLock::new(UpdateValidationStatus::ValidatingTrial(
+                params.restart_count,
+            ))),
             params: Some(params),
-            tx_validated: Some(tx_validated),
+            local_update,
             ..Default::default()
         };
 
@@ -131,27 +119,34 @@ impl UpdateValidation {
     }
 
     pub async fn set_authenticated(&mut self, authenticated: bool) -> Result<()> {
-        if matches!(self.status, UpdateValidationStatus::ValidatingTrial(_)) {
-            let params = self.params.as_mut().context("validation params missing")?;
-
-            params.authenticated = authenticated;
+        if matches!(
+            *self.status.read().await,
+            UpdateValidationStatus::ValidatingTrial(_)
+        ) && self.tx_cancel_timer.is_some()
+        {
             debug!(
-                "authenticated: {}, local update: {}",
-                params.authenticated, params.local_update
+                "authenticated: {authenticated}, local update: {}",
+                self.local_update
             );
 
             // for local updates we accept if there is no connection to iothub
-            if params.local_update || params.authenticated {
-                to_json_file(&params, UPDATE_VALIDATION_COMPLETE_BARRIER_FILE, false)?;
-                // for now start validation blocking twin::init - maybe we want an successful twin::init as part of validation at some point?
-                return self.check().await;
+            if self.local_update || authenticated {
+                // cancel update validation reboot timer
+                if let Err(e) = self
+                    .tx_cancel_timer
+                    .take()
+                    .context("failed to get tx_cancel_timer")?
+                    .send(())
+                {
+                    error!("tx_cancel_timer cannot send: {e:#?}");
+                }
             }
         }
         Ok(())
     }
 
-    async fn validate(&mut self) -> Result<()> {
-        debug!("started");
+    async fn validate(local_update: bool) -> Result<()> {
+        debug!("validate update");
 
         systemd::wait_for_system_running().await?;
 
@@ -164,12 +159,10 @@ impl UpdateValidation {
         debug!("starting {IOT_HUB_DEVICE_UPDATE_SERVICE}");
         fs::remove_file(UPDATE_VALIDATION_FILE).context("remove UPDATE_VALIDATION_FILE")?;
 
-        let params = self.params.as_mut().context("validation params missing")?;
-
         // in case of local update we don't take care of starting deviceupdate-agent.service,
         // since it might fail because of missing iothub connection.
         // instead we let deviceupdate-agent.timer doing the job periodically
-        if !params.local_update {
+        if !local_update {
             systemd::unit::unit_action(
                 IOT_HUB_DEVICE_UPDATE_SERVICE,
                 UnitAction::Start,
@@ -180,11 +173,11 @@ impl UpdateValidation {
 
         debug!("successfully started {IOT_HUB_DEVICE_UPDATE_SERVICE}");
 
-        info!("successfully validated update");
         Ok(())
     }
 
-    async fn finalize(&mut self) -> Result<()> {
+    async fn finalize(status: Arc<RwLock<UpdateValidationStatus>>) -> Result<()> {
+        info!("finalize update");
         let omnect_validate_update_part =
             RootPartition::from_index_string(bootloader_env::get("omnect_validate_update_part")?)?;
 
@@ -201,101 +194,66 @@ impl UpdateValidation {
 
         let _ = fs::remove_file(update_validation_config_path!());
 
-        // cancel update validation reboot timer
-        if let Err(e) = self
-            .tx_cancel_timer
-            .take()
-            .context("failed to get tx_cancel_timer")?
-            .send(())
-        {
-            error!("update validation: could not cancel update validation reboot timer: {e:#?}");
-        }
+        let mut status = status.write().await;
+        *status = UpdateValidationStatus::Succeeded;
 
-        self.status = UpdateValidationStatus::Succeeded;
-
-        if let Err(e) = self
-            .tx_validated
-            .take()
-            .context("failed to get tx_validated")?
-            .send(())
-        {
-            error!("failed to send validated state: {e:#?}")
-        }
-
-        self.report().await;
-
-        Ok(())
-    }
-
-    async fn check(&mut self) -> Result<()> {
-        // prolong watchdog interval for update validation phase by twice the remaining
-        // update cancellation timer
-        let saved_interval = WatchdogManager::interval(
-            self.remaining_timeout()?
-                .checked_mul(2)
-                .context("watchdog duration overflow")?,
-        )
-        .await?;
-
-        if let Err(e) = self.validate().await {
-            if let Err(e) = reboot_reason::write_reboot_reason(
-                "swupdate-validation-failed",
-                &format!("validate error: {e:#}"),
-            ) {
-                error!("check (validate): failed to write reboot reason [{e:#}]");
-            }
-            systemd::reboot().await?;
-            bail!("update validation: validate failed with {e:#}");
-        }
-        if let Err(e) = self.finalize().await {
-            if let Err(e) = reboot_reason::write_reboot_reason(
-                "swupdate-validation-failed",
-                &format!("finalize error: {e:#}"),
-            ) {
-                error!("check (finalize): failed to write reboot reason [{e:#}]");
-            }
-            systemd::reboot().await?;
-            bail!("update validation: finalize error: {e:#}");
-        }
-
-        if let Some(interval) = saved_interval {
-            let _ = WatchdogManager::interval(interval).await?;
-        }
+        Self::report_impl(status.clone()).await;
 
         Ok(())
     }
 
     pub async fn report(&self) {
+        Self::report_impl(self.status.read().await.clone()).await
+    }
+
+    async fn report_impl(status: UpdateValidationStatus) {
         web_service::publish(
             web_service::PublishChannel::UpdateValidationStatusV1,
-            json!({"status": self.status}),
+            json!({"status": status}),
         )
         .await;
     }
 
     fn start_timeout(&mut self) -> Result<()> {
         let (tx_cancel_timer, rx_cancel_timer) = oneshot::channel();
-        let deadline = Instant::now() + self.remaining_timeout()?;
+        let remaining_time = self
+            .params
+            .clone()
+            .context("validation params missing")?
+            .deadline_timestamp
+            .duration_since(SystemTime::now())
+            .context("failed to build remaining timeout secs")?;
+        let status = Arc::clone(&self.status);
+        let local_update = self.local_update;
         self.tx_cancel_timer = Some(tx_cancel_timer);
         tokio::spawn(async move {
-            info!("reboot timer started");
-            match timeout_at(deadline, rx_cancel_timer).await {
-                Err(_) => {
-                    error!("update validation timed out: write reboot reason and reboot");
-                    if let Err(e) = reboot_reason::write_reboot_reason(
-                        "swupdate-validation-failed",
-                        "timer expired",
-                    ) {
-                        error!(
-                            "update validation timed out: failed to write reboot reason with {e:#}"
-                        );
-                    }
-                    if let Err(e) = systemd::reboot().await {
-                        error!("update validation timed out: failed to trigger reboot with {e:#}");
-                    }
+            info!("observe update with timeout: {}s", remaining_time.as_secs());
+
+            let observe_update = async move {
+                // now wait that we get canceled as a result of a successful startup
+                if let Err(e) = rx_cancel_timer.await {
+                    warn!("observe update validation: {e:#}. Application stopped from outside?");
+                    return Ok(());
                 }
-                _ => info!("reboot timer canceled."),
+
+                Self::validate(local_update).await?;
+                Self::finalize(status).await
+            };
+
+            let error = match timeout(remaining_time, observe_update).await {
+                Ok(Ok(())) => None,
+                Ok(Err(e)) => Some(e),
+                Err(e) => Some(anyhow::anyhow!(e.to_string())),
+            };
+
+            if let Some(e) = error {
+                error!("update validation failed: {e:#}");
+                if let Err(e) = systemd::reboot("swupdate-validation-failed", &e.to_string()).await
+                {
+                    error!("failed to trigger reboot: {e:#}");
+                }
             }
+            info!("update successfully validated")
         });
 
         Ok(())
@@ -308,18 +266,11 @@ impl UpdateValidation {
                 Ok(secs) => {
                     timeout_secs = secs;
                 }
-                _ => error!("ignore invalid confirmation timeout {secs}"),
+                _ => error!(
+                    "ignore invalid confirmation timeout {secs}s and use default {timeout_secs}s"
+                ),
             };
         }
         timeout_secs
-    }
-
-    fn remaining_timeout(&self) -> Result<Duration> {
-        let params = self.params.as_ref().context("validation params missing")?;
-
-        Ok(
-            Duration::from_secs(params.start_boottime_secs + Self::timeout_secs())
-                - Duration::from_secs(sysinfo::System::boot_time()),
-        )
     }
 }

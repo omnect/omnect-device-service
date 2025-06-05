@@ -6,7 +6,7 @@ pub mod update_validation;
 use crate::{
     bootloader_env,
     common::{RootPartition, from_json_file, path_ends_with, to_json_file},
-    reboot_reason, systemd,
+    systemd,
     systemd::{unit::UnitAction, watchdog::WatchdogManager},
     twin::{
         Feature,
@@ -182,7 +182,7 @@ impl Feature for FirmwareUpdate {
         match cmd {
             Command::LoadFirmwareUpdate(cmd) => self.load(&cmd.update_file_path).await,
             Command::RunFirmwareUpdate(cmd) => self.run(cmd.validate_iothub_connection).await,
-            Command::ValidateUpdateAuthenticated(authenticated) => {
+            Command::ValidateUpdate(authenticated) => {
                 self.update_validation
                     .set_authenticated(*authenticated)
                     .await?;
@@ -197,11 +197,11 @@ impl FirmwareUpdate {
     const FIRMWARE_UPDATE_VERSION: u8 = 1;
     const ID: &'static str = "firmware_update";
 
-    pub fn new(update_validation: UpdateValidation) -> Self {
-        FirmwareUpdate {
+    pub async fn new() -> Result<Self> {
+        Ok(FirmwareUpdate {
             swu_file_path: None,
-            update_validation,
-        }
+            update_validation: UpdateValidation::new().await?,
+        })
     }
 
     async fn load<P>(&mut self, path: P) -> CommandResult
@@ -394,11 +394,7 @@ impl FirmwareUpdate {
             true,
         )?;
 
-        if let Err(e) = reboot_reason::write_reboot_reason("swupdate", "local update") {
-            error!("failed to write reboot reason: {e:#}");
-        }
-
-        systemd::reboot().await?;
+        systemd::reboot("swupdate", "local update").await?;
 
         info!("update succeeded");
 
@@ -480,8 +476,7 @@ mod tests {
         crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
         crate::common::set_env_var("DEVICE_UPDATE_PATH", du_config_file);
         crate::common::set_env_var("SW_VERSIONS_PATH", sw_versions_file);
-        let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
-        let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
+        let update_validation = UpdateValidation::new().await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
@@ -505,8 +500,7 @@ mod tests {
         crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
         crate::common::set_env_var("DEVICE_UPDATE_PATH", du_config_file);
         crate::common::set_env_var("SW_VERSIONS_PATH", &sw_versions_file);
-        let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
-        let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
+        let update_validation = UpdateValidation::new().await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
@@ -553,8 +547,7 @@ mod tests {
         crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
         crate::common::set_env_var("DEVICE_UPDATE_PATH", &du_config_file);
         crate::common::set_env_var("SW_VERSIONS_PATH", sw_versions_file);
-        let (tx_validated, mut _rx_validated) = tokio::sync::oneshot::channel();
-        let update_validation = UpdateValidation::new(tx_validated).await.unwrap();
+        let update_validation = UpdateValidation::new().await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,

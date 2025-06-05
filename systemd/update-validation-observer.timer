@@ -1,0 +1,8 @@
+[Unit]
+Description=Observe update validation timer
+
+[Timer]
+OnBootSec=10min
+
+[Install]
+WantedBy=timers.target

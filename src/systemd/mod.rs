@@ -18,12 +18,17 @@ pub fn sd_notify_ready() {
 }
 
 #[cfg(not(feature = "mock"))]
-pub async fn reboot() -> Result<()> {
+pub async fn reboot(reason: &str, extra_info: &str) -> Result<()> {
+    use crate::reboot_reason;
     use anyhow::Context;
     use log::{debug, error};
     use std::process::Command;
 
     info!("systemd::reboot");
+
+    reboot_reason::write_reboot_reason(reason, extra_info).context(format!(
+        "reboot: failed to write reason '{reason}' with info '{extra_info}'"
+    ))?;
 
     //journalctl seems not to have a dbus api
     match Command::new("sudo").args(["journalctl", "--sync"]).status() {
@@ -44,9 +49,6 @@ pub async fn reboot() -> Result<()> {
         )
         .await
         .context("reboot: call_method() failed")?;
-
-    debug!("reboot: succeeded to call systemd reboot");
-
     Ok(())
 }
 
@@ -74,6 +76,6 @@ pub async fn wait_for_system_running() -> Result<()> {
 }
 
 #[cfg(feature = "mock")]
-pub async fn reboot() -> Result<()> {
+pub async fn reboot(_reason: &str, _extra_info: &str) -> Result<()> {
     Ok(())
 }
