@@ -7,7 +7,7 @@ pub mod web_service;
 
 use env_logger::{Builder, Env, Target};
 use log::{error, info};
-use std::{env, io::Write, process};
+use std::{io::Write, process};
 use twin::Twin;
 
 #[tokio::main]
@@ -49,14 +49,4 @@ async fn main() {
     }
 
     info!("application shutdown");
-
-    // FIXME:
-    //   under some circumstances the app can hang at termination what can be
-    //   worked around by explicitly issuing exit here.
-    //   to ease further examination of that problem allow setting an
-    //   environment variable to skip the workaround.
-    if env::var("DONT_EXPLICITLY_EXIT_ON_TERMINATION").is_err() {
-        // ensure that we terminate here right now
-        process::exit(0);
-    }
 }

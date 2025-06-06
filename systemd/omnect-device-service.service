@@ -9,7 +9,6 @@ StartLimitIntervalSec=120
 
 [Service]
 # mandatory env var used in omnect-device-service & omnect-device-service.exec_stop_post.sh
-Environment="UPDATE_VALIDATION_TIMEOUT_IN_SECS=300"
 EnvironmentFile=-/etc/omnect/omnect-device-service.env
 Type=notify
 Restart=always

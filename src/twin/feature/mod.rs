@@ -37,7 +37,7 @@ pub enum Command {
     ReloadNetwork,
     RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
-    ValidateUpdateAuthenticated(bool),
+    ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
 }
 
@@ -62,7 +62,7 @@ impl Command {
             ReloadNetwork => TypeId::of::<network::Network>(),
             RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
-            ValidateUpdateAuthenticated(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
         }
     }

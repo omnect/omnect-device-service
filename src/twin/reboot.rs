@@ -1,11 +1,11 @@
 use crate::{
-    reboot_reason, systemd,
-    twin::{feature::*, Feature},
+    systemd,
+    twin::{Feature, feature::*},
     web_service,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, error, info};
+use log::{debug, info};
 use serde::Deserialize;
 use serde_json::json;
 use std::{env, time::Duration};
@@ -64,13 +64,7 @@ impl Reboot {
     async fn reboot(&self) -> CommandResult {
         info!("reboot requested");
 
-        if let Err(e) =
-            reboot_reason::write_reboot_reason("ods-reboot", "initiated by portal or API")
-        {
-            error!("reboot: failed to write reboot reason [{e:#}]");
-        }
-
-        systemd::reboot().await?;
+        systemd::reboot("ods-reboot", "initiated by portal or API").await?;
 
         Ok(None)
     }

@@ -369,12 +369,12 @@ impl WebService {
         info!("execute request: send {request:?}");
 
         if tx_request.send(request).await.is_err() {
-            error!("execute request: command receiver droped");
+            error!("execute request: command receiver dropped");
             return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).finish();
         }
 
         let Ok(result) = rx_reply.await else {
-            error!("execute request: command sender droped");
+            error!("execute request: command sender dropped");
             return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).finish();
         };
 

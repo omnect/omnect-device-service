@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "https://github.com/omnect/omnect-device-service.git"
-version = "0.41.4"
+version = "0.41.5"
 
 [dependencies]
 actix-server = { version = "2.6", default-features = false }
@@ -29,7 +29,6 @@ lazy_static = { version = "1.5", default-features = false }
 log = { version = "0.4", default-features = false }
 log-panics = { version = "2", default-features = false }
 modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.3.4", default-features = false, optional = true }
-nix = { version = "0.30", default-features = false, features = ["time"] }
 notify = { version = "8.0", default-features = false }
 notify-debouncer-full = { version = "0.5", default-features = false }
 regex-lite = { version = "0.1", default-features = true }
