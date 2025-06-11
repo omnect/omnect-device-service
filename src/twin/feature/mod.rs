@@ -2,34 +2,34 @@ use crate::twin::{
     TwinUpdate, TwinUpdateState, consent, factory_reset, firmware_update, network, reboot,
     ssh_tunnel, system_info,
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail};
 use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
-use futures::StreamExt;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer, notify::*};
+use std::hash::{Hash, Hasher};
 use std::{
-    any::TypeId,
-    path::{Path, PathBuf},
+    collections::HashMap,
+    hash::DefaultHasher,
+    path::PathBuf,
     pin::Pin,
+    sync::{LazyLock, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{
     sync::{mpsc, oneshot},
-    task::JoinHandle,
-    time::{Instant, Interval},
+    task::JoinSet,
 };
+// ToDo really needed?
+use typeid::ConstTypeId;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
     DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
-    DirModified(PathCommand),
     FactoryReset(factory_reset::FactoryResetCommand),
     FleetId(system_info::FleetIdCommand),
-    FileCreated(PathCommand),
-    FileModified(PathCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
     LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
@@ -40,31 +40,30 @@ pub enum Command {
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
     ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
+    WatchPath(PathCommand),
 }
 
 impl Command {
-    pub fn feature_id(&self) -> TypeId {
+    pub fn feature_id(&self) -> ConstTypeId {
         use Command::*;
 
         match self {
-            CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
-            DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
-            DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
-            DirModified(cmd) => cmd.feature_id,
-            FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
-            FileCreated(cmd) => cmd.feature_id,
-            FileModified(cmd) => cmd.feature_id,
-            FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
-            GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            CloseSshTunnel(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
+            DesiredGeneralConsent(_) => ConstTypeId::of::<consent::DeviceUpdateConsent>(),
+            DesiredUpdateDeviceSshCa(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
+            FactoryReset(_) => ConstTypeId::of::<factory_reset::FactoryReset>(),
+            FleetId(_) => ConstTypeId::of::<system_info::SystemInfo>(),
+            GetSshPubKey(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
-            LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
-            OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
-            Reboot => TypeId::of::<reboot::Reboot>(),
-            ReloadNetwork => TypeId::of::<network::Network>(),
-            RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
-            SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
-            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
-            UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            LoadFirmwareUpdate(_) => ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
+            OpenSshTunnel(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
+            Reboot => ConstTypeId::of::<reboot::Reboot>(),
+            ReloadNetwork => ConstTypeId::of::<network::Network>(),
+            RunFirmwareUpdate(_) => ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
+            SetWaitOnlineTimeout(_) => ConstTypeId::of::<reboot::Reboot>(),
+            ValidateUpdate(_) => ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
+            UserConsent(_) => ConstTypeId::of::<consent::DeviceUpdateConsent>(),
+            WatchPath(cmd) => cmd.feature_id,
         }
     }
 
@@ -193,157 +192,138 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        Ok(None)
-    }
-
     async fn command(&mut self, _cmd: &Command) -> CommandResult {
         unimplemented!();
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct IntervalCommand {
+    pub feature_id: ConstTypeId,
+    pub id: Option<u64>,
+}
+
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct PathCommand {
-    pub feature_id: TypeId,
+    pub feature_id: ConstTypeId,
     pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct IntervalCommand {
-    pub feature_id: TypeId,
-    pub instant: Instant,
+#[derive(Hash, Eq, PartialEq, Debug)]
+pub struct Watch {
+    pub command: PathCommand,
+    // ToDo: make hashset (https://stackoverflow.com/questions/55932914/how-to-implement-the-stdhashhash-trait-on-external-data-types-in-rust)
+    pub event_kinds: Vec<EventKind>,
+}
+static WATCHER: OnceLock<Mutex<Debouncer<INotifyWatcher, NoCache>>> = OnceLock::new();
+static WATCHES: LazyLock<Mutex<HashMap<u64, Watch>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static TIMERS: LazyLock<Mutex<JoinSet<()>>> = LazyLock::new(|| Mutex::new(JoinSet::new()));
+static TX_COMMAND_REQUEST: OnceLock<Mutex<mpsc::Sender<CommandRequest>>> = OnceLock::new();
+
+pub fn init(tx_command_request: mpsc::Sender<CommandRequest>) -> Result<()> {
+    TX_COMMAND_REQUEST
+        .set(Mutex::new(tx_command_request.clone()))
+        .map_err(|e| anyhow!("TX_COMMAND_REQUEST: {e:#?}"))?;
+
+    WATCHER
+        .set(Mutex::new(
+            new_debouncer(
+                Duration::from_secs(2),
+                None,
+                move |res: DebounceEventResult| match res {
+                    Ok(debounced_events) => {
+                        for de in debounced_events {
+                            WATCHES
+                                .lock()
+                                .unwrap()
+                                .values()
+                                .filter(|w| {
+                                    w.event_kinds.contains(&de.event.kind)
+                                        && de.paths.contains(&w.command.path)
+                                })
+                                .for_each(|w| {
+                                    tx_command_request
+                                        .blocking_send(CommandRequest {
+                                            command: Command::WatchPath(w.command.clone()),
+                                            reply: None,
+                                        })
+                                        .unwrap()
+                                });
+                        }
+                    }
+                    Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
+                },
+            )
+            .context("context")?,
+        ))
+        .map_err(|e| anyhow!("WATCHER: {e:#?}"))
 }
 
-pub fn interval_stream<T>(interval: Interval) -> CommandRequestStream
-where
-    T: 'static,
-{
-    tokio_stream::wrappers::IntervalStream::new(interval)
-        .map(|i| CommandRequest {
-            command: Command::Interval(IntervalCommand {
-                feature_id: TypeId::of::<T>(),
-                instant: i,
-            }),
-            reply: None,
-        })
-        .boxed()
-}
-
-pub fn file_created_stream<T>(paths: Vec<&Path>) -> Result<(JoinHandle<()>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
-
-    let handle = tokio::task::spawn_blocking(move || {
+pub fn notify_interval(command: IntervalCommand, interval: Duration) {
+    TIMERS.lock().unwrap().spawn(async move {
+        let mut interval = tokio::time::interval(interval);
+        let tx_command_request = TX_COMMAND_REQUEST.get().unwrap().lock().unwrap().clone();
         loop {
-            for p in &inner_paths {
-                if matches!(p.try_exists(), Ok(true)) {
-                    let _ = tx.blocking_send(CommandRequest {
-                        command: Command::FileCreated(PathCommand {
-                            feature_id: TypeId::of::<T>(),
-                            path: p.clone(),
-                        }),
-                        reply: None,
-                    });
-                    return;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(500));
+            interval.tick().await;
+            tx_command_request
+                .blocking_send(CommandRequest {
+                    command: Command::Interval(command.clone()),
+                    reply: None,
+                })
+                .unwrap()
         }
     });
-
-    Ok((
-        handle,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
 }
 
-pub fn file_modified_stream<T>(
-    paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
-        None,
-        move |res: DebounceEventResult| match res {
-            Ok(debounced_events) => {
-                for de in debounced_events {
-                    if let EventKind::Modify(_) = de.event.kind {
-                        debug!("notify-event: {de:?}");
-                        for p in &de.paths {
-                            let _ = tx.blocking_send(CommandRequest {
-                                command: Command::FileModified(PathCommand {
-                                    feature_id: TypeId::of::<T>(),
-                                    path: p.clone(),
-                                }),
-                                reply: None,
-                            });
-                        }
-                    }
-                }
-            }
-            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-        },
-    )?;
+pub fn watch_path(watch: Watch, recursive_mode: RecursiveMode) -> Result<u64> {
+    // ToDo filecreated event but file is already there
+    // ToDO rm unwrap
+    let mut watches = WATCHES.lock().unwrap();
+    let mut hasher = DefaultHasher::new();
 
-    for p in paths {
-        ensure!(p.is_file(), "{p:?} is not a regular existing file");
-        debug!("watch {p:?}");
-        debouncer.watch(p, RecursiveMode::NonRecursive)?;
+    watch.hash(&mut hasher);
+
+    let key = hasher.finish();
+
+    if !watches
+        .values()
+        .any(|w| w.command.path == watch.command.path)
+    {
+        // ToDO rm unwrap
+        WATCHER
+            .get()
+            .context("context")?
+            .lock()
+            .unwrap()
+            .watch(watch.command.path.clone(), recursive_mode)
+            .context("context")?;
     }
 
-    Ok((
-        debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
+    watches.insert(key, watch);
+
+    Ok(key)
 }
 
-pub fn dir_modified_stream<T>(
-    paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
-        None,
-        move |res: DebounceEventResult| match res {
-            Ok(debounced_events) => {
-                for de in debounced_events {
-                    if matches!(de.event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
-                        debug!("notify-event: {de:?}");
-                        for p in &de.paths {
-                            let _ = tx.blocking_send(CommandRequest {
-                                command: Command::DirModified(PathCommand {
-                                    feature_id: TypeId::of::<T>(),
-                                    path: p.clone(),
-                                }),
-                                reply: None,
-                            });
-                        }
-                    }
-                }
-            }
-            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-        },
-    )?;
-
-    for p in paths {
-        ensure!(p.is_dir(), "{p:?} is not a regular existing directory");
-        debug!("watch {p:?}");
-        debouncer.watch(p, RecursiveMode::Recursive)?;
+pub fn unwatch_path(key: u64) -> Result<()> {
+    // ToDO rm unwrap
+    let mut watches = WATCHES.lock().unwrap();
+    if let Some(watch) = watches.remove(&key) {
+        if !watches
+            .values()
+            .any(|w| w.command.path == watch.command.path)
+        {
+            // ToDO rm unwrap
+            WATCHER
+                .get()
+                .context("context")?
+                .lock()
+                .unwrap()
+                .unwatch(watch.command.path)
+                .context("context")?
+        }
     }
 
-    Ok((
-        debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -443,10 +423,7 @@ mod tests {
             })
             .unwrap(),
             Command::UserConsent(consent::UserConsentCommand {
-                user_consent: std::collections::HashMap::from([(
-                    "foo".to_string(),
-                    "bar".to_string()
-                )]),
+                user_consent: HashMap::from([("foo".to_string(), "bar".to_string())]),
             })
         );
 

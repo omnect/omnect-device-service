@@ -33,7 +33,6 @@ use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
 use std::{
-    any::TypeId,
     collections::HashMap,
     env,
     path::Path,
@@ -41,6 +40,7 @@ use std::{
 };
 use tokio::{select, sync::mpsc};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
+use typeid::ConstTypeId;
 
 #[derive(PartialEq)]
 enum TwinState {
@@ -52,11 +52,12 @@ enum TwinState {
 pub struct Twin {
     client: Option<IotHubClient>,
     web_service: Option<web_service::WebService>,
+    // ToDo: rm?
     tx_command_request: mpsc::Sender<CommandRequest>,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     state: TwinState,
-    features: HashMap<TypeId, Box<DynFeature<'static>>>,
+    features: HashMap<ConstTypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
 }
 
@@ -66,49 +67,50 @@ impl Twin {
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
+        feature::init(tx_command_request.clone())?;
         /*
             - init features first
             - start with SystemInfo in order to log useful infos asap
         */
         let features = HashMap::from([
             (
-                TypeId::of::<system_info::SystemInfo>(),
+                ConstTypeId::of::<system_info::SystemInfo>(),
                 DynFeature::boxed(system_info::SystemInfo::new()?),
             ),
             (
-                TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::boxed(consent::DeviceUpdateConsent::default()),
+                ConstTypeId::of::<consent::DeviceUpdateConsent>(),
+                DynFeature::boxed(consent::DeviceUpdateConsent::new()?),
             ),
             (
-                TypeId::of::<factory_reset::FactoryReset>(),
+                ConstTypeId::of::<factory_reset::FactoryReset>(),
                 DynFeature::boxed(factory_reset::FactoryReset::new()?),
             ),
             (
-                TypeId::of::<firmware_update::FirmwareUpdate>(),
+                ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
                 DynFeature::boxed(firmware_update::FirmwareUpdate::new().await?),
             ),
             (
-                TypeId::of::<modem_info::ModemInfo>(),
+                ConstTypeId::of::<modem_info::ModemInfo>(),
                 DynFeature::boxed(modem_info::ModemInfo::new()),
             ),
             (
-                TypeId::of::<network::Network>(),
-                DynFeature::boxed(network::Network::default()),
+                ConstTypeId::of::<network::Network>(),
+                DynFeature::boxed(network::Network::new()),
             ),
             (
-                TypeId::of::<provisioning_config::ProvisioningConfig>(),
+                ConstTypeId::of::<provisioning_config::ProvisioningConfig>(),
                 DynFeature::boxed(provisioning_config::ProvisioningConfig::new()?),
             ),
             (
-                TypeId::of::<reboot::Reboot>(),
+                ConstTypeId::of::<reboot::Reboot>(),
                 DynFeature::boxed(reboot::Reboot::default()),
             ),
             (
-                TypeId::of::<ssh_tunnel::SshTunnel>(),
+                ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
                 DynFeature::boxed(ssh_tunnel::SshTunnel::new()),
             ),
             (
-                TypeId::of::<wifi_commissioning::WifiCommissioning>(),
+                ConstTypeId::of::<wifi_commissioning::WifiCommissioning>(),
                 DynFeature::boxed(wifi_commissioning::WifiCommissioning::default()),
             ),
         ]);
@@ -331,19 +333,6 @@ impl Twin {
         }
     }
 
-    fn feature_command_request_streams(&mut self) -> Vec<CommandRequestStream> {
-        self.features
-            .values_mut()
-            .filter_map(|f| {
-                if f.is_enabled() {
-                    f.command_request_stream().unwrap()
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
     async fn request_validate_update(&mut self, authenticated: bool) -> Result<()> {
         self.tx_command_request
             .send(CommandRequest {
@@ -384,10 +373,11 @@ impl Twin {
 
         systemd::sd_notify_ready();
 
-        let mut command_requests = twin.feature_command_request_streams();
-        command_requests.push(Self::direct_method_stream(rx_direct_method));
-        command_requests.push(Self::desired_properties_stream(rx_twin_desired));
-        command_requests.push(ReceiverStream::new(rx_command_request).boxed());
+        let command_requests = vec![
+            Self::direct_method_stream(rx_direct_method),
+            Self::desired_properties_stream(rx_twin_desired),
+            ReceiverStream::new(rx_command_request).boxed(),
+        ];
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
