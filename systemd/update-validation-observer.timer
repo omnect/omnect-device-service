@@ -1,5 +1,6 @@
 [Unit]
 Description=Observe update validation timer
+ConditionPathExists=/run/omnect-device-service/omnect_validate_update
 
 [Timer]
 OnBootSec=10min

@@ -13,14 +13,14 @@ function reboot() {
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
 
-# for now we ignore SERVICE_RESULT for the decision to reboot
-# the system.
+# for now we only check for ods failed (EXIT_STATUS not0) and ignore SERVICE_RESULT
+# and EXIT_CODE for the decision to reboot the system.
 # however, it does potentially make sense to reboot on certain combinations
 # even if restart_count < max_restart_count or update validation has not timed
 # out yet. (we have to gain experience.)
 if [ -f ${barrier_json} ]; then
   # we are run during update validation and ods exited with an error
-  if [ "${EXIT_CODE}" == "exited" ] && [ "${EXIT_STATUS}" != "0" ]; then
+  if [ "${EXIT_STATUS}" != "0" ]; then
     restart_count=$(jq -r .restart_count ${barrier_json})
 
     if [ ${restart_count} -ge ${max_restart_count} ]; then
