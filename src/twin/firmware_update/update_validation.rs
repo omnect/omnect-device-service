@@ -79,7 +79,7 @@ impl UpdateValidation {
         let params = if first_start {
             UpdateValidationParams {
                 deadline_timestamp: SystemTime::now()
-                    .checked_add(Duration::from_secs(Self::timeout_secs()))
+                    .checked_add(Self::timeout())
                     .context("failed to build deadline timestamp")?,
                 restart_count: 0,
             }
@@ -259,18 +259,19 @@ impl UpdateValidation {
         Ok(())
     }
 
-    fn timeout_secs() -> u64 {
-        let mut timeout_secs = UPDATE_VALIDATION_TIMEOUT_IN_SECS_DEFAULT;
+    fn timeout() -> Duration {
+        let mut timeout = Duration::from_secs(UPDATE_VALIDATION_TIMEOUT_IN_SECS_DEFAULT);
         if let Ok(secs) = env::var("UPDATE_VALIDATION_TIMEOUT_IN_SECS") {
             match secs.parse::<u64>() {
                 Ok(secs) => {
-                    timeout_secs = secs;
+                    timeout = Duration::from_secs(secs);
                 }
                 _ => error!(
-                    "ignore invalid confirmation timeout {secs}s and use default {timeout_secs}s"
+                    "ignore invalid confirmation timeout {secs}s and use default {}s",
+                    timeout.as_secs()
                 ),
             };
         }
-        timeout_secs
+        timeout
     }
 }
