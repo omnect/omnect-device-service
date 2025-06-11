@@ -13,7 +13,7 @@ function reboot() {
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
 
-# for now we only check for ods failed (EXIT_STATUS not0) and ignore SERVICE_RESULT
+# for now we only check for ods failed (EXIT_STATUS not 0) and ignore SERVICE_RESULT
 # and EXIT_CODE for the decision to reboot the system.
 # however, it does potentially make sense to reboot on certain combinations
 # even if restart_count < max_restart_count or update validation has not timed
