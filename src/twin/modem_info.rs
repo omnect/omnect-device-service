@@ -1,10 +1,13 @@
-use super::{Feature, feature::*};
+use super::{
+    Feature,
+    feature::{self, *},
+};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
 use serde_json::json;
 use std::{env, time::Duration};
-use tokio::{sync::mpsc::Sender, time::interval};
+use tokio::sync::mpsc::Sender;
 
 #[cfg(feature = "modem_info")]
 mod inner {
@@ -294,14 +297,24 @@ mod inner {
     use super::*;
     use log::warn;
 
-    #[derive(Default)]
     pub struct ModemInfo {
         pub(super) tx_reported_properties: Option<Sender<serde_json::Value>>,
     }
 
     impl ModemInfo {
         pub fn new() -> Self {
-            ModemInfo::default()
+            if 0 < *REFRESH_MODEM_INFO_INTERVAL_SECS {
+                feature::notify_interval(
+                    IntervalCommand {
+                        feature_id: typeid::ConstTypeId::of::<Self>(),
+                        id: None,
+                    },
+                    Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
+                );
+            }
+            ModemInfo {
+                tx_reported_properties: None,
+            }
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
@@ -363,16 +376,6 @@ impl Feature for ModemInfo {
     ) -> Result<()> {
         self.tx_reported_properties = Some(tx_reported_properties);
         self.report(true).await
-    }
-
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
-            Ok(None)
-        } else {
-            Ok(Some(interval_stream::<ModemInfo>(interval(
-                Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
-            ))))
-        }
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {

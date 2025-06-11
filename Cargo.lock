@@ -2283,7 +2283,7 @@ dependencies = [
 
 [[package]]
 name = "omnect-device-service"
-version = "0.41.8"
+version = "0.41.6"
 dependencies = [
  "actix-server",
  "actix-web",
@@ -2331,6 +2331,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "toml",
+ "typeid",
  "uuid",
  "x509-parser",
  "zbus",
@@ -3478,6 +3479,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"

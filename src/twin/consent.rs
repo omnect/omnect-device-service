@@ -5,7 +5,7 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
-use notify_debouncer_full::{Debouncer, NoCache, notify::*};
+use notify_debouncer_full::notify::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::HashMap, env, path::Path};
@@ -53,9 +53,7 @@ pub struct ConsentConfig {
     reset_consent_on_fail: bool,
 }
 
-#[derive(Default)]
 pub struct DeviceUpdateConsent {
-    file_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
@@ -87,19 +85,9 @@ impl Feature for DeviceUpdateConsent {
             .await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
-            request_consent_path!().as_path(),
-            history_consent_path!().as_path(),
-        ])
-        .context("command_request_stream: cannot create file_modified_stream")?;
-        self.file_observer = Some(file_observer);
-        Ok(Some(stream))
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::FileModified(file) => {
+            Command::WatchPath(file) => {
                 self.report_consent(from_json_file(&file.path)?).await?;
             }
             Command::DesiredGeneralConsent(cmd) => {
@@ -118,6 +106,26 @@ impl Feature for DeviceUpdateConsent {
 impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
+
+    pub fn new() -> Result<Self> {
+        for path in [request_consent_path!(), history_consent_path!()] {
+            watch_path(
+                Watch {
+                    command: PathCommand {
+                        feature_id: typeid::ConstTypeId::of::<Self>(),
+                        path,
+                    },
+                    event_kinds: vec![EventKind::Modify(event::ModifyKind::Data(
+                        event::DataChange::Content,
+                    ))],
+                },
+                RecursiveMode::Recursive,
+            )?;
+        }
+        Ok(DeviceUpdateConsent {
+            tx_reported_properties: None,
+        })
+    }
 
     fn user_consent(&self, cmd: &UserConsentCommand) -> CommandResult {
         info!("user consent requested: {cmd:?}");

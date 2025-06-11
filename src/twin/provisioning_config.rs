@@ -1,4 +1,7 @@
-use crate::twin::{Feature, feature::*};
+use crate::twin::{
+    Feature,
+    feature::{self, *},
+};
 use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
@@ -7,7 +10,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
-use tokio::{sync::mpsc::Sender, time::interval};
+use tokio::{sync::mpsc::Sender};
 
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
@@ -141,19 +144,6 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
-            Ok(None)
-        } else {
-            match &self.method {
-                Method::X509(cert) if cert.est => Ok(Some(interval_stream::<ProvisioningConfig>(
-                    interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                ))),
-                _ => Ok(None),
-            }
-        }
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         let Command::Interval(_) = cmd else {
             bail!("unexpected event: {cmd:?}")
@@ -231,6 +221,24 @@ impl ProvisioningConfig {
             }
             _ => bail!("provisioning_config: invalid provisioning configuration found"),
         };
+
+        if 0 < *REFRESH_EST_EXPIRY_INTERVAL_SECS
+            && matches!(
+                method,
+                Method::X509(X509 {
+                    est: true,
+                    expires: _
+                })
+            )
+        {
+            feature::notify_interval(
+                IntervalCommand {
+                    feature_id: typeid::ConstTypeId::of::<Self>(),
+                    id: None,
+                },
+                Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS),
+            );
+        }
 
         let this = ProvisioningConfig {
             tx_reported_properties: None,

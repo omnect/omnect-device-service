@@ -8,7 +8,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
-use notify_debouncer_full::{Debouncer, NoCache, notify::*};
+use notify_debouncer_full::notify::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json};
 use serde_repr::*;
@@ -17,7 +17,7 @@ use std::{
     env,
     fs::{File, read_dir},
     io::BufReader,
-    path::Path,
+    path::PathBuf,
 };
 use tokio::sync::mpsc::Sender;
 
@@ -37,8 +37,10 @@ macro_rules! config_path {
 
 macro_rules! custom_config_dir_path {
     () => {
-        env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
-            .unwrap_or("/etc/omnect/factory-reset.d".to_string())
+        PathBuf::from(
+            env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+                .unwrap_or("/etc/omnect/factory-reset.d".to_string()),
+        )
     };
 }
 
@@ -92,7 +94,6 @@ struct FactoryResetReport {
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     report: FactoryResetReport,
-    dir_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
 }
 
 impl Feature for FactoryReset {
@@ -136,17 +137,9 @@ impl Feature for FactoryReset {
         Ok(())
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        let (dir_observer, stream) =
-            dir_modified_stream::<FactoryReset>(vec![&Path::new(&custom_config_dir_path!())])
-                .context("command_request_stream: cannot create dir_modified_stream")?;
-        self.dir_observer = Some(dir_observer);
-        Ok(Some(stream))
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::DirModified(_) => {
+            Command::WatchPath(_) => {
                 let keys = FactoryReset::factory_reset_keys()?;
 
                 if keys != self.report.keys {
@@ -193,10 +186,23 @@ impl FactoryReset {
             result: FactoryReset::factory_reset_result()?,
         };
 
+        watch_path(
+            Watch {
+                command: PathCommand {
+                    feature_id: typeid::ConstTypeId::of::<Self>(),
+                    path: custom_config_dir_path!(),
+                },
+                event_kinds: vec![
+                    EventKind::Create(event::CreateKind::File),
+                    EventKind::Remove(event::RemoveKind::File),
+                ],
+            },
+            RecursiveMode::Recursive,
+        )?;
+
         Ok(FactoryReset {
             tx_reported_properties: None,
             report,
-            dir_observer: None,
         })
     }
 
