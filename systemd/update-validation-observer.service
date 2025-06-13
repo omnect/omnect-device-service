@@ -1,0 +1,6 @@
+[Unit]
+Description=Observe update validation timer service
+ConditionPathExists=/run/omnect-device-service/omnect_validate_update
+
+[Service]
+ExecStart=/usr/bin/update-validation-observer.sh

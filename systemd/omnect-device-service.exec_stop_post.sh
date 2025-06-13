@@ -9,40 +9,23 @@ echo SERVICE_RESULT=${SERVICE_RESULT}, EXIT_CODE=${EXIT_CODE}, EXIT_STATUS=${EXI
 
 function reboot() {
   echo "reboot triggered by ${script}: ${1}"
-  [ "${log_reboot_reason}" ] && \
-      /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
+  /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
   dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
 }
 
-# reboot reason logging shall only happen if omnect-device-service exited with
-# en error
-log_reboot_reason=
-[ "${EXIT_STATUS}" = 0 ] || log_reboot_reason=1
-
-# for now we ignore SERVICE_RESULT and EXIT_STATUS for the decision to reboot
-# the system.
+# for now we only check for ods failed (EXIT_STATUS not 0) and ignore SERVICE_RESULT
+# and EXIT_CODE for the decision to reboot the system.
 # however, it does potentially make sense to reboot on certain combinations
 # even if restart_count < max_restart_count or update validation has not timed
 # out yet. (we have to gain experience.)
 if [ -f ${barrier_json} ]; then
-  # we are run during update validation
-  now=$(cat /proc/uptime | awk '{print $1}')
-  now_ms="${now%%\.*}$(printf %003d $((${now##*\.}*10)))"
-  update_validation_start_ms=$(jq -r .start_monotonic_time_ms ${barrier_json})
-  restart_count=$(jq -r .restart_count ${barrier_json})
-  authenticated=$(jq -r .authenticated ${barrier_json})
-  local_update=$(jq -r .local_update ${barrier_json})
+  # we are run during update validation and ods exited with an error
+  if [ "${EXIT_STATUS}" != "0" ]; then
+    restart_count=$(jq -r .restart_count ${barrier_json})
 
-  if [ ${restart_count} -ge ${max_restart_count} ]; then
-    reboot "too many restarts during update validation"
-  fi
-
-  if [ "${local_update}" =  "false" ] && [ "${authenticated}" =  "true" ]; then
-    reboot "omnect-device-service authenticated, but update validation failed"
-  fi
-
-  if [ $((${now_ms} - ${update_validation_start_ms})) -ge $((UPDATE_VALIDATION_TIMEOUT_IN_SECS * 1000)) ]; then
-    reboot "update validation timeout"
+    if [ ${restart_count} -ge ${max_restart_count} ]; then
+      reboot "too many restarts during update validation"
+    fi
   fi
 elif [ -f ${update_validation_file} ]; then
   # we detected an update validation, but the barrier file was not created by omnect-device-service

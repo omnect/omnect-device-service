@@ -22,12 +22,10 @@ use {
 #[cfg(not(test))]
 use azure_iot_sdk::client::{IotHubClient, IotHubClientBuilder};
 
-use crate::{systemd, twin::feature::Command, web_service};
+use crate::{systemd, twin::feature::*, web_service};
 use anyhow::{Context, Result, ensure};
 use azure_iot_sdk::client::*;
 use dotenvy;
-use feature::*;
-use firmware_update::update_validation::UpdateValidation;
 use futures::stream;
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -41,10 +39,7 @@ use std::{
     path::Path,
     time::{self, Duration},
 };
-use tokio::{
-    select,
-    sync::{mpsc, oneshot},
-};
+use tokio::{select, sync::mpsc};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 
 #[derive(PartialEq)]
@@ -60,7 +55,6 @@ pub struct Twin {
     tx_command_request: mpsc::Sender<CommandRequest>,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
-    update_validated: bool,
     state: TwinState,
     features: HashMap<TypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
@@ -71,7 +65,6 @@ impl Twin {
         tx_command_request: mpsc::Sender<CommandRequest>,
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
-        tx_validated: oneshot::Sender<()>,
     ) -> Result<Self> {
         /*
             - init features first
@@ -92,9 +85,7 @@ impl Twin {
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
-                DynFeature::boxed(firmware_update::FirmwareUpdate::new(
-                    UpdateValidation::new(tx_validated).await?,
-                )),
+                DynFeature::boxed(firmware_update::FirmwareUpdate::new().await?),
             ),
             (
                 TypeId::of::<modem_info::ModemInfo>(),
@@ -128,7 +119,6 @@ impl Twin {
             tx_command_request,
             tx_reported_properties,
             tx_outgoing_message,
-            update_validated: false,
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
@@ -355,17 +345,13 @@ impl Twin {
     }
 
     async fn request_validate_update(&mut self, authenticated: bool) -> Result<()> {
-        if !self.update_validated {
-            self.tx_command_request
-                .send(CommandRequest {
-                    command: Command::ValidateUpdateAuthenticated(authenticated),
-                    reply: None,
-                })
-                .await
-                .context("handle_connection_status: requests receiver dropped")?;
-        };
-
-        Ok(())
+        self.tx_command_request
+            .send(CommandRequest {
+                command: Command::ValidateUpdate(authenticated),
+                reply: None,
+            })
+            .await
+            .context("request_validate_update: requests receiver dropped")
     }
 
     pub async fn run() -> Result<()> {
@@ -375,7 +361,6 @@ impl Twin {
         let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
         let (tx_outgoing_message, mut rx_outgoing_message) = mpsc::channel(100);
         let (tx_command_request, rx_command_request) = mpsc::channel(100);
-        let (tx_validated, mut rx_validated) = oneshot::channel();
 
         // load env vars from /usr/lib/os-release, e.g. to determine feature availability
         dotenvy::from_path_override(
@@ -387,7 +372,6 @@ impl Twin {
             tx_command_request,
             tx_reported_properties,
             tx_outgoing_message,
-            tx_validated,
         )
         .await?;
 
@@ -422,7 +406,8 @@ impl Twin {
                 Some(_) = trigger_watchdog.next() => {
                     systemd::watchdog::WatchdogManager::notify().await?;
                 },
-                _ = signals.next() => {
+                Some(signal) = signals.next() => {
+                    info!("received termination signal: {signal:?}");
                     twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
                     signals.handle().close();
                     return Ok(())
@@ -446,9 +431,6 @@ impl Twin {
                         twin.reset_client_with_delay(Some(time::Duration::from_secs(1))).await;
                         client_created.set(Self::connect_iothub_client(&client_builder));
                     };
-                },
-                Ok(_) = &mut rx_validated, if !twin.update_validated => {
-                    twin.update_validated = true;
                 },
                 requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
                     twin.handle_request(requests).await?
