@@ -33,6 +33,7 @@ use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
 use std::{
+    any::TypeId,
     collections::HashMap,
     env,
     path::Path,
@@ -40,7 +41,6 @@ use std::{
 };
 use tokio::{select, sync::mpsc};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
-use typeid::ConstTypeId;
 
 #[derive(PartialEq)]
 enum TwinState {
@@ -57,7 +57,7 @@ pub struct Twin {
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     state: TwinState,
-    features: HashMap<ConstTypeId, Box<DynFeature<'static>>>,
+    features: HashMap<TypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
 }
 
@@ -74,43 +74,43 @@ impl Twin {
         */
         let features = HashMap::from([
             (
-                ConstTypeId::of::<system_info::SystemInfo>(),
+                TypeId::of::<system_info::SystemInfo>(),
                 DynFeature::boxed(system_info::SystemInfo::new()?),
             ),
             (
-                ConstTypeId::of::<consent::DeviceUpdateConsent>(),
+                TypeId::of::<consent::DeviceUpdateConsent>(),
                 DynFeature::boxed(consent::DeviceUpdateConsent::new()?),
             ),
             (
-                ConstTypeId::of::<factory_reset::FactoryReset>(),
+                TypeId::of::<factory_reset::FactoryReset>(),
                 DynFeature::boxed(factory_reset::FactoryReset::new()?),
             ),
             (
-                ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
+                TypeId::of::<firmware_update::FirmwareUpdate>(),
                 DynFeature::boxed(firmware_update::FirmwareUpdate::new().await?),
             ),
             (
-                ConstTypeId::of::<modem_info::ModemInfo>(),
-                DynFeature::boxed(modem_info::ModemInfo::new()),
+                TypeId::of::<modem_info::ModemInfo>(),
+                DynFeature::boxed(modem_info::ModemInfo::new()?),
             ),
             (
-                ConstTypeId::of::<network::Network>(),
-                DynFeature::boxed(network::Network::new()),
+                TypeId::of::<network::Network>(),
+                DynFeature::boxed(network::Network::new()?),
             ),
             (
-                ConstTypeId::of::<provisioning_config::ProvisioningConfig>(),
+                TypeId::of::<provisioning_config::ProvisioningConfig>(),
                 DynFeature::boxed(provisioning_config::ProvisioningConfig::new()?),
             ),
             (
-                ConstTypeId::of::<reboot::Reboot>(),
+                TypeId::of::<reboot::Reboot>(),
                 DynFeature::boxed(reboot::Reboot::default()),
             ),
             (
-                ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
+                TypeId::of::<ssh_tunnel::SshTunnel>(),
                 DynFeature::boxed(ssh_tunnel::SshTunnel::new()),
             ),
             (
-                ConstTypeId::of::<wifi_commissioning::WifiCommissioning>(),
+                TypeId::of::<wifi_commissioning::WifiCommissioning>(),
                 DynFeature::boxed(wifi_commissioning::WifiCommissioning::default()),
             ),
         ]);

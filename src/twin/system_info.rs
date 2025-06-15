@@ -1,17 +1,14 @@
 use crate::{
     common::RootPartition,
     reboot_reason,
-    twin::{
-        Feature,
-        feature::{self, *},
-    },
+    twin::feature::{self, *},
     web_service,
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
+use inotify::WatchMask;
 use lazy_static::lazy_static;
 use log::{info, warn};
-use notify_debouncer_full::notify::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{env, path::Path, time::Duration};
@@ -120,8 +117,6 @@ pub struct SystemInfo {
     reboot_reason: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fleet_id: Option<String>,
-    #[serde(skip_serializing)]
-    watch_id: u64,
 }
 impl Feature for SystemInfo {
     fn name(&self) -> String {
@@ -158,7 +153,6 @@ impl Feature for SystemInfo {
             Command::WatchPath(_) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
                 self.report().await?;
-                unwatch_path(self.watch_id)?;
             }
             Command::FleetId(id) => {
                 self.fleet_id = Some(id.fleet_id.clone());
@@ -201,25 +195,12 @@ impl SystemInfo {
             bail!("metrics: hostname could not be read")
         };
 
-        let watch_id = watch_path(
-            Watch {
-                command: PathCommand {
-                    feature_id: typeid::ConstTypeId::of::<Self>(),
-                    path: TIMESYNC_FILE.to_path_buf(),
-                },
-                event_kinds: vec![EventKind::Create(event::CreateKind::File)],
-            },
-            RecursiveMode::NonRecursive,
-        )?;
+        feature::add_watch::<Self>(&TIMESYNC_FILE, WatchMask::CREATE | WatchMask::ONESHOT)?;
 
         if 0 < *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            feature::notify_interval(
-                IntervalCommand {
-                    feature_id: typeid::ConstTypeId::of::<Self>(),
-                    id: None,
-                },
-                Duration::from_secs(*REFRESH_SYSTEM_INFO_INTERVAL_SECS),
-            );
+            feature::notify_interval::<Self>(Duration::from_secs(
+                *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
+            ))?;
         }
 
         Ok(SystemInfo {
@@ -244,7 +225,6 @@ impl SystemInfo {
             },
             reboot_reason: reboot_reason::current_reboot_reason(),
             fleet_id: None,
-            watch_id,
         })
     }
 

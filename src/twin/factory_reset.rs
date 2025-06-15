@@ -2,13 +2,13 @@ use crate::{
     bootloader_env,
     common::from_json_file,
     systemd,
-    twin::{Feature, feature::*},
+    twin::feature::{self, *},
     web_service,
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
+use inotify::WatchMask;
 use log::{debug, info, warn};
-use notify_debouncer_full::notify::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json};
 use serde_repr::*;
@@ -17,7 +17,7 @@ use std::{
     env,
     fs::{File, read_dir},
     io::BufReader,
-    path::PathBuf,
+    path::Path,
 };
 use tokio::sync::mpsc::Sender;
 
@@ -37,8 +37,8 @@ macro_rules! config_path {
 
 macro_rules! custom_config_dir_path {
     () => {
-        PathBuf::from(
-            env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+        Path::new(
+            &env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
                 .unwrap_or("/etc/omnect/factory-reset.d".to_string()),
         )
     };
@@ -186,18 +186,9 @@ impl FactoryReset {
             result: FactoryReset::factory_reset_result()?,
         };
 
-        watch_path(
-            Watch {
-                command: PathCommand {
-                    feature_id: typeid::ConstTypeId::of::<Self>(),
-                    path: custom_config_dir_path!(),
-                },
-                event_kinds: vec![
-                    EventKind::Create(event::CreateKind::File),
-                    EventKind::Remove(event::RemoveKind::File),
-                ],
-            },
-            RecursiveMode::Recursive,
+        feature::add_watch::<Self>(
+            custom_config_dir_path!(),
+            WatchMask::CREATE | WatchMask::DELETE,
         )?;
 
         Ok(FactoryReset {

@@ -1,7 +1,4 @@
-use super::{
-    Feature,
-    feature::{self, *},
-};
+use crate::twin::feature::{self, *};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
@@ -302,19 +299,16 @@ mod inner {
     }
 
     impl ModemInfo {
-        pub fn new() -> Self {
+        pub fn new() -> Result<Self> {
             if 0 < *REFRESH_MODEM_INFO_INTERVAL_SECS {
-                feature::notify_interval(
-                    IntervalCommand {
-                        feature_id: typeid::ConstTypeId::of::<Self>(),
-                        id: None,
-                    },
-                    Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
-                );
+                feature::notify_interval::<Self>(Duration::from_secs(
+                    *REFRESH_MODEM_INFO_INTERVAL_SECS,
+                ))?;
             }
-            ModemInfo {
+
+            Ok(ModemInfo {
                 tx_reported_properties: None,
-            }
+            })
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {

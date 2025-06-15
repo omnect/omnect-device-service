@@ -1,7 +1,4 @@
-use crate::twin::{
-    Feature,
-    feature::{self, *},
-};
+use crate::twin::feature::{self, *};
 use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use lazy_static::lazy_static;
@@ -10,7 +7,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
-use tokio::{sync::mpsc::Sender};
+use tokio::sync::mpsc::Sender;
 
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
@@ -231,13 +228,9 @@ impl ProvisioningConfig {
                 })
             )
         {
-            feature::notify_interval(
-                IntervalCommand {
-                    feature_id: typeid::ConstTypeId::of::<Self>(),
-                    id: None,
-                },
-                Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS),
-            );
+            feature::notify_interval::<Self>(Duration::from_secs(
+                *REFRESH_EST_EXPIRY_INTERVAL_SECS,
+            ))?;
         }
 
         let this = ProvisioningConfig {

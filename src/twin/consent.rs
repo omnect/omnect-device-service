@@ -1,19 +1,19 @@
 use crate::{
     common::{from_json_file, to_json_file},
-    twin::{Feature, feature::*},
+    twin::feature::{self, *},
 };
 use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
+use inotify::WatchMask;
 use log::{info, warn};
-use notify_debouncer_full::notify::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, env, path::Path};
+use std::{collections::HashMap, env, path::PathBuf};
 use tokio::sync::mpsc::Sender;
 
 macro_rules! consent_path {
     () => {
-        Path::new(&env::var("CONSENT_DIR_PATH").unwrap_or("/etc/omnect/consent".to_string()))
+        PathBuf::from(&env::var("CONSENT_DIR_PATH").unwrap_or("/etc/omnect/consent".to_string()))
     };
 }
 
@@ -54,6 +54,7 @@ pub struct ConsentConfig {
 }
 
 pub struct DeviceUpdateConsent {
+    file_map: HashMap<std::ffi::c_int, PathBuf>,
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
@@ -87,8 +88,13 @@ impl Feature for DeviceUpdateConsent {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::WatchPath(file) => {
-                self.report_consent(from_json_file(&file.path)?).await?;
+            Command::WatchPath(cmd) => {
+                self.report_consent(from_json_file(
+                    self.file_map
+                        .get(&cmd.event.wd.get_watch_descriptor_id())
+                        .context("cannot find file for descriptor")?,
+                )?)
+                .await?;
             }
             Command::DesiredGeneralConsent(cmd) => {
                 self.update_general_consent(cmd).await?;
@@ -108,22 +114,18 @@ impl DeviceUpdateConsent {
     const ID: &'static str = "device_update_consent";
 
     pub fn new() -> Result<Self> {
+        let mut file_map = HashMap::new();
+
         for path in [request_consent_path!(), history_consent_path!()] {
-            watch_path(
-                Watch {
-                    command: PathCommand {
-                        feature_id: typeid::ConstTypeId::of::<Self>(),
-                        path,
-                    },
-                    event_kinds: vec![EventKind::Modify(event::ModifyKind::Data(
-                        event::DataChange::Content,
-                    ))],
-                },
-                RecursiveMode::Recursive,
-            )?;
+            file_map.insert(
+                feature::add_watch::<Self>(&path, WatchMask::MODIFY)?.get_watch_descriptor_id(),
+                path,
+            );
         }
+
         Ok(DeviceUpdateConsent {
             tx_reported_properties: None,
+            file_map,
         })
     }
 

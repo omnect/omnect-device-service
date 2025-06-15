@@ -5,13 +5,14 @@ use crate::twin::{
 use anyhow::{Context, Result, anyhow, bail};
 use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
-use log::{error, info, warn};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer, notify::*};
-use std::hash::{Hash, Hasher};
+use futures_util::StreamExt;
+use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
+use log::{debug, error, info, warn};
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::{
-    collections::HashMap,
-    hash::DefaultHasher,
-    path::PathBuf,
+    any::TypeId,
+    path::Path,
     pin::Pin,
     sync::{LazyLock, Mutex, OnceLock},
     time::Duration,
@@ -20,8 +21,6 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinSet,
 };
-// ToDo really needed?
-use typeid::ConstTypeId;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -40,29 +39,29 @@ pub enum Command {
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
     ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
-    WatchPath(PathCommand),
+    WatchPath(WatchPathCommand),
 }
 
 impl Command {
-    pub fn feature_id(&self) -> ConstTypeId {
+    pub fn feature_id(&self) -> TypeId {
         use Command::*;
 
         match self {
-            CloseSshTunnel(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
-            DesiredGeneralConsent(_) => ConstTypeId::of::<consent::DeviceUpdateConsent>(),
-            DesiredUpdateDeviceSshCa(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
-            FactoryReset(_) => ConstTypeId::of::<factory_reset::FactoryReset>(),
-            FleetId(_) => ConstTypeId::of::<system_info::SystemInfo>(),
-            GetSshPubKey(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
+            CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
+            FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
+            GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
-            LoadFirmwareUpdate(_) => ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
-            OpenSshTunnel(_) => ConstTypeId::of::<ssh_tunnel::SshTunnel>(),
-            Reboot => ConstTypeId::of::<reboot::Reboot>(),
-            ReloadNetwork => ConstTypeId::of::<network::Network>(),
-            RunFirmwareUpdate(_) => ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
-            SetWaitOnlineTimeout(_) => ConstTypeId::of::<reboot::Reboot>(),
-            ValidateUpdate(_) => ConstTypeId::of::<firmware_update::FirmwareUpdate>(),
-            UserConsent(_) => ConstTypeId::of::<consent::DeviceUpdateConsent>(),
+            LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            Reboot => TypeId::of::<reboot::Reboot>(),
+            ReloadNetwork => TypeId::of::<network::Network>(),
+            RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
+            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
             WatchPath(cmd) => cmd.feature_id,
         }
     }
@@ -199,129 +198,151 @@ pub(crate) trait Feature {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IntervalCommand {
-    pub feature_id: ConstTypeId,
-    pub id: Option<u64>,
+    pub feature_id: TypeId,
 }
 
-#[derive(Clone, Hash, Eq, PartialEq, Debug)]
-pub struct PathCommand {
-    pub feature_id: ConstTypeId,
-    pub path: PathBuf,
+#[derive(Clone, Debug)]
+pub struct WatchPathCommand {
+    pub feature_id: TypeId,
+    pub event: Event<OsString>,
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
-pub struct Watch {
-    pub command: PathCommand,
-    // ToDo: make hashset (https://stackoverflow.com/questions/55932914/how-to-implement-the-stdhashhash-trait-on-external-data-types-in-rust)
-    pub event_kinds: Vec<EventKind>,
+#[derive(Debug)]
+struct FileWatcher {
+    watches: Watches,
+    feature_map: HashMap<WatchDescriptor, TypeId>,
 }
-static WATCHER: OnceLock<Mutex<Debouncer<INotifyWatcher, NoCache>>> = OnceLock::new();
-static WATCHES: LazyLock<Mutex<HashMap<u64, Watch>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-static TIMERS: LazyLock<Mutex<JoinSet<()>>> = LazyLock::new(|| Mutex::new(JoinSet::new()));
-static TX_COMMAND_REQUEST: OnceLock<Mutex<mpsc::Sender<CommandRequest>>> = OnceLock::new();
+
+impl PartialEq for WatchPathCommand {
+    fn eq(&self, other: &Self) -> bool {
+        self.event.wd == other.event.wd
+    }
+}
+
+impl Eq for WatchPathCommand {}
+
+static TASKS: LazyLock<Mutex<JoinSet<()>>> = LazyLock::new(|| Mutex::new(JoinSet::new()));
+static FILE_WATCHER: OnceLock<Mutex<FileWatcher>> = OnceLock::new();
+static TX_COMMAND_REQUEST: OnceLock<mpsc::Sender<CommandRequest>> = OnceLock::new();
 
 pub fn init(tx_command_request: mpsc::Sender<CommandRequest>) -> Result<()> {
     TX_COMMAND_REQUEST
-        .set(Mutex::new(tx_command_request.clone()))
-        .map_err(|e| anyhow!("TX_COMMAND_REQUEST: {e:#?}"))?;
+        .set(tx_command_request.clone())
+        .map_err(|e| anyhow!("init: set TX_COMMAND_REQUEST {e:#?}"))?;
 
-    WATCHER
-        .set(Mutex::new(
-            new_debouncer(
-                Duration::from_secs(2),
-                None,
-                move |res: DebounceEventResult| match res {
-                    Ok(debounced_events) => {
-                        for de in debounced_events {
-                            WATCHES
-                                .lock()
-                                .unwrap()
-                                .values()
-                                .filter(|w| {
-                                    w.event_kinds.contains(&de.event.kind)
-                                        && de.paths.contains(&w.command.path)
-                                })
-                                .for_each(|w| {
-                                    tx_command_request
-                                        .blocking_send(CommandRequest {
-                                            command: Command::WatchPath(w.command.clone()),
-                                            reply: None,
-                                        })
-                                        .unwrap()
-                                });
+    let inotify = Inotify::init().context("init: failed to initialize inotify")?;
+
+    FILE_WATCHER
+        .set(Mutex::new(FileWatcher {
+            watches: inotify.watches(),
+            feature_map: HashMap::new(),
+        }))
+        .map_err(|e| anyhow!("init: set FILE_WATCHER {e:#?}"))?;
+
+    TASKS
+        .lock()
+        .map_err(|e| anyhow!("init: TASKS {e:#?}"))?
+        .spawn(async move {
+            let mut buffer = [0; 1024];
+            let mut stream = inotify.into_event_stream(&mut buffer).unwrap();
+            while let Some(event_result) = stream.next().await {
+                match event_result {
+                    Ok(ev) => {
+                        debug!("inotify: {ev:?}");
+                        let feature_id = *FILE_WATCHER
+                            .get()
+                            .unwrap()
+                            .lock()
+                            .unwrap()
+                            .feature_map
+                            .get(&ev.wd)
+                            .unwrap();
+
+                        if let Err(e) = tx_command_request
+                            .send(CommandRequest {
+                                command: Command::WatchPath(WatchPathCommand {
+                                    feature_id,
+                                    event: ev,
+                                }),
+                                reply: None,
+                            })
+                            .await
+                        {
+                            error!("inotify: send {e:#?}")
                         }
                     }
-                    Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-                },
-            )
-            .context("context")?,
-        ))
-        .map_err(|e| anyhow!("WATCHER: {e:#?}"))
+                    Err(e) => error!("inotify: event {e:#?}"),
+                }
+            }
+        });
+
+    Ok(())
 }
 
-pub fn notify_interval(command: IntervalCommand, interval: Duration) {
-    TIMERS.lock().unwrap().spawn(async move {
-        let mut interval = tokio::time::interval(interval);
-        let tx_command_request = TX_COMMAND_REQUEST.get().unwrap().lock().unwrap().clone();
-        loop {
-            interval.tick().await;
-            tx_command_request
-                .blocking_send(CommandRequest {
-                    command: Command::Interval(command.clone()),
-                    reply: None,
-                })
-                .unwrap()
-        }
-    });
+pub fn add_watch<T>(path: &Path, mask: WatchMask) -> Result<WatchDescriptor>
+where
+    T: 'static,
+{
+    let mut watcher = FILE_WATCHER
+        .get()
+        .context("add_watch: FileWatcher missing")?
+        .lock()
+        .map_err(|e| anyhow!("add_watch: FILE_WATCHER {e:#?}"))?;
+
+    let desc = watcher.watches.add(path, mask)?;
+
+    let None = watcher.feature_map.insert(desc.clone(), TypeId::of::<T>()) else {
+        bail!("add_watch: currently only one feature per watch supported")
+    };
+
+    Ok(desc)
 }
 
-pub fn watch_path(watch: Watch, recursive_mode: RecursiveMode) -> Result<u64> {
-    // ToDo filecreated event but file is already there
-    // ToDO rm unwrap
-    let mut watches = WATCHES.lock().unwrap();
-    let mut hasher = DefaultHasher::new();
+pub fn remove_watch(wd: WatchDescriptor) -> Result<()> {
+    let mut watcher = FILE_WATCHER
+        .get()
+        .context("remove_watch: FileWatcher missing")?
+        .lock()
+        .map_err(|e| anyhow!("remove_watch: FILE_WATCHER {e:#?}"))?;
 
-    watch.hash(&mut hasher);
+    watcher.watches.remove(wd.clone())?;
 
-    let key = hasher.finish();
+    if watcher.feature_map.remove_entry(&wd).is_none() {
+        warn!("remove_watch: WatchDescriptor doesn't exist")
+    };
 
-    if !watches
-        .values()
-        .any(|w| w.command.path == watch.command.path)
-    {
-        // ToDO rm unwrap
-        WATCHER
-            .get()
-            .context("context")?
-            .lock()
-            .unwrap()
-            .watch(watch.command.path.clone(), recursive_mode)
-            .context("context")?;
-    }
-
-    watches.insert(key, watch);
-
-    Ok(key)
+    Ok(())
 }
 
-pub fn unwatch_path(key: u64) -> Result<()> {
-    // ToDO rm unwrap
-    let mut watches = WATCHES.lock().unwrap();
-    if let Some(watch) = watches.remove(&key) {
-        if !watches
-            .values()
-            .any(|w| w.command.path == watch.command.path)
-        {
-            // ToDO rm unwrap
-            WATCHER
-                .get()
-                .context("context")?
-                .lock()
-                .unwrap()
-                .unwatch(watch.command.path)
-                .context("context")?
-        }
-    }
+pub fn notify_interval<T>(interval: Duration) -> Result<()>
+where
+    T: 'static,
+{
+    let tx_command_request = TX_COMMAND_REQUEST
+        .get()
+        .context("notify_interval: failed to get TX_COMMAND_REQUEST")?
+        .clone();
+
+    TASKS
+        .lock()
+        .map_err(|e| anyhow!("notify_interval: TASKS {e:#?}"))?
+        .spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            loop {
+                interval.tick().await;
+                if let Err(e) = tx_command_request
+                    .send(CommandRequest {
+                        command: Command::Interval(IntervalCommand {
+                            feature_id: TypeId::of::<T>(),
+                        }),
+                        reply: None,
+                    })
+                    .await
+                {
+                    error!("notify_interval: send {e:#?}")
+                }
+            }
+        });
 
     Ok(())
 }

@@ -1,9 +1,6 @@
 use crate::{
     systemd::{networkd, unit},
-    twin::{
-        Feature,
-        feature::{self, *},
-    },
+    twin::feature::{self, *},
     web_service,
 };
 use anyhow::{Context, Result, bail};
@@ -102,21 +99,17 @@ impl Network {
     const NETWORK_STATUS_VERSION: u8 = 3;
     const ID: &'static str = "network_status";
 
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self> {
         if 0 < *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
-            feature::notify_interval(
-                IntervalCommand {
-                    feature_id: typeid::ConstTypeId::of::<Self>(),
-                    id: None,
-                },
-                Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
-            );
+            feature::notify_interval::<Self>(Duration::from_secs(
+                *REFRESH_NETWORK_STATUS_INTERVAL_SECS,
+            ))?;
         }
-        
-        Network {
+
+        Ok(Network {
             interfaces: vec![],
             tx_reported_properties: None,
-        }
+        })
     }
 
     async fn report(&mut self, force: bool) -> Result<()> {
