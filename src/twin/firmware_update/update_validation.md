@@ -2,7 +2,7 @@
 
 After flashing an update to the new root partition, the device boots this partition and it is probed if the update was successful. Only after this test has passed successfully, the new root partition is permanently set for booting the device. Otherwise, if the goal state for a valid update wasn't reached, a reboot is triggered which boots to the old root partition.
 
-:exclamation: There is one exception from this behavior. In case the update includes a bootloader update too, the device cannot recover by booting to the old partition due to potential backward compatibility issues. Consequently the system is booted to the new partition even if validation failed. In a worst case scenario this might lead to a reboot loop.
+:exclamation: There is one exception from this behavior. In case the update includes a bootloader update too, the device cannot recover by booting to the old partition due to potential backward compatibility issues. Thus no update validation is triggered at all. In a worst case scenario this might lead to a stuck device or a reboot loop.
 
 ## Criteria for a successful update
 
