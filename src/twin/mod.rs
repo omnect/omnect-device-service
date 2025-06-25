@@ -436,16 +436,20 @@ impl Twin {
                     twin.handle_request(requests).await?
                 },
                 Some(reported) = rx_reported_properties.recv() => {
-                    twin.client
-                        .as_ref()
-                        .context("couldn't report properties since client not present")?
-                        .twin_report(reported)?
+                    let Some(client) = &twin.client else {
+                        error!("couldn't report properties since client not present");
+                        continue
+                    };
+
+                    client.twin_report(reported)?
                 },
                 Some(message) = rx_outgoing_message.recv() => {
-                    twin.client
-                        .as_ref()
-                        .context("couldn't send msg since client not present")?
-                        .send_d2c_message(message)?
+                    let Some(client) = &twin.client else {
+                        error!("couldn't send msg since client not present");
+                        continue
+                    };
+
+                    client.send_d2c_message(message)?
                 },
             );
         }
