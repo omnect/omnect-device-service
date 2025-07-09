@@ -364,6 +364,7 @@ pub mod mod_test {
                             },
                             "mac": "50:2d:f4:35:16:25",
                             "name": "eth0",
+                            "file": "/lib/systemd/network/80-wired.network",
                             "online": true
                         },
                         {
@@ -374,6 +375,7 @@ pub mod mod_test {
                             },
                             "mac": "50:2d:f4:2c:0e:51",
                             "name": "eth1",
+                            "file": "/lib/systemd/network/80-wired.network",
                             "online": false
                         }]
                     }
@@ -512,6 +514,7 @@ pub mod mod_test {
                             },
                             "mac": "50:2d:f4:35:16:25",
                             "name": "eth0",
+                            "file": "/lib/systemd/network/80-wired.network",
                             "online": true
                         },
                         {
@@ -522,6 +525,7 @@ pub mod mod_test {
                             },
                             "mac": "50:2d:f4:2c:0e:51",
                             "name": "eth1",
+                            "file": "/lib/systemd/network/80-wired.network",
                             "online": false
                         }]
                     }

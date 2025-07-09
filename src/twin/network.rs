@@ -43,6 +43,7 @@ pub struct Interface {
     name: String,
     mac: String,
     online: bool,
+    file: String,
     ipv4: IpConfig,
 }
 
@@ -171,6 +172,10 @@ impl Network {
                     error!("parse_interfaces: skip interface ('OnlineState' missing)");
                     continue;
                 };
+                let Some(file) = i["NetworkFile"].as_str() else {
+                    error!("parse_interfaces: skip interface ('NetworkFile' missing)");
+                    continue;
+                };
 
                 let Some(mac) = Self::parse_mac(i, "HardwareAddress") else {
                     continue;
@@ -245,6 +250,7 @@ impl Network {
                     name: name.to_string(),
                     online: online.eq("online"),
                     mac,
+                    file: file.to_string(),
                     ipv4,
                 });
             }
