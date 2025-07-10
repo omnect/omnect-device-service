@@ -1,6 +1,6 @@
 use crate::{
     systemd::{networkd, unit},
-    twin::{Feature, feature::*},
+    twin::feature::{self, *},
     web_service,
 };
 use anyhow::{Context, Result, bail};
@@ -10,7 +10,7 @@ use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{env, time::Duration};
-use tokio::{sync::mpsc::Sender, time::interval};
+use tokio::sync::mpsc::Sender;
 
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
@@ -47,7 +47,6 @@ pub struct Interface {
     ipv4: IpConfig,
 }
 
-#[derive(Default)]
 pub struct Network {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     interfaces: Vec<Interface>,
@@ -76,16 +75,6 @@ impl Feature for Network {
         Ok(())
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
-            Ok(None)
-        } else {
-            Ok(Some(interval_stream::<Network>(interval(
-                Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
-            ))))
-        }
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::Interval(_) => {}
@@ -109,6 +98,19 @@ impl Feature for Network {
 impl Network {
     const NETWORK_STATUS_VERSION: u8 = 3;
     const ID: &'static str = "network_status";
+
+    pub fn new() -> Result<Self> {
+        if 0 < *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
+            feature::notify_interval::<Self>(Duration::from_secs(
+                *REFRESH_NETWORK_STATUS_INTERVAL_SECS,
+            ))?;
+        }
+
+        Ok(Network {
+            interfaces: vec![],
+            tx_reported_properties: None,
+        })
+    }
 
     async fn report(&mut self, force: bool) -> Result<()> {
         let interfaces = Self::parse_interfaces(&networkd::networkd_interfaces().await?)?;
