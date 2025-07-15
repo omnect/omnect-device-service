@@ -112,6 +112,7 @@ impl WebService {
         info!("WebService is enabled");
 
         if matches!(Path::new(&publish_endpoints_path!()).try_exists(), Ok(true)) {
+            debug!("restore publish endpoints");
             *PUBLISH_ENDPOINTS.lock().await = from_json_file(publish_endpoints_path!())?;
         }
 
