@@ -1,27 +1,29 @@
 use crate::{
     common::RootPartition,
     reboot_reason,
-    twin::{Feature, feature::*},
+    twin::feature::{self, *},
     web_service,
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
-use futures::StreamExt;
+use inotify::WatchMask;
 use lazy_static::lazy_static;
-use log::{debug, info, warn};
-use serde::{Deserialize, Serialize};
+use log::{info, warn};
+use serde::{Deserialize, Serialize, Serializer, ser::Error};
 use serde_json::json;
-use std::{env, path::Path};
+use std::{
+    env,
+    path::Path,
+    sync::{LazyLock, RwLock},
+    time::Duration,
+};
 use sysinfo;
 use time::format_description::well_known::Rfc3339;
-use tokio::{
-    sync::mpsc,
-    task::JoinHandle,
-    time::{Duration, interval},
-};
+use tokio::sync::mpsc;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 
+// ToDo
 lazy_static! {
     static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
         const REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT: &str = "60";
@@ -32,43 +34,103 @@ lazy_static! {
     };
 }
 
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 struct Label {
-    device_id: String,
-    module_name: String,
+    #[serde(serialize_with = "device_id")]
+    device_id: (),
+    #[serde(serialize_with = "module_name")]
+    module_name: (),
     #[serde(skip_serializing_if = "Option::is_none")]
     sensor: Option<String>,
 }
 
+fn device_id<S>(_: &(), s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let Some(hostname) = sysinfo::System::host_name() else {
+        return Err(Error::custom("failed to get hostname"));
+    };
+
+    s.serialize_str(&hostname)
+}
+
+fn module_name<S>(_: &(), s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str("omnect-device-service")
+}
+
 #[derive(Serialize)]
-struct Metric {
-    time_generated_utc: String,
+enum MetricValue {
+    CpuUsage(f64),
+    MemoryUsed(f64),
+    MemoryTotal(f64),
+    DiskUsed(f64),
+    DiskTotal(f64),
+    Temp(f64, String),
+}
+
+impl MetricValue {
+    fn to_metric(self) -> Metric {
+        let (name, value, labels) = match self {
+            MetricValue::CpuUsage(value) => ("cpu_usage".to_owned(), value, Label::default()),
+            MetricValue::MemoryUsed(value) => ("memory_used".to_owned(), value, Label::default()),
+            MetricValue::MemoryTotal(value) => ("memory_total".to_owned(), value, Label::default()),
+            MetricValue::DiskUsed(value) => ("disk_used".to_owned(), value, Label::default()),
+            MetricValue::DiskTotal(value) => ("disk_total".to_owned(), value, Label::default()),
+            MetricValue::Temp(value, sensor) => (
+                "temp".to_owned(),
+                value,
+                Label {
+                    sensor: Some(sensor),
+                    ..Default::default()
+                },
+            ),
+        };
+
+        Metric {
+            metric: InnerMetric {
+                name,
+                value,
+                labels,
+            },
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Default, Serialize)]
+struct InnerMetric {
     name: String,
     value: f64,
     labels: Label,
 }
 
-impl Metric {
-    fn new(
-        time: String,
-        name: String,
-        value: f64,
-        device: String,
-        sensor: Option<String>,
-    ) -> Metric {
-        Metric {
-            time_generated_utc: time,
-            name,
-            value,
-            labels: Label {
-                device_id: device,
-                module_name: "omnect-device-service".to_string(),
-                sensor,
-            },
-        }
-    }
+#[derive(Default, Serialize)]
+struct Metric {
+    #[serde(serialize_with = "time_stamp")]
+    time_generated_utc: (),
+    #[serde(flatten)]
+    metric: InnerMetric,
 }
 
+static TIME_STAMP: LazyLock<RwLock<String>> =
+    LazyLock::new(|| RwLock::new(time::OffsetDateTime::now_utc().format(&Rfc3339).unwrap()));
+
+fn time_stamp<S>(_: &(), s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let Ok(time_stamp) = TIME_STAMP.read() else {
+        return Err(Error::custom("failed to get timestamp"));
+    };
+
+    s.serialize_str(&time_stamp)
+}
+
+// ToDo rm lazy_staticw
 lazy_static! {
     static ref TIMESYNC_FILE: &'static Path = if cfg!(feature = "mock") {
         Path::new("/tmp/synchronized")
@@ -101,7 +163,6 @@ struct HardwareInfo {
     components: sysinfo::Components,
     disk: sysinfo::Disks,
     system: sysinfo::System,
-    hostname: String,
 }
 
 #[derive(Default, Serialize)]
@@ -118,8 +179,6 @@ pub struct SystemInfo {
     reboot_reason: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fleet_id: Option<String>,
-    #[serde(skip_serializing)]
-    handle: Option<JoinHandle<()>>,
 }
 impl Feature for SystemInfo {
     fn name(&self) -> String {
@@ -148,29 +207,12 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            0 if self.software_info.boot_time.is_none() => Some(self.file_created_stream()?),
-            0 if self.software_info.boot_time.is_some() => None,
-            _ => {
-                let interval_stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
-                    *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
-                )));
-                Some(if self.software_info.boot_time.is_none() {
-                    futures::stream::select(interval_stream, self.file_created_stream()?).boxed()
-                } else {
-                    interval_stream
-                })
-            }
-        })
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::Interval(_) => {
                 self.metrics().await?;
             }
-            Command::FileCreated(_) => {
+            Command::WatchPath(_) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
                 self.report().await?;
             }
@@ -211,16 +253,13 @@ impl SystemInfo {
             RootPartition::current()?.as_str()
         );
 
-        let boot_time = if matches!(TIMESYNC_FILE.try_exists(), Ok(true)) {
-            Some(Self::boot_time()?)
-        } else {
-            debug!("new: start timesync watcher since not synced yet");
-            None
-        };
+        feature::add_watch::<Self>(&TIMESYNC_FILE, WatchMask::CREATE | WatchMask::ONESHOT)?;
 
-        let Some(hostname) = sysinfo::System::host_name() else {
-            bail!("metrics: hostname could not be read")
-        };
+        if 0 < *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
+            feature::notify_interval::<Self>(Duration::from_secs(
+                *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
+            ))?;
+        }
 
         Ok(SystemInfo {
             tx_reported_properties: None,
@@ -229,7 +268,7 @@ impl SystemInfo {
                 os: Self::os_info()?,
                 azure_sdk_version,
                 omnect_device_service_version,
-                boot_time,
+                boot_time: None,
             },
             hardware_info: HardwareInfo {
                 components: sysinfo::Components::new_with_refreshed_list(),
@@ -239,19 +278,10 @@ impl SystemInfo {
                         .with_cpu(sysinfo::CpuRefreshKind::everything())
                         .with_memory(sysinfo::MemoryRefreshKind::everything()),
                 ),
-
-                hostname,
             },
             reboot_reason: reboot_reason::current_reboot_reason(),
             fleet_id: None,
-            handle: None,
         })
-    }
-
-    fn file_created_stream(&mut self) -> Result<CommandRequestStream> {
-        let (handle, stream) = file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE])?;
-        self.handle = Some(handle);
-        Ok(stream)
     }
 
     async fn report(&self) -> Result<()> {
@@ -296,106 +326,50 @@ impl SystemInfo {
             .context("boot_time: format uptime")
     }
 
-    fn cpu_usage(&self, time: String) -> Metric {
-        Metric::new(
-            time,
-            "cpu_usage".to_string(),
-            self.hardware_info.system.global_cpu_usage() as f64,
-            self.hardware_info.hostname.clone(),
-            None,
-        )
-    }
-
-    fn memory_used(&self, time: String) -> Metric {
-        Metric::new(
-            time,
-            "memory_used".to_string(),
-            self.hardware_info.system.used_memory() as f64,
-            self.hardware_info.hostname.clone(),
-            None,
-        )
-    }
-
-    fn memory_total(&self, time: String) -> Metric {
-        Metric::new(
-            time,
-            "memory_total".to_string(),
-            self.hardware_info.system.total_memory() as f64,
-            self.hardware_info.hostname.clone(),
-            None,
-        )
-    }
-
-    fn disk_used(&self, time: String, value: f64) -> Metric {
-        Metric::new(
-            time,
-            "disk_used".to_string(),
-            value,
-            self.hardware_info.hostname.clone(),
-            None,
-        )
-    }
-
-    fn disk_total(&self, time: String, value: f64) -> Metric {
-        Metric::new(
-            time,
-            "disk_total".to_string(),
-            value,
-            self.hardware_info.hostname.clone(),
-            None,
-        )
-    }
-
-    fn temp(&self, time: String, value: f64, sensor: String) -> Metric {
-        Metric::new(
-            time,
-            "temp".to_string(),
-            value,
-            self.hardware_info.hostname.clone(),
-            Some(sensor),
-        )
-    }
-
     async fn metrics(&mut self) -> Result<()> {
         let Some(tx) = &self.tx_outgoing_message else {
             warn!("metrics: skip since tx_outgoing_message is None");
             return Ok(());
         };
 
-        let Ok(time) = time::OffsetDateTime::now_utc().format(&Rfc3339) else {
-            bail!("metrics: timestamp could not be generated")
+        let Ok(mut time_stamp) = TIME_STAMP.write() else {
+            bail!("metrics: failed to lock TIME_STAMP")
         };
+        *time_stamp = time::OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .context("metrics: failed to get and format timestamp")?;
 
         self.hardware_info.components.refresh(true);
         self.hardware_info.system.refresh_cpu_usage();
         self.hardware_info.system.refresh_memory();
         self.hardware_info.disk.refresh(true);
 
-        let mut disk_total = 0;
-        let mut disk_used = 0;
-        for disk in self.hardware_info.disk.list() {
-            if disk.name().to_str() == Some("/dev/omnect/data") {
-                disk_total = disk.total_space();
-                disk_used = disk.total_space() - disk.available_space();
-                break;
-            }
-        }
+        let (disk_total, disk_used) = self
+            .hardware_info
+            .disk
+            .into_iter()
+            .filter_map(|disk| match (disk.name().to_str(), disk.total_space()) {
+                (Some("/dev/omnect/data"), space) => Some((space, space - disk.available_space())),
+                _ => None,
+            })
+            .next()
+            .unwrap_or((0, 0));
 
-        let mut metric_list = vec![
-            self.cpu_usage(time.clone()),
-            self.memory_used(time.clone()),
-            self.memory_total(time.clone()),
-            self.disk_used(time.clone(), disk_used as f64),
-            self.disk_total(time.clone(), disk_total as f64),
+        let mut metrics = vec![
+            MetricValue::CpuUsage(self.hardware_info.system.global_cpu_usage() as f64).to_metric(),
+            MetricValue::MemoryUsed(self.hardware_info.system.used_memory() as f64).to_metric(),
+            MetricValue::MemoryTotal(self.hardware_info.system.total_memory() as f64).to_metric(),
+            MetricValue::DiskUsed(disk_used as f64).to_metric(),
+            MetricValue::DiskTotal(disk_total as f64).to_metric(),
         ];
 
         self.hardware_info.components.iter().for_each(|c| {
             if let Some(t) = c.temperature() {
-                metric_list.push(self.temp(time.clone(), t.into(), c.label().to_string()))
+                metrics.push(MetricValue::Temp(t.into(), c.label().to_string()).to_metric())
             };
         });
 
-        let json = serde_json::to_vec(&metric_list)
+        let json = serde_json::to_vec(&metrics)
             .context("metrics list could not be converted to vector:")?;
 
         let msg = IotMessage::builder()

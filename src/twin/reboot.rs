@@ -1,8 +1,4 @@
-use crate::{
-    systemd,
-    twin::{Feature, feature::*},
-    web_service,
-};
+use crate::{systemd, twin::feature::*, web_service};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info};
