@@ -5,19 +5,25 @@ use crate::{
 use actix_server::ServerHandle;
 use actix_web::{App, HttpResponse, HttpServer, http::StatusCode, web};
 use anyhow::{Context, Result};
-use lazy_static::lazy_static;
 use log::{debug, error, info};
 use reqwest::{Client, header};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, env, path::Path, str::FromStr, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    env,
+    path::Path,
+    str::FromStr,
+    sync::{LazyLock, OnceLock},
+};
 use tokio::{
     sync::{Mutex, mpsc, oneshot},
     time::Duration,
 };
 
+static IS_WEBSERVICE_DISABLED: OnceLock<bool> = OnceLock::new();
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
 static PUBLISH_STATUS_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
@@ -28,7 +34,6 @@ static PUBLISH_CLIENT: LazyLock<Mutex<ClientWithMiddleware>> = LazyLock::new(|| 
     Mutex::new(
         ClientBuilder::new(
             Client::builder()
-                .timeout(Duration::from_secs(3))
                 .danger_accept_invalid_certs(true)
                 .build()
                 .expect("building ClientWithMiddleware failed"),
@@ -82,19 +87,25 @@ struct PublishEndpoint {
     headers: Vec<Header>,
 }
 
+impl PublishEndpoint {
+    fn headers(&self) -> Result<header::HeaderMap> {
+        let mut headers = header::HeaderMap::new();
+
+        for h in &self.headers {
+            headers.insert(
+                header::HeaderName::from_str(&h.name).context("failed to get header name")?,
+                header::HeaderValue::from_str(&h.value).context("failed to get header value")?,
+            );
+        }
+
+        Ok(headers)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct PublishEndpointRequest {
     id: String,
     endpoint: PublishEndpoint,
-}
-
-lazy_static! {
-    static ref IS_WEBSERVICE_ENABLED: bool = {
-        env::var("DISABLE_WEBSERVICE")
-            .unwrap_or("false".to_string())
-            .to_lowercase()
-            != "true"
-    };
 }
 
 pub struct WebService {
@@ -104,7 +115,12 @@ pub struct WebService {
 impl WebService {
     pub async fn run(tx_request: mpsc::Sender<CommandRequest>) -> Result<Option<Self>> {
         // we only start web service feature if not explicitly disabled by 'DISABLE_WEBSERVICE="true"' env var
-        if !(*IS_WEBSERVICE_ENABLED) {
+        if *IS_WEBSERVICE_DISABLED.get_or_init(|| {
+            env::var("DISABLE_WEBSERVICE")
+                .unwrap_or("false".to_string())
+                .to_lowercase()
+                == "true"
+        }) {
             info!("WebService is disabled");
             return Ok(None);
         };
@@ -397,14 +413,14 @@ impl WebService {
 }
 
 pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
-    if !(*IS_WEBSERVICE_ENABLED) {
+    if *IS_WEBSERVICE_DISABLED.wait() {
         debug!("publish: skip since feature not enabled");
         return;
     }
 
     debug!("publish");
 
-    let msg = json!({"channel": channel.to_string(), "data": value});
+    let msg = json!({"channel": channel.to_string(), "data": value}).to_string();
 
     PUBLISH_CHANNEL_MAP
         .lock()
@@ -417,17 +433,21 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
         .insert(channel.to_status_string(), value.clone());
 
     for endpoint in PUBLISH_ENDPOINTS.lock().await.values() {
-        if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
-            error!("publish: {e:#}");
-        }
+        let msg = msg.clone();
+        let endpoint = endpoint.clone();
+        tokio::spawn(async move {
+            if let Err(e) = publish_to_endpoint(msg, &endpoint).await {
+                error!("publish: {e:#}");
+            }
+        });
     }
 }
 
 async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
     for (channel, value) in PUBLISH_CHANNEL_MAP.lock().await.iter() {
-        let msg = json!({"channel": channel, "data": value});
+        let msg = json!({"channel": channel, "data": value}).to_string();
 
-        if let Err(e) = publish_to_endpoint(&msg, endpoint).await {
+        if let Err(e) = publish_to_endpoint(msg, endpoint).await {
             error!("republish_to_endpoint: {e:#}");
             return HttpResponse::InternalServerError().body(e.to_string());
         }
@@ -436,30 +456,16 @@ async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-async fn publish_to_endpoint(msg: &serde_json::Value, endpoint: &PublishEndpoint) -> Result<()> {
-    let mut headers = header::HeaderMap::new();
-
-    info!("try to send {msg} to {}.", endpoint.url);
-
-    for h in &endpoint.headers {
-        headers.insert(
-            header::HeaderName::from_str(&h.name)?,
-            header::HeaderValue::from_str(&h.value)?,
-        );
-    }
-
+async fn publish_to_endpoint(msg: String, endpoint: &PublishEndpoint) -> Result<reqwest::Response> {
     PUBLISH_CLIENT
         .lock()
         .await
         .post(&endpoint.url)
-        .headers(headers)
-        .body(msg.to_string())
+        .headers(endpoint.headers()?)
+        .body(msg)
         .send()
         .await
-        .context("sending request failed")?
-        .error_for_status()
-        .context("response error")
-        .map(|_| ())
+        .context("publish_to_endpoint")
 }
 
 async fn save_publish_endpoints() -> Result<()> {

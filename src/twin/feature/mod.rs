@@ -8,17 +8,17 @@ use futures::Stream;
 use futures_util::StreamExt;
 use inotify::{Event, Inotify, WatchDescriptor, WatchMask, Watches};
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
-use std::ffi::OsString;
 use std::{
-    any::TypeId,
+    any::{TypeId, type_name},
+    collections::HashMap,
+    ffi::OsString,
     path::Path,
     pin::Pin,
-    sync::{LazyLock, Mutex, OnceLock},
+    sync::{LazyLock, OnceLock},
     time::Duration,
 };
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{Mutex, mpsc, oneshot},
     task::JoinSet,
 };
 
@@ -225,7 +225,7 @@ static TASKS: LazyLock<Mutex<JoinSet<()>>> = LazyLock::new(|| Mutex::new(JoinSet
 static FILE_WATCHER: OnceLock<Mutex<FileWatcher>> = OnceLock::new();
 static TX_COMMAND_REQUEST: OnceLock<mpsc::Sender<CommandRequest>> = OnceLock::new();
 
-pub fn init(tx_command_request: mpsc::Sender<CommandRequest>) -> Result<()> {
+pub async fn init(tx_command_request: mpsc::Sender<CommandRequest>) -> Result<()> {
     TX_COMMAND_REQUEST
         .set(tx_command_request.clone())
         .map_err(|e| anyhow!("init: set TX_COMMAND_REQUEST {e:#?}"))?;
@@ -239,71 +239,78 @@ pub fn init(tx_command_request: mpsc::Sender<CommandRequest>) -> Result<()> {
         }))
         .map_err(|e| anyhow!("init: set FILE_WATCHER {e:#?}"))?;
 
-    TASKS
-        .lock()
-        .map_err(|e| anyhow!("init: TASKS {e:#?}"))?
-        .spawn(async move {
-            let mut buffer = [0; 1024];
-            let mut stream = inotify.into_event_stream(&mut buffer).unwrap();
-            while let Some(event_result) = stream.next().await {
-                match event_result {
-                    Ok(ev) => {
-                        debug!("inotify: {ev:?}");
-                        let feature_id = *FILE_WATCHER
-                            .get()
-                            .unwrap()
-                            .lock()
-                            .unwrap()
-                            .feature_map
-                            .get(&ev.wd)
-                            .unwrap();
+    TASKS.lock().await.spawn(async move {
+        let mut buffer = [0; 1024];
+        let mut stream = inotify.into_event_stream(&mut buffer).unwrap();
+        while let Some(event_result) = stream.next().await {
+            match event_result {
+                Ok(event) => {
+                    debug!("inotify: {event:?}");
+                    let Some(feature_id) = FILE_WATCHER
+                        .wait()
+                        .lock()
+                        .await
+                        .feature_map
+                        .get(&event.wd)
+                        .cloned()
+                    else {
+                        warn!("inotify: unknown wd {:?}", event.wd);
+                        continue;
+                    };
 
-                        if let Err(e) = tx_command_request
-                            .send(CommandRequest {
-                                command: Command::WatchPath(WatchPathCommand {
-                                    feature_id,
-                                    event: ev,
-                                }),
-                                reply: None,
-                            })
-                            .await
-                        {
-                            error!("inotify: send {e:#?}")
-                        }
+                    if let Err(e) = tx_command_request
+                        .send(CommandRequest {
+                            command: Command::WatchPath(WatchPathCommand { feature_id, event }),
+                            reply: None,
+                        })
+                        .await
+                    {
+                        error!("inotify: send {e:#?}")
                     }
-                    Err(e) => error!("inotify: event {e:#?}"),
                 }
+                Err(e) => error!("inotify: event {e:#?}"),
             }
-        });
+        }
+    });
 
     Ok(())
 }
 
-pub fn add_watch<T>(path: &Path, mask: WatchMask) -> Result<WatchDescriptor>
+pub(crate) async fn add_watch<T>(path: &Path, mask: WatchMask) -> Result<WatchDescriptor>
 where
-    T: 'static,
+    T: Feature + 'static,
 {
+    let feature_id = TypeId::of::<T>();
+    let feature_name = type_name::<T>();
+
+    debug!("add_watch: {feature_name} {path:?} {mask:?}");
+
     let mut watcher = FILE_WATCHER
         .get()
         .context("add_watch: FileWatcher missing")?
         .lock()
-        .map_err(|e| anyhow!("add_watch: FILE_WATCHER {e:#?}"))?;
+        .await;
 
-    let desc = watcher.watches.add(path, mask)?;
+    let wd = watcher
+        .watches
+        .add(path, mask)
+        .context("add_watch: failed to add")?;
 
-    let None = watcher.feature_map.insert(desc.clone(), TypeId::of::<T>()) else {
+    if watcher.feature_map.insert(wd.clone(), feature_id).is_some() {
         bail!("add_watch: currently only one feature per watch supported")
-    };
+    }
 
-    Ok(desc)
+    Ok(wd)
 }
 
-pub fn remove_watch(wd: WatchDescriptor) -> Result<()> {
+pub async fn remove_watch(wd: WatchDescriptor) -> Result<()> {
+    debug!("remove_watch: {wd:?}");
+
     let mut watcher = FILE_WATCHER
         .get()
         .context("remove_watch: FileWatcher missing")?
         .lock()
-        .map_err(|e| anyhow!("remove_watch: FILE_WATCHER {e:#?}"))?;
+        .await;
 
     watcher.watches.remove(wd.clone())?;
 
@@ -314,35 +321,34 @@ pub fn remove_watch(wd: WatchDescriptor) -> Result<()> {
     Ok(())
 }
 
-pub fn notify_interval<T>(interval: Duration) -> Result<()>
+pub async fn notify_interval<T>(interval: Duration) -> Result<()>
 where
     T: 'static,
 {
+    let feature_id = TypeId::of::<T>();
+
+    debug!("notify_interval: {feature_id:?} {interval:?}");
+
     let tx_command_request = TX_COMMAND_REQUEST
         .get()
         .context("notify_interval: failed to get TX_COMMAND_REQUEST")?
         .clone();
 
-    TASKS
-        .lock()
-        .map_err(|e| anyhow!("notify_interval: TASKS {e:#?}"))?
-        .spawn(async move {
-            let mut interval = tokio::time::interval(interval);
-            loop {
-                interval.tick().await;
-                if let Err(e) = tx_command_request
-                    .send(CommandRequest {
-                        command: Command::Interval(IntervalCommand {
-                            feature_id: TypeId::of::<T>(),
-                        }),
-                        reply: None,
-                    })
-                    .await
-                {
-                    error!("notify_interval: send {e:#?}")
-                }
+    TASKS.lock().await.spawn(async move {
+        let mut interval = tokio::time::interval(interval);
+        loop {
+            interval.tick().await;
+            if let Err(e) = tx_command_request
+                .send(CommandRequest {
+                    command: Command::Interval(IntervalCommand { feature_id }),
+                    reply: None,
+                })
+                .await
+            {
+                error!("notify_interval: send {e:#?}")
             }
-        });
+        }
+    });
 
     Ok(())
 }

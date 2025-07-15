@@ -180,7 +180,7 @@ impl FactoryReset {
     const FACTORY_RESET_VERSION: u8 = 3;
     const ID: &'static str = "factory_reset";
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let report = FactoryResetReport {
             keys: FactoryReset::factory_reset_keys()?,
             result: FactoryReset::factory_reset_result()?,
@@ -189,7 +189,8 @@ impl FactoryReset {
         feature::add_watch::<Self>(
             custom_config_dir_path!(),
             WatchMask::CREATE | WatchMask::DELETE,
-        )?;
+        )
+        .await?;
 
         Ok(FactoryReset {
             tx_reported_properties: None,

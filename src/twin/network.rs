@@ -5,22 +5,11 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
-use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
-
-lazy_static! {
-    static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
-        const REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT: &str = "60";
-        env::var("REFRESH_NETWORK_STATUS_INTERVAL_SECS")
-            .unwrap_or(REFRESH_NETWORK_STATUS_INTERVAL_SECS_DEFAULT.to_string())
-            .parse::<u64>()
-            .expect("cannot parse REFRESH_NETWORK_STATUS_INTERVAL_SECS env var")
-    };
-}
 
 static NETWORK_SERVICE: &str = "systemd-networkd.service";
 
@@ -99,11 +88,14 @@ impl Network {
     const NETWORK_STATUS_VERSION: u8 = 3;
     const ID: &'static str = "network_status";
 
-    pub fn new() -> Result<Self> {
-        if 0 < *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
-            feature::notify_interval::<Self>(Duration::from_secs(
-                *REFRESH_NETWORK_STATUS_INTERVAL_SECS,
-            ))?;
+    pub async fn new() -> Result<Self> {
+        let refresh_interval = env::var("REFRESH_NETWORK_STATUS_INTERVAL_SECS")
+            .unwrap_or("60".to_string())
+            .parse::<u64>()
+            .context("cannot parse REFRESH_NETWORK_STATUS_INTERVAL_SECS env var")?;
+
+        if 0 < refresh_interval {
+            feature::notify_interval::<Self>(Duration::from_secs(refresh_interval)).await?;
         }
 
         Ok(Network {

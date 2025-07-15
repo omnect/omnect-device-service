@@ -7,7 +7,6 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
 use inotify::WatchMask;
-use lazy_static::lazy_static;
 use log::{info, warn};
 use serde::{Deserialize, Serialize, Serializer, ser::Error};
 use serde_json::json;
@@ -22,17 +21,10 @@ use time::format_description::well_known::Rfc3339;
 use tokio::sync::mpsc;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
-
-// ToDo
-lazy_static! {
-    static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
-        const REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT: &str = "60";
-        env::var("REFRESH_SYSTEM_INFO_INTERVAL_SECS")
-            .unwrap_or(REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
-            .parse::<u64>()
-            .expect("cannot parse REFRESH_SYSTEM_INFO_INTERVAL_SECS env var")
-    };
-}
+#[cfg(not(feature = "mock"))]
+static TIMESYNC_FILE: &str = "/run/systemd/timesync/synchronized";
+#[cfg(feature = "mock")]
+static TIMESYNC_FILE: &str = "/tmp/synchronized";
 
 #[derive(Default, Serialize)]
 struct Label {
@@ -73,7 +65,7 @@ enum MetricValue {
 }
 
 impl MetricValue {
-    fn to_metric(self) -> Metric {
+    fn metric(self) -> Metric {
         let (name, value, labels) = match self {
             MetricValue::CpuUsage(value) => ("cpu_usage".to_owned(), value, Label::default()),
             MetricValue::MemoryUsed(value) => ("memory_used".to_owned(), value, Label::default()),
@@ -128,15 +120,6 @@ where
     };
 
     s.serialize_str(&time_stamp)
-}
-
-// ToDo rm lazy_staticw
-lazy_static! {
-    static ref TIMESYNC_FILE: &'static Path = if cfg!(feature = "mock") {
-        Path::new("/tmp/synchronized")
-    } else {
-        Path::new("/run/systemd/timesync/synchronized")
-    };
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -212,9 +195,12 @@ impl Feature for SystemInfo {
             Command::Interval(_) => {
                 self.metrics().await?;
             }
-            Command::WatchPath(_) => {
-                self.software_info.boot_time = Some(Self::boot_time()?);
-                self.report().await?;
+            Command::WatchPath(watch) => {
+                if Path::new(TIMESYNC_FILE).file_name() == watch.event.name.as_deref() {
+                    self.software_info.boot_time = Some(Self::boot_time()?);
+                    self.report().await?;
+                    feature::remove_watch(watch.event.wd.clone()).await?;
+                }
             }
             Command::FleetId(id) => {
                 self.fleet_id = Some(id.fleet_id.clone());
@@ -235,7 +221,7 @@ impl SystemInfo {
     const SYSTEM_INFO_VERSION: u8 = 1;
     const ID: &'static str = "system_info";
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let azure_sdk_version = IotHubClient::sdk_version_string();
         let omnect_device_service_version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -253,12 +239,29 @@ impl SystemInfo {
             RootPartition::current()?.as_str()
         );
 
-        feature::add_watch::<Self>(&TIMESYNC_FILE, WatchMask::CREATE | WatchMask::ONESHOT)?;
+        let time_synced_file = Path::new(TIMESYNC_FILE);
+        let wd = feature::add_watch::<Self>(
+            time_synced_file
+                .parent()
+                .context("failed to get parent of TIMESYNC_FILE")?,
+            WatchMask::CREATE,
+        )
+        .await?;
 
-        if 0 < *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            feature::notify_interval::<Self>(Duration::from_secs(
-                *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
-            ))?;
+        let boot_time = if matches!(time_synced_file.try_exists(), Ok(true)) {
+            feature::remove_watch(wd).await?;
+            Some(Self::boot_time()?)
+        } else {
+            None
+        };
+
+        let refresh_interval = env::var("REFRESH_SYSTEM_INFO_INTERVAL_SECS")
+            .unwrap_or("60".to_string())
+            .parse::<u64>()
+            .context("cannot parse REFRESH_SYSTEM_INFO_INTERVAL_SECS env var")?;
+
+        if 0 < refresh_interval {
+            feature::notify_interval::<Self>(Duration::from_secs(refresh_interval)).await?;
         }
 
         Ok(SystemInfo {
@@ -268,7 +271,7 @@ impl SystemInfo {
                 os: Self::os_info()?,
                 azure_sdk_version,
                 omnect_device_service_version,
-                boot_time: None,
+                boot_time,
             },
             hardware_info: HardwareInfo {
                 components: sysinfo::Components::new_with_refreshed_list(),
@@ -332,12 +335,14 @@ impl SystemInfo {
             return Ok(());
         };
 
-        let Ok(mut time_stamp) = TIME_STAMP.write() else {
-            bail!("metrics: failed to lock TIME_STAMP")
-        };
-        *time_stamp = time::OffsetDateTime::now_utc()
-            .format(&Rfc3339)
-            .context("metrics: failed to get and format timestamp")?;
+        {
+            let Ok(mut time_stamp) = TIME_STAMP.write() else {
+                bail!("metrics: failed to lock TIME_STAMP")
+            };
+            *time_stamp = time::OffsetDateTime::now_utc()
+                .format(&Rfc3339)
+                .context("metrics: failed to get and format timestamp")?;
+        }
 
         self.hardware_info.components.refresh(true);
         self.hardware_info.system.refresh_cpu_usage();
@@ -356,16 +361,16 @@ impl SystemInfo {
             .unwrap_or((0, 0));
 
         let mut metrics = vec![
-            MetricValue::CpuUsage(self.hardware_info.system.global_cpu_usage() as f64).to_metric(),
-            MetricValue::MemoryUsed(self.hardware_info.system.used_memory() as f64).to_metric(),
-            MetricValue::MemoryTotal(self.hardware_info.system.total_memory() as f64).to_metric(),
-            MetricValue::DiskUsed(disk_used as f64).to_metric(),
-            MetricValue::DiskTotal(disk_total as f64).to_metric(),
+            MetricValue::CpuUsage(self.hardware_info.system.global_cpu_usage() as f64).metric(),
+            MetricValue::MemoryUsed(self.hardware_info.system.used_memory() as f64).metric(),
+            MetricValue::MemoryTotal(self.hardware_info.system.total_memory() as f64).metric(),
+            MetricValue::DiskUsed(disk_used as f64).metric(),
+            MetricValue::DiskTotal(disk_total as f64).metric(),
         ];
 
         self.hardware_info.components.iter().for_each(|c| {
             if let Some(t) = c.temperature() {
-                metrics.push(MetricValue::Temp(t.into(), c.label().to_string()).to_metric())
+                metrics.push(MetricValue::Temp(t.into(), c.label().to_string()).metric())
             };
         });
 
