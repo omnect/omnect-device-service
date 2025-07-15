@@ -2227,7 +2227,6 @@ dependencies = [
  "futures-util",
  "glob",
  "inotify",
- "lazy_static",
  "log",
  "log-panics",
  "mockall",

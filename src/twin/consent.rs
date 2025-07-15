@@ -113,12 +113,14 @@ impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let mut file_map = HashMap::new();
 
         for path in [request_consent_path!(), history_consent_path!()] {
             file_map.insert(
-                feature::add_watch::<Self>(&path, WatchMask::MODIFY)?.get_watch_descriptor_id(),
+                feature::add_watch::<Self>(&path, WatchMask::MODIFY)
+                    .await?
+                    .get_watch_descriptor_id(),
                 path,
             );
         }

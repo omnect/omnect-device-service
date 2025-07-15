@@ -39,7 +39,7 @@ use std::{
     path::Path,
     time::{self, Duration},
 };
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, try_join};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 
 #[derive(PartialEq)]
@@ -67,23 +67,28 @@ impl Twin {
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
-        feature::init(tx_command_request.clone())?;
+        let (_, web_service) = try_join!(
+            feature::init(tx_command_request.clone()),
+            web_service::WebService::run(tx_command_request.clone())
+        )?;
+
         /*
             - init features first
             - start with SystemInfo in order to log useful infos asap
+            - ToDo: concurrency by try_join_all
         */
         let features = HashMap::from([
             (
                 TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::boxed(system_info::SystemInfo::new()?),
+                DynFeature::boxed(system_info::SystemInfo::new().await?),
             ),
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::boxed(consent::DeviceUpdateConsent::new()?),
+                DynFeature::boxed(consent::DeviceUpdateConsent::new().await?),
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::boxed(factory_reset::FactoryReset::new()?),
+                DynFeature::boxed(factory_reset::FactoryReset::new().await?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -91,15 +96,15 @@ impl Twin {
             ),
             (
                 TypeId::of::<modem_info::ModemInfo>(),
-                DynFeature::boxed(modem_info::ModemInfo::new()?),
+                DynFeature::boxed(modem_info::ModemInfo::new().await?),
             ),
             (
                 TypeId::of::<network::Network>(),
-                DynFeature::boxed(network::Network::new()?),
+                DynFeature::boxed(network::Network::new().await?),
             ),
             (
                 TypeId::of::<provisioning_config::ProvisioningConfig>(),
-                DynFeature::boxed(provisioning_config::ProvisioningConfig::new()?),
+                DynFeature::boxed(provisioning_config::ProvisioningConfig::new().await?),
             ),
             (
                 TypeId::of::<reboot::Reboot>(),
@@ -117,7 +122,7 @@ impl Twin {
 
         let twin = Twin {
             client: None,
-            web_service: web_service::WebService::run(tx_command_request.clone()).await?,
+            web_service,
             tx_command_request,
             tx_reported_properties,
             tx_outgoing_message,

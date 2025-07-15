@@ -1,7 +1,6 @@
 use crate::twin::feature::{self, *};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
-use lazy_static::lazy_static;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
@@ -294,21 +293,26 @@ mod inner {
     use super::*;
     use log::warn;
 
+    #[derive(Default)]
     pub struct ModemInfo {
         pub(super) tx_reported_properties: Option<Sender<serde_json::Value>>,
     }
 
     impl ModemInfo {
-        pub fn new() -> Result<Self> {
-            if 0 < *REFRESH_MODEM_INFO_INTERVAL_SECS {
-                feature::notify_interval::<Self>(Duration::from_secs(
-                    *REFRESH_MODEM_INFO_INTERVAL_SECS,
-                ))?;
+        pub async fn new() -> Result<Self> {
+            let modem_info = ModemInfo::default();
+            if modem_info.is_enabled() {
+                let refresh_interval = env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
+                    .unwrap_or("600".to_string())
+                    .parse::<u64>()
+                    .context("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")?;
+
+                if 0 < refresh_interval {
+                    feature::notify_interval::<Self>(Duration::from_secs(refresh_interval)).await?;
+                }
             }
 
-            Ok(ModemInfo {
-                tx_reported_properties: None,
-            })
+            Ok(modem_info)
         }
 
         pub async fn report(&self, force: bool) -> Result<()> {
@@ -336,16 +340,6 @@ pub use inner::ModemInfo;
 
 const MODEM_INFO_VERSION: u8 = 1;
 const ID: &str = "modem_info";
-
-lazy_static! {
-    static ref REFRESH_MODEM_INFO_INTERVAL_SECS: u64 = {
-        const REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT: &str = "600";
-        env::var("REFRESH_MODEM_INFO_INTERVAL_SECS")
-            .unwrap_or(REFRESH_MODEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
-            .parse::<u64>()
-            .expect("cannot parse REFRESH_MODEM_INFO_INTERVAL_SECS env var")
-    };
-}
 
 impl Feature for ModemInfo {
     fn name(&self) -> String {
