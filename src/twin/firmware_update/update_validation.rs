@@ -207,11 +207,13 @@ impl UpdateValidation {
     }
 
     async fn report_impl(status: UpdateValidationStatus) {
-        web_service::publish(
-            web_service::PublishChannel::UpdateValidationStatusV1,
-            json!({"status": status}),
-        )
-        .await;
+        if cfg!(not(feature = "mock")) {
+            web_service::publish(
+                web_service::PublishChannel::UpdateValidationStatusV1,
+                json!({"status": status}),
+            )
+            .await;
+        }
     }
 
     fn start_timeout(&mut self) -> Result<()> {
