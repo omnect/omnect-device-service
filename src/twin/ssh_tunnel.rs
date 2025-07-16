@@ -1,11 +1,11 @@
 use crate::twin::{
-    feature::{Command as FeatureCommand, CommandResult},
     Feature,
+    feature::{Command as FeatureCommand, CommandResult},
 };
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, error, info, warn};
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de::Error};
 use serde_json::json;
 use std::{
     env,
@@ -18,7 +18,7 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError},
+    sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, mpsc::Sender},
 };
 use uuid::Uuid;
 
@@ -448,14 +448,20 @@ impl SshTunnel {
                 if msg == "established" {
                     Ok(())
                 } else {
-                    bail!("await_tunnel_creation: failed to establish ssh tunnel due to unexpected response from ssh server: {}", msg);
+                    bail!(
+                        "await_tunnel_creation: failed to establish ssh tunnel due to unexpected response from ssh server: {}",
+                        msg
+                    );
                 }
             }
             Ok(None) => {
                 bail!("await_tunnel_creation: failed to establish ssh tunnel");
             }
             Err(err) => {
-                bail!("await_tunnel_creation: failed to establish ssh tunnel since unable to read from ssh process: {}", err);
+                bail!(
+                    "await_tunnel_creation: failed to establish ssh tunnel since unable to read from ssh process: {}",
+                    err
+                );
             }
         }
     }
@@ -898,19 +904,21 @@ mod tests {
         }
 
         // the final should fail
-        assert!(ssh_tunnel
-            .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
-                tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
-                certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
-                bastion_config: BastionConfig {
-                    host: "test-host".to_string(),
-                    port: 2222,
-                    user: "test-user".to_string(),
-                    socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
-                },
-            }))
-            .await
-            .is_err());
+        assert!(
+            ssh_tunnel
+                .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                    tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                    certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                    bastion_config: BastionConfig {
+                        host: "test-host".to_string(),
+                        port: 2222,
+                        user: "test-user".to_string(),
+                        socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
+                    },
+                }))
+                .await
+                .is_err()
+        );
 
         // finally, close the pipes. By opening and closing for writing is
         // sufficient.

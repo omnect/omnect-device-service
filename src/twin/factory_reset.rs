@@ -2,13 +2,13 @@ use crate::{
     bootloader_env,
     common::from_json_file,
     systemd,
-    twin::{Feature, feature::*},
+    twin::feature::{self, *},
     web_service,
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
+use inotify::WatchMask;
 use log::{debug, info, warn};
-use notify_debouncer_full::{Debouncer, NoCache, notify::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json};
 use serde_repr::*;
@@ -37,8 +37,10 @@ macro_rules! config_path {
 
 macro_rules! custom_config_dir_path {
     () => {
-        env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
-            .unwrap_or("/etc/omnect/factory-reset.d".to_string())
+        Path::new(
+            &env::var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH")
+                .unwrap_or("/etc/omnect/factory-reset.d".to_string()),
+        )
     };
 }
 
@@ -92,7 +94,6 @@ struct FactoryResetReport {
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     report: FactoryResetReport,
-    dir_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
 }
 
 impl Feature for FactoryReset {
@@ -136,17 +137,9 @@ impl Feature for FactoryReset {
         Ok(())
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        let (dir_observer, stream) =
-            dir_modified_stream::<FactoryReset>(vec![&Path::new(&custom_config_dir_path!())])
-                .context("command_request_stream: cannot create dir_modified_stream")?;
-        self.dir_observer = Some(dir_observer);
-        Ok(Some(stream))
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::DirModified(_) => {
+            Command::WatchPath(_) => {
                 let keys = FactoryReset::factory_reset_keys()?;
 
                 if keys != self.report.keys {
@@ -187,16 +180,21 @@ impl FactoryReset {
     const FACTORY_RESET_VERSION: u8 = 3;
     const ID: &'static str = "factory_reset";
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let report = FactoryResetReport {
             keys: FactoryReset::factory_reset_keys()?,
             result: FactoryReset::factory_reset_result()?,
         };
 
+        feature::add_watch::<Self>(
+            custom_config_dir_path!(),
+            WatchMask::CREATE | WatchMask::DELETE,
+        )
+        .await?;
+
         Ok(FactoryReset {
             tx_reported_properties: None,
             report,
-            dir_observer: None,
         })
     }
 
