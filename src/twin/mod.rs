@@ -66,6 +66,7 @@ impl Twin {
         tx_reported_properties: mpsc::Sender<serde_json::Value>,
         tx_outgoing_message: mpsc::Sender<IotMessage>,
     ) -> Result<Self> {
+        let web_service = web_service::WebService::run(tx_command_request.clone()).await?;
         /*
             - init features first
             - start with SystemInfo in order to log useful infos asap
@@ -115,7 +116,7 @@ impl Twin {
 
         let twin = Twin {
             client: None,
-            web_service: web_service::WebService::run(tx_command_request.clone()).await?,
+            web_service,
             tx_command_request,
             tx_reported_properties,
             tx_outgoing_message,
