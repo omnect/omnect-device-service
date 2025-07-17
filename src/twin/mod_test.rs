@@ -6,9 +6,7 @@ pub mod mod_test {
         AuthenticationObserver, DirectMethod, DirectMethodObserver, TwinObserver,
     };
     use cp_r::CopyOptions;
-    use env_logger::{Builder, Env};
     use futures_executor::block_on;
-    use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
     use rand::{
         distr::Alphanumeric,
@@ -17,14 +15,6 @@ pub mod mod_test {
     use serde_json::json;
     use std::fs::{copy, create_dir_all, remove_dir_all};
     use std::{env, fs::OpenOptions, path::PathBuf, time::Duration};
-
-    lazy_static! {
-        static ref LOG: () = if cfg!(debug_assertions) {
-            Builder::from_env(Env::default().default_filter_or("debug")).init()
-        } else {
-            Builder::from_env(Env::default().default_filter_or("info")).init()
-        };
-    }
 
     const TMPDIR_FORMAT_STR: &str = "/tmp/omnect-device-service-tests/";
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
@@ -83,7 +73,6 @@ pub mod mod_test {
 
     impl TestEnvironment {
         pub fn new(name: &str) -> TestEnvironment {
-            lazy_static::initialize(&LOG);
             let dirpath = format!("{}{}", TMPDIR_FORMAT_STR, name);
             create_dir_all(&dirpath).unwrap();
             TestEnvironment { dirpath }
@@ -132,6 +121,7 @@ pub mod mod_test {
 
     struct TestConfig {
         twin: Twin,
+        rx_command_request: mpsc::Receiver<CommandRequest>,
         dir: PathBuf,
     }
 
@@ -236,10 +226,10 @@ pub mod mod_test {
             let (tx_direct_method, _rx_direct_method) = mpsc::channel(100);
             let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
             let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
-            let (tx_web_service, _rx_web_service) = mpsc::channel(100);
+            let (tx_command_request, rx_command_request) = mpsc::channel(100);
 
             let mut twin = block_on(Twin::new(
-                tx_web_service,
+                tx_command_request,
                 tx_reported_properties,
                 tx_outgoing_message,
             ))
@@ -258,6 +248,7 @@ pub mod mod_test {
             // create test config
             let mut config = TestConfig {
                 twin,
+                rx_command_request,
                 dir: PathBuf::from(test_env.dirpath()),
             };
 
@@ -651,15 +642,6 @@ pub mod mod_test {
         let test = |test_attr: &mut TestConfig| {
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
-            let mut ev_stream = test_attr
-                .twin
-                .features
-                .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
-                .unwrap()
-                .command_request_stream()
-                .unwrap()
-                .unwrap();
-
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
@@ -676,7 +658,7 @@ pub mod mod_test {
             )
             .unwrap();
 
-            let cmd = block_on(async { ev_stream.next().await }).unwrap();
+            let cmd = block_on(async { test_attr.rx_command_request.recv().await.unwrap() });
 
             assert!(
                 block_on(async {
