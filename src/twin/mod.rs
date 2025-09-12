@@ -74,43 +74,43 @@ impl Twin {
         let features = HashMap::from([
             (
                 TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::boxed(system_info::SystemInfo::new()?),
+                DynFeature::new_box(system_info::SystemInfo::new()?),
             ),
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::boxed(consent::DeviceUpdateConsent::default()),
+                DynFeature::new_box(consent::DeviceUpdateConsent::default()),
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::boxed(factory_reset::FactoryReset::new()?),
+                DynFeature::new_box(factory_reset::FactoryReset::new()?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
-                DynFeature::boxed(firmware_update::FirmwareUpdate::new().await?),
+                DynFeature::new_box(firmware_update::FirmwareUpdate::new().await?),
             ),
             (
                 TypeId::of::<modem_info::ModemInfo>(),
-                DynFeature::boxed(modem_info::ModemInfo::new()),
+                DynFeature::new_box(modem_info::ModemInfo::new()),
             ),
             (
                 TypeId::of::<network::Network>(),
-                DynFeature::boxed(network::Network::default()),
+                DynFeature::new_box(network::Network::default()),
             ),
             (
                 TypeId::of::<provisioning_config::ProvisioningConfig>(),
-                DynFeature::boxed(provisioning_config::ProvisioningConfig::new()?),
+                DynFeature::new_box(provisioning_config::ProvisioningConfig::new()?),
             ),
             (
                 TypeId::of::<reboot::Reboot>(),
-                DynFeature::boxed(reboot::Reboot::default()),
+                DynFeature::new_box(reboot::Reboot::default()),
             ),
             (
                 TypeId::of::<ssh_tunnel::SshTunnel>(),
-                DynFeature::boxed(ssh_tunnel::SshTunnel::new()),
+                DynFeature::new_box(ssh_tunnel::SshTunnel::new()),
             ),
             (
                 TypeId::of::<wifi_commissioning::WifiCommissioning>(),
-                DynFeature::boxed(wifi_commissioning::WifiCommissioning::default()),
+                DynFeature::new_box(wifi_commissioning::WifiCommissioning::default()),
             ),
         ]);
 

@@ -175,7 +175,7 @@ pub type CommandResult = Result<Option<serde_json::Value>>;
 pub type CommandRequestStream = Pin<Box<dyn Stream<Item = CommandRequest> + Send>>;
 pub type CommandRequestStreamResult = Result<Option<CommandRequestStream>>;
 
-#[dynosaur::dynosaur(pub DynFeature)]
+#[dynosaur::dynosaur(pub DynFeature = dyn(box) Feature, bridge(none))]
 pub(crate) trait Feature {
     fn name(&self) -> String;
     fn version(&self) -> u8;
