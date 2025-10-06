@@ -1,11 +1,11 @@
 use crate::twin::{
-    feature::{Command as FeatureCommand, CommandResult},
     Feature,
+    feature::{Command as FeatureCommand, CommandResult},
 };
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, error, info, warn};
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de::Error};
 use serde_json::json;
 use std::{
     env,
@@ -18,7 +18,7 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore, TryAcquireError},
+    sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, mpsc::Sender},
 };
 use uuid::Uuid;
 
@@ -409,8 +409,7 @@ impl SshTunnel {
             Ok(output) => output,
             Err(err) => {
                 error!(
-                    "await_tunnel_termination: could not retrieve output from ssh process: {}",
-                    err
+                    "await_tunnel_termination: could not retrieve output from ssh process: {err}"
                 );
                 return;
             }
@@ -429,7 +428,7 @@ impl SshTunnel {
             warn!("Failed to send tunnel update to cloud: {err}");
         }
 
-        info!("Closed ssh tunnel: {}", tunnel_id);
+        info!("Closed ssh tunnel: {tunnel_id}");
     }
 
     async fn await_tunnel_creation(ssh_process: &mut Child) -> Result<()> {
@@ -448,14 +447,18 @@ impl SshTunnel {
                 if msg == "established" {
                     Ok(())
                 } else {
-                    bail!("await_tunnel_creation: failed to establish ssh tunnel due to unexpected response from ssh server: {}", msg);
+                    bail!(
+                        "await_tunnel_creation: failed to establish ssh tunnel due to unexpected response from ssh server: {msg}",
+                    );
                 }
             }
             Ok(None) => {
                 bail!("await_tunnel_creation: failed to establish ssh tunnel");
             }
             Err(err) => {
-                bail!("await_tunnel_creation: failed to establish ssh tunnel since unable to read from ssh process: {}", err);
+                bail!(
+                    "await_tunnel_creation: failed to establish ssh tunnel since unable to read from ssh process: {err}",
+                );
             }
         }
     }
@@ -464,8 +467,8 @@ impl SshTunnel {
         let control_socket_path = control_socket_path!(&args.tunnel_id);
 
         info!(
-            "close_ssh_tunnel: \"{}\", socket path: \"{:?}\"",
-            args.tunnel_id, control_socket_path
+            "close_ssh_tunnel: \"{}\", socket path: \"{control_socket_path:?}\"",
+            args.tunnel_id
         );
 
         Self::close_tunnel_command(&control_socket_path).await?;
@@ -600,9 +603,8 @@ impl Drop for SshCredentialsGuard {
             .for_each(|file| {
                 if let Err(err) = remove_file(file) {
                     warn!(
-                        "Failed to delete certificate \"{}\": {}",
-                        file.to_string_lossy(),
-                        err
+                        "Failed to delete certificate \"{}\": {err}",
+                        file.to_string_lossy()
                     );
                 }
             })
@@ -667,8 +669,8 @@ mod tests {
         const KEY_NAME: &str = "key";
 
         let priv_key_path = key_dir.path().join(KEY_NAME);
-        let pub_key_path = key_dir.path().join(format!("{}.pub", KEY_NAME));
-        let cert_path = key_dir.path().join(format!("{}-cert.pub", KEY_NAME));
+        let pub_key_path = key_dir.path().join(format!("{KEY_NAME}.pub"));
+        let cert_path = key_dir.path().join(format!("{KEY_NAME}-cert.pub"));
 
         let _priv_key_file = File::create(&priv_key_path).unwrap();
         let _pub_key_file = File::create(&pub_key_path).unwrap();
@@ -869,7 +871,7 @@ mod tests {
         // test connection limit
         let pipe_names = (1..=5)
             .into_iter()
-            .map(|pipe_num| tmp_dir.path().join(&format!("named_pipe_{}", pipe_num)))
+            .map(|pipe_num| tmp_dir.path().join(&format!("named_pipe_{pipe_num}")))
             .collect::<Vec<_>>();
 
         for pipe_name in &pipe_names {
@@ -898,19 +900,21 @@ mod tests {
         }
 
         // the final should fail
-        assert!(ssh_tunnel
-            .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
-                tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
-                certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
-                bastion_config: BastionConfig {
-                    host: "test-host".to_string(),
-                    port: 2222,
-                    user: "test-user".to_string(),
-                    socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
-                },
-            }))
-            .await
-            .is_err());
+        assert!(
+            ssh_tunnel
+                .command(&FeatureCommand::OpenSshTunnel(OpenSshTunnelCommand {
+                    tunnel_id: "b7afb216-5f7a-4755-a300-9374f8a0e9ff".to_string(),
+                    certificate: std::fs::read_to_string(cert_path.clone()).unwrap(),
+                    bastion_config: BastionConfig {
+                        host: "test-host".to_string(),
+                        port: 2222,
+                        user: "test-user".to_string(),
+                        socket_path: PathBuf::from_str("/some/test/socket/path").unwrap(),
+                    },
+                }))
+                .await
+                .is_err()
+        );
 
         // finally, close the pipes. By opening and closing for writing is
         // sufficient.

@@ -1,23 +1,12 @@
-use crate::twin::{Feature, feature::*};
+use crate::twin::feature::{self, *};
 use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
-use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
-use tokio::{sync::mpsc::Sender, time::interval};
-
-lazy_static! {
-    static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
-        const REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT: &str = "180";
-        env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
-            .unwrap_or(REFRESH_EST_EXPIRY_INTERVAL_SECS_DEFAULT.to_string())
-            .parse::<u64>()
-            .expect("cannot parse REFRESH_EST_EXPIRY_INTERVAL_SECS env var")
-    };
-}
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -141,22 +130,9 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
-            Ok(None)
-        } else {
-            match &self.method {
-                Method::X509(cert) if cert.est => Ok(Some(interval_stream::<ProvisioningConfig>(
-                    interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
-                ))),
-                _ => Ok(None),
-            }
-        }
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         let Command::Interval(_) = cmd else {
-            bail!("unexpected event: {cmd:?}")
+            bail!("unexpected command: {cmd:?}")
         };
 
         let expires = match &self.method {
@@ -184,7 +160,7 @@ impl ProvisioningConfig {
     const ID: &'static str = "provisioning_config";
     const IDENTITY_CONFIG_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let path = env::var("IDENTITY_CONFIG_FILE_PATH")
             .unwrap_or(ProvisioningConfig::IDENTITY_CONFIG_FILE_PATH_DEFAULT.to_string());
         let config: toml::map::Map<String, toml::Value> = std::fs::read_to_string(&path)
@@ -232,6 +208,23 @@ impl ProvisioningConfig {
             _ => bail!("provisioning_config: invalid provisioning configuration found"),
         };
 
+        let refresh_interval = env::var("REFRESH_EST_EXPIRY_INTERVAL_SECS")
+            .unwrap_or("180".to_string())
+            .parse::<u64>()
+            .context("cannot parse REFRESH_EST_EXPIRY_INTERVAL_SECS env var")?;
+
+        if 0 < refresh_interval
+            && matches!(
+                method,
+                Method::X509(X509 {
+                    est: true,
+                    expires: _
+                })
+            )
+        {
+            feature::add_notify_interval::<Self>(Duration::from_secs(refresh_interval)).await?;
+        }
+
         let this = ProvisioningConfig {
             tx_reported_properties: None,
             source,
@@ -260,16 +253,15 @@ impl ProvisioningConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::any::TypeId;
-    use tokio::time::Instant;
-
     use super::*;
+    use std::any::TypeId;
 
-    #[test]
-    fn provisioning_config_test() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn provisioning_config_test() {
         crate::common::set_env_var("IDENTITY_CONFIG_FILE_PATH", "");
         assert!(
             ProvisioningConfig::new()
+                .await
                 .unwrap_err()
                 .to_string()
                 .starts_with("provisioning_config: cannot read")
@@ -281,7 +273,7 @@ mod tests {
         );
         crate::common::set_env_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
         assert_eq!(
-            serde_json::to_value(ProvisioningConfig::new().unwrap()).unwrap(),
+            serde_json::to_value(ProvisioningConfig::new().await.unwrap()).unwrap(),
             json!({
                 "source": "dps",
                 "method": {
@@ -298,7 +290,7 @@ mod tests {
             "testfiles/positive/config.toml.tpm",
         );
         assert_eq!(
-            serde_json::to_value(ProvisioningConfig::new().unwrap()).unwrap(),
+            serde_json::to_value(ProvisioningConfig::new().await.unwrap()).unwrap(),
             json!({
                 "source": "dps",
                 "method": "tpm"
@@ -315,7 +307,7 @@ mod tests {
 
         crate::common::set_env_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid1-*.cer");
 
-        let mut config = ProvisioningConfig::new().unwrap();
+        let mut config = ProvisioningConfig::new().await.unwrap();
 
         assert_eq!(
             serde_json::to_value(&config).unwrap(),
@@ -339,7 +331,6 @@ mod tests {
         config
             .command(&Command::Interval(IntervalCommand {
                 feature_id: TypeId::of::<ProvisioningConfig>(),
-                instant: Instant::now(),
             }))
             .await
             .unwrap();

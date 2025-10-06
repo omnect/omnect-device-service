@@ -1,36 +1,20 @@
-use crate::{
-    common::RootPartition,
-    reboot_reason,
-    twin::{Feature, feature::*},
-    web_service,
-};
+use crate::{common::RootPartition, reboot_reason, twin::feature::*, web_service};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
-use futures::StreamExt;
-use lazy_static::lazy_static;
-use log::{debug, info, warn};
+use inotify::WatchMask;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{env, path::Path};
+use std::{env, path::Path, time::Duration};
 use sysinfo;
 use time::format_description::well_known::Rfc3339;
-use tokio::{
-    sync::mpsc,
-    task::JoinHandle,
-    time::{Duration, interval},
-};
+use tokio::sync::mpsc;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
-
-lazy_static! {
-    static ref REFRESH_SYSTEM_INFO_INTERVAL_SECS: u64 = {
-        const REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT: &str = "60";
-        env::var("REFRESH_SYSTEM_INFO_INTERVAL_SECS")
-            .unwrap_or(REFRESH_SYSTEM_INFO_INTERVAL_SECS_DEFAULT.to_string())
-            .parse::<u64>()
-            .expect("cannot parse REFRESH_SYSTEM_INFO_INTERVAL_SECS env var")
-    };
-}
+#[cfg(not(feature = "mock"))]
+static TIMESYNC_FILE: &str = "/run/systemd/timesync/synchronized";
+#[cfg(feature = "mock")]
+static TIMESYNC_FILE: &str = "/tmp/synchronized";
 
 #[derive(Serialize)]
 struct Label {
@@ -67,14 +51,6 @@ impl Metric {
             },
         }
     }
-}
-
-lazy_static! {
-    static ref TIMESYNC_FILE: &'static Path = if cfg!(feature = "mock") {
-        Path::new("/tmp/synchronized")
-    } else {
-        Path::new("/run/systemd/timesync/synchronized")
-    };
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -118,8 +94,6 @@ pub struct SystemInfo {
     reboot_reason: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fleet_id: Option<String>,
-    #[serde(skip_serializing)]
-    handle: Option<JoinHandle<()>>,
 }
 impl Feature for SystemInfo {
     fn name(&self) -> String {
@@ -148,29 +122,12 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            0 if self.software_info.boot_time.is_none() => Some(self.file_created_stream()?),
-            0 if self.software_info.boot_time.is_some() => None,
-            _ => {
-                let interval_stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
-                    *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
-                )));
-                Some(if self.software_info.boot_time.is_none() {
-                    futures::stream::select(interval_stream, self.file_created_stream()?).boxed()
-                } else {
-                    interval_stream
-                })
-            }
-        })
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
             Command::Interval(_) => {
                 self.metrics().await?;
             }
-            Command::FileCreated(_) => {
+            Command::WatchPath(_) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
                 self.report().await?;
             }
@@ -182,7 +139,7 @@ impl Feature for SystemInfo {
                 )
                 .await;
             }
-            _ => bail!("unexpected command"),
+            _ => bail!("unexpected command: {cmd:?}"),
         }
 
         Ok(None)
@@ -193,7 +150,7 @@ impl SystemInfo {
     const SYSTEM_INFO_VERSION: u8 = 1;
     const ID: &'static str = "system_info";
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let azure_sdk_version = IotHubClient::sdk_version_string();
         let omnect_device_service_version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -211,12 +168,30 @@ impl SystemInfo {
             RootPartition::current()?.as_str()
         );
 
-        let boot_time = if matches!(TIMESYNC_FILE.try_exists(), Ok(true)) {
+        let time_synced_file = Path::new(TIMESYNC_FILE);
+        let wd = add_fs_watch::<Self>(
+            time_synced_file
+                .parent()
+                .context("failed to get parent of TIMESYNC_FILE")?,
+            WatchMask::CREATE,
+        )
+        .await?;
+
+        let boot_time = if matches!(time_synced_file.try_exists(), Ok(true)) {
+            remove_fs_watch(wd).await?;
             Some(Self::boot_time()?)
         } else {
-            debug!("new: start timesync watcher since not synced yet");
             None
         };
+
+        let refresh_interval = env::var("REFRESH_SYSTEM_INFO_INTERVAL_SECS")
+            .unwrap_or("60".to_string())
+            .parse::<u64>()
+            .context("cannot parse REFRESH_SYSTEM_INFO_INTERVAL_SECS env var")?;
+
+        if 0 < refresh_interval {
+            add_notify_interval::<Self>(Duration::from_secs(refresh_interval)).await?;
+        }
 
         let Some(hostname) = sysinfo::System::host_name() else {
             bail!("metrics: hostname could not be read")
@@ -239,19 +214,11 @@ impl SystemInfo {
                         .with_cpu(sysinfo::CpuRefreshKind::everything())
                         .with_memory(sysinfo::MemoryRefreshKind::everything()),
                 ),
-
                 hostname,
             },
             reboot_reason: reboot_reason::current_reboot_reason(),
             fleet_id: None,
-            handle: None,
         })
-    }
-
-    fn file_created_stream(&mut self) -> Result<CommandRequestStream> {
-        let (handle, stream) = file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE])?;
-        self.handle = Some(handle);
-        Ok(stream)
     }
 
     async fn report(&self) -> Result<()> {
