@@ -1,14 +1,7 @@
-pub mod bootloader_env;
-pub mod common;
-pub mod reboot_reason;
-pub mod systemd;
-pub mod twin;
-pub mod web_service;
-
 use env_logger::{Builder, Env, Target};
 use log::{error, info};
+use omnect_device_service::twin::Twin;
 use std::{io::Write, process};
-use twin::Twin;
 
 #[tokio::main]
 async fn main() -> process::ExitCode {

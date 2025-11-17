@@ -615,6 +615,8 @@ The module reports the status of any attached modems. For this purpose the modul
 
 The network status is refreshed in an interval which can be configured by `REFRESH_NETWORK_STATUS_INTERVAL_SECS` environment variable. The default is 60s.
 
+When reloading network configuration via the [reload network daemon](#reload-network-daemon) endpoint, the service waits for networkd to apply the new configuration before reporting status. The delay can be configured via `RELOAD_NETWORK_DELAY_MS` environment variable (default: 500ms).
+
 **NOTE**: Currently reporting status of modems is no supported!
 
 #### Feature availability
