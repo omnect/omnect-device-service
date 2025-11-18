@@ -95,7 +95,16 @@ impl Feature for Network {
                     unit::UnitAction::Reload,
                     systemd_zbus::Mode::Fail,
                 )
-                .await?
+                .await?;
+
+                // Wait for networkd to apply configuration after reload.
+                // The reload job completion only means networkd received the signal,
+                // not that it finished applying the new configuration internally.
+                let delay_ms = env::var("RELOAD_NETWORK_DELAY_MS")
+                    .unwrap_or("500".to_string())
+                    .parse::<u64>()
+                    .unwrap_or(500);
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
             _ => bail!("unexpected command"),
         }
