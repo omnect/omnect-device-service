@@ -37,19 +37,22 @@ pub async fn reboot(reason: &str, extra_info: &str) -> Result<()> {
         _ => debug!("reboot: succeeded to execute 'journalctl --sync'"),
     }
 
-    zbus::Connection::system()
-        .await
-        .context("reboot: zbus::Connection::system() failed")?
-        .call_method(
-            Some("org.freedesktop.login1"),
-            "/org/freedesktop/login1",
-            Some("org.freedesktop.login1.Manager"),
-            "Reboot",
-            &(true),
-        )
-        .await
-        .context("reboot: call_method() failed")?;
-    Ok(())
+    // Trigger reboot via reboot.target using unit_action
+    // The job may not complete as the system shuts down, so we use a timeout
+    let reboot_timeout = std::time::Duration::from_secs(1);
+    match tokio::time::timeout(
+        reboot_timeout,
+        unit::unit_action("reboot.target", unit::UnitAction::Start, unit::Mode::Replace),
+    )
+    .await
+    {
+        Ok(result) => result.context("reboot: failed to start reboot.target"),
+        Err(_) => {
+            // Timeout is expected as system is shutting down
+            debug!("reboot: timed out waiting for reboot.target (system likely shutting down)");
+            Ok(())
+        }
+    }
 }
 
 pub async fn wait_for_system_running() -> Result<()> {

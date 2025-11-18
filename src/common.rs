@@ -1,5 +1,5 @@
-use anyhow::{bail, Context, Result};
-use serde::{de::DeserializeOwned, Serialize};
+use anyhow::{Context, Result, bail};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub enum RootPartition {
     A,
