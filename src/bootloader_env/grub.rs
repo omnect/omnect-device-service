@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::process::Command;
 
 static GRUB_ENV_FILE: &str = "/boot/EFI/BOOT/grubenv";

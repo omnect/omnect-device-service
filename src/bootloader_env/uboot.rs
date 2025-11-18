@@ -1,4 +1,4 @@
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use std::process::Command;
 
 pub fn bootloader_env(key: &str) -> Result<String> {
