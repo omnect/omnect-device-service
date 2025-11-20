@@ -37,22 +37,28 @@ pub async fn reboot(reason: &str, extra_info: &str) -> Result<()> {
         _ => debug!("reboot: succeeded to execute 'journalctl --sync'"),
     }
 
-    // Trigger reboot via reboot.target using unit_action
-    // The job may not complete as the system shuts down, so we use a timeout
-    let reboot_timeout = std::time::Duration::from_secs(1);
-    match tokio::time::timeout(
-        reboot_timeout,
-        unit::unit_action("reboot.target", unit::UnitAction::Start, unit::Mode::Replace),
-    )
-    .await
-    {
-        Ok(result) => result.context("reboot: failed to start reboot.target"),
-        Err(_) => {
-            // Timeout is expected as system is shutting down
-            debug!("reboot: timed out waiting for reboot.target (system likely shutting down)");
-            Ok(())
+    // Spawn reboot in background with a small delay to allow this function to return
+    // and the service to respond to the caller before the system shuts down
+    let delay_ms = std::env::var("REBOOT_DELAY_MS")
+        .unwrap_or("100".to_string())
+        .parse::<u64>()
+        .unwrap_or(100);
+
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        debug!("triggering reboot.target");
+        if let Err(e) = unit::unit_action(
+            "reboot.target",
+            unit::UnitAction::Start,
+            unit::Mode::Replace,
+        )
+        .await
+        {
+            error!("failed to start reboot.target: {e:#}");
         }
-    }
+    });
+
+    Ok(())
 }
 
 pub async fn wait_for_system_running() -> Result<()> {

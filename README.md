@@ -485,6 +485,12 @@ The availability of the feature might be suppressed by creating the following en
 SUPPRESS_REBOOT=true
 ```
 
+The reboot is executed with a configurable delay to allow the service to respond to the caller before the system shuts down. The delay can be configured via the `REBOOT_DELAY_MS` environment variable (default: 100ms).
+
+```bash
+REBOOT_DELAY_MS=1000
+```
+
 #### Trigger reboot
 
 Direct Method Name: `reboot`
