@@ -10,7 +10,7 @@ echo SERVICE_RESULT=${SERVICE_RESULT}, EXIT_CODE=${EXIT_CODE}, EXIT_STATUS=${EXI
 function reboot() {
   echo "reboot triggered by ${script}: ${1}"
   /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
-  dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 "org.freedesktop.login1.Manager.Reboot" boolean:true
+  systemctl start reboot.target
 }
 
 # for now we only check for ods failed (EXIT_STATUS not 0) and ignore SERVICE_RESULT
