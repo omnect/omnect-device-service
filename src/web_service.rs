@@ -62,7 +62,7 @@ pub enum PublishChannel {
     UpdateValidationStatusV1,
 }
 
-#[cfg(not(feature = "mock"))]
+#[cfg(not(test))]
 impl PublishChannel {
     fn to_status_string(&self) -> String {
         match self {
@@ -413,7 +413,7 @@ impl WebService {
     }
 }
 
-#[cfg(not(feature = "mock"))]
+#[cfg(not(test))]
 pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
     if *IS_WEBSERVICE_DISABLED.wait() {
         debug!("publish: skip since feature not enabled");
@@ -445,7 +445,7 @@ pub async fn publish(channel: PublishChannel, value: serde_json::Value) {
     }
 }
 
-#[cfg(feature = "mock")]
+#[cfg(test)]
 pub async fn publish(_channel: PublishChannel, _value: serde_json::Value) {}
 
 async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
@@ -462,7 +462,7 @@ async fn republish_to_endpoint(endpoint: &PublishEndpoint) -> HttpResponse {
 }
 
 async fn publish_to_endpoint(msg: String, endpoint: &PublishEndpoint) -> Result<reqwest::Response> {
-    PUBLISH_CLIENT
+    Ok(PUBLISH_CLIENT
         .lock()
         .await
         .post(&endpoint.url)
@@ -470,7 +470,8 @@ async fn publish_to_endpoint(msg: String, endpoint: &PublishEndpoint) -> Result<
         .body(msg)
         .send()
         .await
-        .context("publish_to_endpoint")
+        .context("publish_to_endpoint")?
+        .error_for_status()?)
 }
 
 async fn save_publish_endpoints() -> Result<()> {
