@@ -34,7 +34,6 @@ macro_rules! log_file_path {
     };
 }
 
-#[cfg(not(feature = "mock"))]
 macro_rules! pubkey_file_path {
     () => {
         env::var("SWUPDATE_PUBKEY_PATH").unwrap_or("/usr/share/swupdate/public.pem".to_string())
@@ -58,7 +57,6 @@ pub(crate) use bootloader_updated_file_path;
 pub(crate) use du_config_path;
 pub(crate) use log_file_path;
 pub(crate) use no_bootloader_updated_file_path;
-#[cfg(not(feature = "mock"))]
 pub(crate) use pubkey_file_path;
 pub(crate) use update_folder_path;
 pub(crate) use update_validation_config_path;

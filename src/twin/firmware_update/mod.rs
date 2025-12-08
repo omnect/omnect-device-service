@@ -347,6 +347,7 @@ impl FirmwareUpdate {
 
         let mut guard = RunUpdateGuard::new().await?;
 
+        #[cfg(not(feature = "mock"))]
         Self::swupdate(swu_file_path, target_partition.root_update_params()).context(format!(
             "failed to update root partition: swupdate logs at {}",
             log_file_path!()
@@ -354,32 +355,27 @@ impl FirmwareUpdate {
 
         let _ = fs::remove_file(no_bootloader_updated_file_path!());
 
-        if Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok() {
-            ensure!(
-                Path::new(&bootloader_updated_file_path!())
-                    .try_exists()
-                    .is_ok_and(|result| result),
-                format!(
-                    "failed to update bootloader: expected {} to be present. (swupdate logs at {})",
-                    bootloader_updated_file_path!(),
-                    log_file_path!()
-                )
-            );
+        let bootloader_updated =
+            Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok();
 
+        let _expected_file = if bootloader_updated {
+            bootloader_updated_file_path!()
+        } else {
+            no_bootloader_updated_file_path!()
+        };
+        
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            Path::new(&_expected_file).try_exists().is_ok_and(|r| r),
+            "failed to update bootloader: expected {} to be present. (swupdate logs at {})",
+            _expected_file,
+            log_file_path!()
+        );
+
+        if bootloader_updated {
             bootloader_env::set("omnect_bootloader_updated", "1")?;
             bootloader_env::set("omnect_os_bootpart", &target_partition.index().to_string())?;
         } else {
-            ensure!(
-                Path::new(&no_bootloader_updated_file_path!())
-                    .try_exists()
-                    .is_ok_and(|result| result),
-                format!(
-                    "failed to update bootloader: expected {} to be present. (swupdate logs at {})",
-                    no_bootloader_updated_file_path!(),
-                    log_file_path!()
-                )
-            );
-
             bootloader_env::set(
                 "omnect_validate_update_part",
                 &target_partition.index().to_string(),
@@ -403,7 +399,6 @@ impl FirmwareUpdate {
         Ok(None)
     }
 
-    #[cfg(not(feature = "mock"))]
     fn swupdate<P>(swu_file_path: P, selection: &str) -> Result<()>
     where
         P: AsRef<std::ffi::OsStr>,
@@ -433,14 +428,6 @@ impl FirmwareUpdate {
                 .success(),
             "failed to run swupdate command"
         );
-        Ok(())
-    }
-
-    #[cfg(feature = "mock")]
-    fn swupdate<P>(_swu_file_path: P, _selection: &str) -> Result<()>
-    where
-        P: AsRef<std::ffi::OsStr>,
-    {
         Ok(())
     }
 
