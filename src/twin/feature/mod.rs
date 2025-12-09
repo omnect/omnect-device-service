@@ -68,6 +68,13 @@ impl Command {
         }
     }
 
+    pub fn triggers_reboot(&self) -> bool {
+        matches!(
+            self,
+            Command::FactoryReset(_) | Command::Reboot | Command::RunFirmwareUpdate(_)
+        )
+    }
+
     pub fn from_direct_method(direct_method: &DirectMethod) -> Result<Command> {
         info!("direct method: {direct_method:?}");
 
@@ -354,6 +361,28 @@ mod tests {
     use serde_json::json;
     use std::str::FromStr;
     use tokio::sync::oneshot;
+
+    #[test]
+    fn triggers_reboot_test() {
+        assert!(Command::Reboot.triggers_reboot());
+        assert!(
+            Command::FactoryReset(factory_reset::FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec![]
+            })
+            .triggers_reboot()
+        );
+        assert!(
+            Command::RunFirmwareUpdate(firmware_update::RunUpdateCommand {
+                validate_iothub_connection: false
+            })
+            .triggers_reboot()
+        );
+
+        // Test some commands that should not trigger reboot
+        assert!(!Command::ReloadNetwork.triggers_reboot());
+        assert!(!Command::ValidateUpdate(true).triggers_reboot());
+    }
 
     #[test]
     fn from_direct_method_test() {

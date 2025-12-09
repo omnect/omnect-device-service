@@ -280,7 +280,8 @@ impl Twin {
             }
         }
 
-        if cmd.eq(&Command::Reboot) {
+        #[cfg(not(feature = "mock"))]
+        if cmd.triggers_reboot() {
             self.waiting_for_reboot = true;
         }
 
