@@ -23,6 +23,7 @@ use tokio::{
     time::Duration,
 };
 
+static SHUTDWOWN_TIMEOUT_SECS: u64 = 10;
 static IS_WEBSERVICE_DISABLED: OnceLock<bool> = OnceLock::new();
 static PUBLISH_CHANNEL_MAP: LazyLock<Mutex<serde_json::Map<String, serde_json::Value>>> =
     LazyLock::new(|| Mutex::new(serde_json::Map::default()));
@@ -188,7 +189,10 @@ impl WebService {
                 .context("web_service: cannot listen on UnixListener")?
         };
 
-        let srv = srv.run();
+        let srv = srv
+            .disable_signals()
+            .shutdown_timeout(SHUTDWOWN_TIMEOUT_SECS)
+            .run();
 
         let srv_handle = srv.handle();
 
