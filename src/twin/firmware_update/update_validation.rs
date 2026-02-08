@@ -252,8 +252,9 @@ impl UpdateValidation {
                 {
                     error!("failed to trigger reboot: {e:#}");
                 }
+            } else {
+                info!("update successfully validated")
             }
-            info!("update successfully validated")
         });
 
         Ok(())
