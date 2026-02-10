@@ -52,10 +52,10 @@ impl Drop for LoadUpdateGuard {
         debug!("load update: restore old wdt ({wdt:?})");
 
         tokio::spawn(async move {
-            if let Some(wdt) = wdt {
-                if let Err(e) = WatchdogManager::interval(wdt).await {
-                    error!("failed to restore wdt interval: {e:#}")
-                }
+            if let Some(wdt) = wdt
+                && let Err(e) = WatchdogManager::interval(wdt).await
+            {
+                error!("failed to restore wdt interval: {e:#}")
             }
         });
     }
@@ -107,10 +107,10 @@ impl Drop for RunUpdateGuard {
             );
 
             tokio::spawn(async move {
-                if let Some(wdt) = wdt {
-                    if let Err(e) = WatchdogManager::interval(wdt).await {
-                        error!("failed to restore wdt interval: {e:#}")
-                    }
+                if let Some(wdt) = wdt
+                    && let Err(e) = WatchdogManager::interval(wdt).await
+                {
+                    error!("failed to restore wdt interval: {e:#}")
                 }
 
                 if let Err(e) = systemd::unit::unit_action(
@@ -363,7 +363,7 @@ impl FirmwareUpdate {
         } else {
             no_bootloader_updated_file_path!()
         };
-        
+
         #[cfg(not(feature = "mock"))]
         ensure!(
             Path::new(&_expected_file).try_exists().is_ok_and(|r| r),
