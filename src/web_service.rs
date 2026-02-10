@@ -247,11 +247,10 @@ impl WebService {
             .await
             .remove(&id.into_inner())
             .is_some()
+            && let Err(e) = save_publish_endpoints().await
         {
-            if let Err(e) = save_publish_endpoints().await {
-                error!("couldn't write endpoints: {e:#}");
-                return HttpResponse::InternalServerError().body(e.to_string());
-            }
+            error!("couldn't write endpoints: {e:#}");
+            return HttpResponse::InternalServerError().body(e.to_string());
         }
 
         HttpResponse::Ok().finish()

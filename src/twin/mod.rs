@@ -274,10 +274,10 @@ impl Twin {
             Err(e) => error!("handle_request: {cmd_string} returned error: {e:#}"),
         }
 
-        if let Some(reply) = reply {
-            if reply.send(result).is_err() {
-                error!("handle_request: {cmd_string} receiver dropped");
-            }
+        if let Some(reply) = reply
+            && reply.send(result).is_err()
+        {
+            error!("handle_request: {cmd_string} receiver dropped");
         }
 
         #[cfg(not(feature = "mock"))]
