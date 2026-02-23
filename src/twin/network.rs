@@ -10,7 +10,13 @@ use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{env, time::Duration};
-use tokio::{sync::mpsc::Sender, time::interval};
+use tokio::sync::mpsc::Sender;
+#[cfg(not(feature = "mock"))]
+use futures::StreamExt as _;
+#[cfg(not(feature = "mock"))]
+use tokio_stream::wrappers::ReceiverStream;
+#[cfg(feature = "mock")]
+use tokio::time::interval;
 
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
@@ -47,10 +53,21 @@ pub struct Interface {
     ipv4: IpConfig,
 }
 
-#[derive(Default)]
 pub struct Network {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     interfaces: Vec<Interface>,
+    #[allow(dead_code)]
+    signal_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Network {
+            tx_reported_properties: None,
+            interfaces: Vec::new(),
+            signal_task: None,
+        }
+    }
 }
 
 impl Feature for Network {
@@ -76,6 +93,72 @@ impl Feature for Network {
         Ok(())
     }
 
+    #[cfg(not(feature = "mock"))]
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+        if !self.is_enabled() {
+            return Ok(None);
+        }
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<CommandRequest>(4);
+
+        let handle = tokio::spawn(async move {
+            use std::any::TypeId;
+
+            let mut stream = match networkd::networkd_signal_stream().await {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("network: signal task: failed to start: {e:#}");
+                    return;
+                }
+            };
+
+            const DEBOUNCE: Duration = Duration::from_secs(2);
+            const FAR_FUTURE: Duration = Duration::from_secs(3600);
+            let mut debounce_deadline: Option<tokio::time::Instant> = None;
+
+            loop {
+                let sleep_until = debounce_deadline
+                    .unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
+
+                tokio::select! {
+                    biased;
+
+                    msg = stream.next() => match msg {
+                        Some(Ok(_)) => {
+                            debug!("network: signal received, (re)arming debounce");
+                            debounce_deadline = Some(tokio::time::Instant::now() + DEBOUNCE);
+                        }
+                        Some(Err(e)) => error!("network: signal stream error: {e:#}"),
+                        None => {
+                            warn!("network: signal stream ended unexpectedly");
+                            return;
+                        }
+                    },
+
+                    _ = tokio::time::sleep_until(sleep_until), if debounce_deadline.is_some() => {
+                        debounce_deadline = None;
+                        debug!("network: debounce elapsed, triggering report");
+                        let req = CommandRequest {
+                            command: Command::Interval(IntervalCommand {
+                                feature_id: TypeId::of::<Network>(),
+                                instant: tokio::time::Instant::now(),
+                            }),
+                            reply: None,
+                        };
+                        if tx.send(req).await.is_err() {
+                            debug!("network: signal task: receiver dropped, stopping");
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        self.signal_task = Some(handle);
+        Ok(Some(ReceiverStream::new(rx).boxed()))
+    }
+
+    #[cfg(feature = "mock")]
     fn command_request_stream(&mut self) -> CommandRequestStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)

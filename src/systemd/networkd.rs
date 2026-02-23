@@ -49,6 +49,21 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
     crate::common::from_json_file("testfiles/positive/systemd-networkd-link-description.json")
 }
 
+#[cfg(not(feature = "mock"))]
+pub async fn networkd_signal_stream() -> Result<zbus::MessageStream> {
+    let conn = zbus::Connection::system()
+        .await
+        .context("networkd_signal_stream: zbus::Connection::system() failed")?;
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender("org.freedesktop.network1")
+        .context("networkd_signal_stream: invalid sender name")?
+        .build();
+    zbus::MessageStream::for_match_rule(rule, &conn, Some(64))
+        .await
+        .context("networkd_signal_stream: for_match_rule() failed")
+}
+
 pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
     /*
        we expect systemd-networkd-wait-online.service file to be present.
