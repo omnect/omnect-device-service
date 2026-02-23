@@ -171,7 +171,7 @@ impl Feature for Network {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::Interval(_) => {}
+            Command::Interval(_) => self.report(false).await?,
             Command::ReloadNetwork => {
                 unit::unit_action(
                     NETWORK_SERVICE,
@@ -179,20 +179,9 @@ impl Feature for Network {
                     systemd_zbus::Mode::Fail,
                 )
                 .await?;
-
-                // Wait for networkd to apply configuration after reload.
-                // The reload job completion only means networkd received the signal,
-                // not that it finished applying the new configuration internally.
-                let delay_ms = env::var("RELOAD_NETWORK_DELAY_MS")
-                    .unwrap_or("500".to_string())
-                    .parse::<u64>()
-                    .unwrap_or(500);
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
             _ => bail!("unexpected command"),
         }
-
-        self.report(false).await?;
 
         Ok(None)
     }
