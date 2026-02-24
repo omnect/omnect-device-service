@@ -11,12 +11,6 @@ use serde::Serialize;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
-#[cfg(not(feature = "mock"))]
-use futures::StreamExt as _;
-#[cfg(not(feature = "mock"))]
-use tokio_stream::wrappers::ReceiverStream;
-#[cfg(feature = "mock")]
-use tokio::time::interval;
 
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
@@ -53,21 +47,12 @@ pub struct Interface {
     ipv4: IpConfig,
 }
 
+#[derive(Default)]
 pub struct Network {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     interfaces: Vec<Interface>,
     #[allow(dead_code)]
     signal_task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network {
-            tx_reported_properties: None,
-            interfaces: Vec::new(),
-            signal_task: None,
-        }
-    }
 }
 
 impl Feature for Network {
@@ -95,6 +80,9 @@ impl Feature for Network {
 
     #[cfg(not(feature = "mock"))]
     fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+        use futures::StreamExt as _;
+        use tokio_stream::wrappers::ReceiverStream;
+
         if !self.is_enabled() {
             return Ok(None);
         }
@@ -117,8 +105,8 @@ impl Feature for Network {
             let mut debounce_deadline: Option<tokio::time::Instant> = None;
 
             loop {
-                let sleep_until = debounce_deadline
-                    .unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
+                let sleep_until =
+                    debounce_deadline.unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
 
                 tokio::select! {
                     biased;
@@ -160,6 +148,8 @@ impl Feature for Network {
 
     #[cfg(feature = "mock")]
     fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+        use tokio::time::interval;
+
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
