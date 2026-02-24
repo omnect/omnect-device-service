@@ -10,7 +10,7 @@ use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::json;
 use std::{env, time::Duration};
-use tokio::{sync::mpsc::Sender, time::interval};
+use tokio::sync::mpsc::Sender;
 
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {
@@ -51,6 +51,8 @@ pub struct Interface {
 pub struct Network {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     interfaces: Vec<Interface>,
+    #[allow(dead_code)]
+    signal_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Feature for Network {
@@ -76,7 +78,83 @@ impl Feature for Network {
         Ok(())
     }
 
+    #[cfg(not(feature = "mock"))]
     fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+        use futures::StreamExt as _;
+        use tokio_stream::wrappers::ReceiverStream;
+
+        if !self.is_enabled() {
+            return Ok(None);
+        }
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<CommandRequest>(4);
+
+        let handle = tokio::spawn(async move {
+            use std::any::TypeId;
+
+            let mut stream = match networkd::networkd_signal_stream().await {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("signal task: failed to start: {e:#}");
+                    return;
+                }
+            };
+
+            // Coalesce bursts of signals (e.g. during DHCP negotiation) into a
+            // single report by waiting for DEBOUNCE silence after the last signal.
+            const DEBOUNCE: Duration = Duration::from_secs(2);
+            // select! futures are evaluated unconditionally even when their guard
+            // is false, so a placeholder far-future instant stands in for "no
+            // deadline pending" without a separate branch.
+            const FAR_FUTURE: Duration = Duration::from_secs(3600);
+            let mut debounce_deadline: Option<tokio::time::Instant> = None;
+
+            loop {
+                let sleep_until =
+                    debounce_deadline.unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
+
+                tokio::select! {
+                    biased;
+
+                    msg = stream.next() => match msg {
+                        Some(Ok(_)) => {
+                            debug!("signal received, (re)arming debounce");
+                            debounce_deadline = Some(tokio::time::Instant::now() + DEBOUNCE);
+                        }
+                        Some(Err(e)) => error!("signal stream error: {e:#}"),
+                        None => {
+                            warn!("signal stream ended unexpectedly");
+                            return;
+                        }
+                    },
+
+                    _ = tokio::time::sleep_until(sleep_until), if debounce_deadline.is_some() => {
+                        debounce_deadline = None;
+                        debug!("debounce elapsed, triggering report");
+                        let req = CommandRequest {
+                            command: Command::Interval(IntervalCommand {
+                                feature_id: TypeId::of::<Network>(),
+                                instant: tokio::time::Instant::now(),
+                            }),
+                            reply: None,
+                        };
+                        if tx.send(req).await.is_err() {
+                            debug!("signal task: receiver dropped, stopping");
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        self.signal_task = Some(handle);
+        Ok(Some(ReceiverStream::new(rx).boxed()))
+    }
+
+    #[cfg(feature = "mock")]
+    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+        use tokio::time::interval;
+
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
@@ -88,7 +166,7 @@ impl Feature for Network {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::Interval(_) => {}
+            Command::Interval(_) => self.report(false).await?,
             Command::ReloadNetwork => {
                 unit::unit_action(
                     NETWORK_SERVICE,
@@ -96,20 +174,9 @@ impl Feature for Network {
                     systemd_zbus::Mode::Fail,
                 )
                 .await?;
-
-                // Wait for networkd to apply configuration after reload.
-                // The reload job completion only means networkd received the signal,
-                // not that it finished applying the new configuration internally.
-                let delay_ms = env::var("RELOAD_NETWORK_DELAY_MS")
-                    .unwrap_or("500".to_string())
-                    .parse::<u64>()
-                    .unwrap_or(500);
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
             _ => bail!("unexpected command"),
         }
-
-        self.report(false).await?;
 
         Ok(None)
     }
