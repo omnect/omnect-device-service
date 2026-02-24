@@ -95,12 +95,17 @@ impl Feature for Network {
             let mut stream = match networkd::networkd_signal_stream().await {
                 Ok(s) => s,
                 Err(e) => {
-                    error!("network: signal task: failed to start: {e:#}");
+                    error!("signal task: failed to start: {e:#}");
                     return;
                 }
             };
 
+            // Coalesce bursts of signals (e.g. during DHCP negotiation) into a
+            // single report by waiting for DEBOUNCE silence after the last signal.
             const DEBOUNCE: Duration = Duration::from_secs(2);
+            // select! futures are evaluated unconditionally even when their guard
+            // is false, so a placeholder far-future instant stands in for "no
+            // deadline pending" without a separate branch.
             const FAR_FUTURE: Duration = Duration::from_secs(3600);
             let mut debounce_deadline: Option<tokio::time::Instant> = None;
 
@@ -113,19 +118,19 @@ impl Feature for Network {
 
                     msg = stream.next() => match msg {
                         Some(Ok(_)) => {
-                            debug!("network: signal received, (re)arming debounce");
+                            debug!("signal received, (re)arming debounce");
                             debounce_deadline = Some(tokio::time::Instant::now() + DEBOUNCE);
                         }
-                        Some(Err(e)) => error!("network: signal stream error: {e:#}"),
+                        Some(Err(e)) => error!("signal stream error: {e:#}"),
                         None => {
-                            warn!("network: signal stream ended unexpectedly");
+                            warn!("signal stream ended unexpectedly");
                             return;
                         }
                     },
 
                     _ = tokio::time::sleep_until(sleep_until), if debounce_deadline.is_some() => {
                         debounce_deadline = None;
-                        debug!("network: debounce elapsed, triggering report");
+                        debug!("debounce elapsed, triggering report");
                         let req = CommandRequest {
                             command: Command::Interval(IntervalCommand {
                                 feature_id: TypeId::of::<Network>(),
@@ -134,7 +139,7 @@ impl Feature for Network {
                             reply: None,
                         };
                         if tx.send(req).await.is_err() {
-                            debug!("network: signal task: receiver dropped, stopping");
+                            debug!("signal task: receiver dropped, stopping");
                             return;
                         }
                     }
