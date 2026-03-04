@@ -96,15 +96,11 @@ struct SoftwareInfo {
     boot_time: Option<String>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default)]
 struct HardwareInfo {
-    #[serde(skip_serializing)]
     components: sysinfo::Components,
-    #[serde(skip_serializing)]
     disk: sysinfo::Disks,
-    #[serde(skip_serializing)]
     system: sysinfo::System,
-    hostname: String,
 }
 
 #[derive(Default, Serialize)]
@@ -115,8 +111,9 @@ pub struct SystemInfo {
     tx_outgoing_message: Option<mpsc::Sender<IotMessage>>,
     #[serde(flatten)]
     software_info: SoftwareInfo,
-    #[serde(flatten)]
+    #[serde(skip_serializing)]
     hardware_info: HardwareInfo,
+    hostname: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     reboot_reason: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,10 +218,6 @@ impl SystemInfo {
             None
         };
 
-        let Some(hostname) = sysinfo::System::host_name() else {
-            bail!("metrics: hostname could not be read")
-        };
-
         Ok(SystemInfo {
             tx_reported_properties: None,
             tx_outgoing_message: None,
@@ -242,9 +235,8 @@ impl SystemInfo {
                         .with_cpu(sysinfo::CpuRefreshKind::everything())
                         .with_memory(sysinfo::MemoryRefreshKind::everything()),
                 ),
-
-                hostname,
             },
+            hostname: Self::hostname()?,
             reboot_reason: reboot_reason::current_reboot_reason(),
             fleet_id: None,
             handle: None,
@@ -291,6 +283,20 @@ impl SystemInfo {
         Ok(os_info)
     }
 
+    #[cfg(not(feature = "mock"))]
+    fn hostname() -> Result<String> {
+        let Some(hostname) = sysinfo::System::host_name() else {
+            bail!("metrics: hostname could not be read")
+        };
+
+        Ok(hostname)
+    }
+
+    #[cfg(feature = "mock")]
+    fn hostname() -> Result<String> {
+        Ok("my-hostname".to_string())
+    }
+
     fn boot_time() -> Result<String> {
         let boot_time = time::OffsetDateTime::UNIX_EPOCH
             + std::time::Duration::from_secs(sysinfo::System::boot_time());
@@ -304,7 +310,7 @@ impl SystemInfo {
             time,
             "cpu_usage".to_string(),
             self.hardware_info.system.global_cpu_usage() as f64,
-            self.hardware_info.hostname.clone(),
+            self.hostname.clone(),
             None,
         )
     }
@@ -314,7 +320,7 @@ impl SystemInfo {
             time,
             "memory_used".to_string(),
             self.hardware_info.system.used_memory() as f64,
-            self.hardware_info.hostname.clone(),
+            self.hostname.clone(),
             None,
         )
     }
@@ -324,7 +330,7 @@ impl SystemInfo {
             time,
             "memory_total".to_string(),
             self.hardware_info.system.total_memory() as f64,
-            self.hardware_info.hostname.clone(),
+            self.hostname.clone(),
             None,
         )
     }
@@ -334,7 +340,7 @@ impl SystemInfo {
             time,
             "disk_used".to_string(),
             value,
-            self.hardware_info.hostname.clone(),
+            self.hostname.clone(),
             None,
         )
     }
@@ -344,7 +350,7 @@ impl SystemInfo {
             time,
             "disk_total".to_string(),
             value,
-            self.hardware_info.hostname.clone(),
+            self.hostname.clone(),
             None,
         )
     }
@@ -354,7 +360,7 @@ impl SystemInfo {
             time,
             "temp".to_string(),
             value,
-            self.hardware_info.hostname.clone(),
+            self.hostname.clone(),
             Some(sensor),
         )
     }
