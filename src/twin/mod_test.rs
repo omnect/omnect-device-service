@@ -335,7 +335,8 @@ pub mod mod_test {
                     "reboot_reason": {
                         "current_boot_id": "56e51a56-f85f-4abd-95bb-fc2335d9b696",
                         "reason": "power-loss"
-                    }
+                    },
+                    "hostname": "my-hostname"
                 }})))
                 .times(2)
                 .returning(|_| Ok(()));
@@ -485,7 +486,8 @@ pub mod mod_test {
                     "reboot_reason": {
                         "current_boot_id": "56e51a56-f85f-4abd-95bb-fc2335d9b696",
                         "reason": "power-loss"
-                    }
+                    },
+                    "hostname": "my-hostname"
                 }})))
                 .times(1)
                 .returning(|_| Ok(()));
