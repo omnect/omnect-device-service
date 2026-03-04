@@ -96,10 +96,13 @@ struct SoftwareInfo {
     boot_time: Option<String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize)]
 struct HardwareInfo {
+    #[serde(skip_serializing)]
     components: sysinfo::Components,
+    #[serde(skip_serializing)]
     disk: sysinfo::Disks,
+    #[serde(skip_serializing)]
     system: sysinfo::System,
     hostname: String,
 }
@@ -112,7 +115,7 @@ pub struct SystemInfo {
     tx_outgoing_message: Option<mpsc::Sender<IotMessage>>,
     #[serde(flatten)]
     software_info: SoftwareInfo,
-    #[serde(skip_serializing)]
+    #[serde(flatten)]
     hardware_info: HardwareInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     reboot_reason: Option<serde_json::Value>,
