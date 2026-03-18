@@ -17,13 +17,11 @@ pub fn bootloader_env(key: &str) -> Result<String> {
     let list = list.split('\n');
     let mut value = "".to_string();
     for i in list {
-        let mut j = i.split('=');
-        if j.next().context("failed to split grub-editenv line")? == key {
-            value = j
-                .next_back()
-                .context(format!("failed to get {key}'s value"))?
-                .trim()
-                .to_string();
+        let key_value = i
+            .split_once('=')
+            .context(format!("failed to get {key}'s value"))?;
+        if key_value.0 == key {
+            value = key_value.1.trim().to_string();
             break;
         }
     }

@@ -8,9 +8,9 @@ pub fn bootloader_env(key: &str) -> Result<String> {
     }
     let value = String::from_utf8(value.stdout)?;
     let mut value = value
-        .split('=')
-        .next_back()
+        .split_once('=')
         .context(format!("failed to get {key}'s value"))?
+        .1
         .trim()
         .to_string();
     let len = value.trim_end_matches(&['\r', '\n'][..]).len();
