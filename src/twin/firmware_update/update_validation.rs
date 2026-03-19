@@ -192,7 +192,6 @@ impl UpdateValidation {
             bootloader_env::unset("extra_bootargs")?;
         }
 
-        bootloader_env::set("extra_bootargs", &omnect_validate_extra_bootargs)?;
         bootloader_env::unset("omnect_validate_update")?;
         bootloader_env::unset("omnect_validate_update_part")?;
         bootloader_env::unset("omnect_validate_extra_bootargs")?;
