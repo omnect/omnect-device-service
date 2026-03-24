@@ -186,15 +186,17 @@ impl UpdateValidation {
             "omnect_os_bootpart",
             &omnect_validate_update_part.index().to_string(),
         )?;
-        if !omnect_validate_extra_bootargs.is_empty() {
+
+        if omnect_validate_extra_bootargs == "#noargs" {
+            bootloader_env::unset("omnect_extra_bootargs")?;
+            bootloader_env::unset("omnect_validate_extra_bootargs")?;
+        } else if !omnect_validate_extra_bootargs.is_empty() {
             bootloader_env::set("omnect_extra_bootargs", &omnect_validate_extra_bootargs)?;
-        } else {
-            bootloader_env::unset("omnect_extra_bootargs,")?;
+            bootloader_env::unset("omnect_validate_extra_bootargs")?;
         }
 
         bootloader_env::unset("omnect_validate_update")?;
         bootloader_env::unset("omnect_validate_update_part")?;
-        bootloader_env::unset("omnect_validate_extra_bootargs")?;
 
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).context(format!(
             "update validation: remove {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"
