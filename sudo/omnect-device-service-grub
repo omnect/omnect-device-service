@@ -1,3 +1,5 @@
+# todo wildcard
+
 # factory reset
 # warning: using a wildcard here; options: use regex or multiple occurrences of the call with different possible input
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set factory-reset=*

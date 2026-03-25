@@ -1,8 +1,11 @@
+# todo wildcard comment
+
 # factory reset
 # warning: using a wildcard here; options: use regex or multiple occurrences of the call with different possible input
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv factory-reset *
 
 # update validation finalization
+omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_extra_bootargs
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_update_part
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_extra_bootargs
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv omnect_extra_bootargs
