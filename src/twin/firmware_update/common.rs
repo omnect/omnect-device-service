@@ -53,6 +53,22 @@ macro_rules! bootloader_updated_file_path {
     };
 }
 
+macro_rules! bootargs_omnect_file_path {
+    () => {
+        env::var("BOOTARGS_OMNECT_FILE_PATH")
+            .unwrap_or("/boot/omnect_extra_bootargs_omnect".to_string())
+    };
+}
+
+macro_rules! bootargs_custom_file_path {
+    () => {
+        env::var("BOOTARGS_CUSTOM_FILE_PATH")
+            .unwrap_or("/boot/omnect_extra_bootargs_custom".to_string())
+    };
+}
+
+pub(crate) use bootargs_custom_file_path;
+pub(crate) use bootargs_omnect_file_path;
 pub(crate) use bootloader_updated_file_path;
 pub(crate) use du_config_path;
 pub(crate) use log_file_path;
