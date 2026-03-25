@@ -389,26 +389,22 @@ impl FirmwareUpdate {
         );
 
         let current_bootargs = bootloader_env::get("omnect_extra_bootargs")?;
-        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?;
-        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!())?;
+        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!()).unwrap_or_default();
+        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default();
         let new_bootargs = format!("{} {}", omnect_bootargs, custom_bootargs)
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
 
         if current_bootargs != new_bootargs {
-            if bootloader_updated {
-                if new_bootargs.is_empty() {
-                    bootloader_env::unset("omnect_extra_bootargs")?;
-                } else {
-                    bootloader_env::set("omnect_extra_bootargs", &new_bootargs)?;
-                }
+            if bootloader_updated && new_bootargs.is_empty() {
+                bootloader_env::unset("omnect_extra_bootargs")?;
+            } else if bootloader_updated {
+                bootloader_env::set("omnect_extra_bootargs", &new_bootargs)?;
+            } else if new_bootargs.is_empty() {
+                bootloader_env::set("omnect_validate_extra_bootargs", "#noargs")?;
             } else {
-                if new_bootargs.is_empty() {
-                    bootloader_env::set("omnect_validate_extra_bootargs", "#noargs")?;
-                } else {
-                    bootloader_env::set("omnect_validate_extra_bootargs", &new_bootargs)?;
-                }
+                bootloader_env::set("omnect_validate_extra_bootargs", &new_bootargs)?;
             }
         }
 
