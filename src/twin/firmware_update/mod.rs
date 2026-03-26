@@ -387,11 +387,13 @@ impl FirmwareUpdate {
             )?;
         }
 
-        ensure!(
-            Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).is_ok(),
-            "failed to update kernelargs. (swupdate logs at {})",
-            log_file_path!()
-        );
+        #[cfg(not(feature = "mock"))]
+        Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).context(
+            format!(
+                "failed to update kernelargs: swupdate logs at {}",
+                log_file_path!()
+            ),
+        )?;
 
         Self::apply_bootargs(bootloader_updated)?;
 
@@ -413,8 +415,7 @@ impl FirmwareUpdate {
     }
 
     fn apply_bootargs(bootloader_updated: bool) -> Result<()> {
-        let current_bootargs =
-            bootloader_env::get("omnect_extra_bootargs").unwrap_or_default();
+        let current_bootargs = bootloader_env::get("omnect_extra_bootargs").unwrap_or_default();
         let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?; // has to exist
         let custom_bootargs = match fs::read_to_string(bootargs_custom_file_path!()) {
             Ok(s) => s,
