@@ -765,24 +765,40 @@ mod tests {
     }
 
     #[test]
-    fn bootargs_missing_files_treated_as_empty() {
+    fn bootargs_missing_omnect_file_treated_as_error() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().unwrap();
-        crate::common::set_env_var(
-            "BOOTARGS_OMNECT_FILE_PATH",
-            tmp.path().join("does_not_exist_1"),
-        );
-        crate::common::set_env_var(
-            "BOOTARGS_CUSTOM_FILE_PATH",
-            tmp.path().join("does_not_exist_2"),
-        );
+
+        // omnect file is missing → apply_bootargs must return Err
+        crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", tmp.path().join("no_omnect"));
+        let custom_path = tmp.path().join("bootargs_custom");
+        fs::write(&custom_path, "loglevel=7").unwrap();
+        crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", &custom_path);
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+
+        assert!(FirmwareUpdate::apply_bootargs(false).is_err());
+    }
+
+    #[test]
+    fn bootargs_missing_custom_file_treated_as_empty() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+
+        // omnect file exists with a value, custom file is missing → treated as ""
+        let omnect_path = tmp.path().join("bootargs_omnect");
+        fs::write(&omnect_path, "console=ttyS0,115200").unwrap();
+        crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", &omnect_path);
+        crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", tmp.path().join("no_custom"));
 
         bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(false).unwrap();
 
         assert_eq!(
             bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
-            "#noargs"
+            "console=ttyS0,115200"
         );
     }
 }
