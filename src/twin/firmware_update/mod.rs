@@ -414,8 +414,8 @@ impl FirmwareUpdate {
 
     fn apply_bootargs(bootloader_updated: bool) -> Result<()> {
         let current_bootargs = bootloader_env::get("omnect_extra_bootargs")?;
-        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!()).unwrap_or_default();
-        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default();
+        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?; // has to exist
+        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default(); // optional
         let new_bootargs = format!("{} {}", omnect_bootargs, custom_bootargs)
             .split_whitespace()
             .collect::<Vec<_>>()
