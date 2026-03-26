@@ -434,12 +434,14 @@ impl FirmwareUpdate {
     where
         P: AsRef<std::ffi::OsStr>,
     {
-        let stdio = std::process::Stdio::from(
-            std::fs::OpenOptions::new()
-                .write(true)
-                .open(log_file_path!())
-                .context("failed to open for write log file")?,
-        );
+        let stdio_logfile = std::fs::OpenOptions::new()
+            .write(true)
+            .open(log_file_path!())
+            .context("failed to open for write log file")?;
+
+        let stderr_logfile = stdio_logfile
+            .try_clone()
+            .context("failed to stdio clone log file handle")?;
 
         ensure!(
             std::process::Command::new("sudo")
@@ -454,7 +456,8 @@ impl FirmwareUpdate {
                 .arg("-e")
                 .arg(selection)
                 .current_dir("/usr/bin")
-                .stdout(stdio)
+                .stdout(std::process::Stdio::from(stdio_logfile))
+                .stderr(std::process::Stdio::from(stderr_logfile))
                 .status()?
                 .success(),
             "failed to run swupdate command"
