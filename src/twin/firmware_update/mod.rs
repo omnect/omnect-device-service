@@ -719,6 +719,7 @@ mod tests {
 
     #[test]
     fn bootargs_bootloader_updated_empty_args_unsets_extra_bootargs() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "", "");
@@ -736,6 +737,7 @@ mod tests {
 
     #[test]
     fn bootargs_whitespace_is_normalized() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "  arg1   arg2\n", "\n  arg3  ");
@@ -751,6 +753,7 @@ mod tests {
 
     #[test]
     fn bootargs_unchanged_does_not_write_env() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "stable_arg", "");
