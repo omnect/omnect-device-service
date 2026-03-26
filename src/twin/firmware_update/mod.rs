@@ -113,6 +113,11 @@ impl Drop for RunUpdateGuard {
                     error!("failed to restore wdt interval: {e:#}")
                 }
 
+                // prevent booting from other partition if update failed, the bootloader maybe stuck otherwise when booting from a non-existing rootfs
+                if let Err(e) = bootloader_env::unset("omnect_validate_update_part") {
+                    error!("failed to unset omnect_validate_update_part: {e:#}")
+                }
+
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
                     UnitAction::Start,
@@ -389,8 +394,8 @@ impl FirmwareUpdate {
         );
 
         let current_bootargs = bootloader_env::get("omnect_extra_bootargs")?;
-        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!()).unwrap_or_default();
-        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default();
+        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?;
+        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default(); //custom existence is optional and not part of the wic image
         let new_bootargs = format!("{} {}", omnect_bootargs, custom_bootargs)
             .split_whitespace()
             .collect::<Vec<_>>()
