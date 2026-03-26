@@ -416,7 +416,11 @@ impl FirmwareUpdate {
         let current_bootargs =
             bootloader_env::get("omnect_extra_bootargs").unwrap_or_default();
         let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?; // has to exist
-        let custom_bootargs = fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default(); // optional
+        let custom_bootargs = match fs::read_to_string(bootargs_custom_file_path!()) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(), // optional: missing file
+            Err(e) => return Err(e.into()),
+        };
         let new_bootargs = format!("{} {}", omnect_bootargs, custom_bootargs)
             .split_whitespace()
             .collect::<Vec<_>>()
