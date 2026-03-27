@@ -113,6 +113,11 @@ impl Drop for RunUpdateGuard {
                     error!("failed to restore wdt interval: {e:#}")
                 }
 
+                // prevent booting from other partition if update failed, the bootloader maybe stuck otherwise when booting from a non-existing rootfs
+                if let Err(e) = bootloader_env::unset("omnect_validate_update_part") {
+                    error!("failed to unset omnect_validate_update_part: {e:#}")
+                }
+
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
                     UnitAction::Start,
@@ -382,6 +387,16 @@ impl FirmwareUpdate {
             )?;
         }
 
+        #[cfg(not(feature = "mock"))]
+        Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).context(
+            format!(
+                "failed to update kernelargs: swupdate logs at {}",
+                log_file_path!()
+            ),
+        )?;
+
+        Self::apply_bootargs(bootloader_updated)?;
+
         to_json_file(
             &UpdateValidationConfig {
                 local: !validate_iothub_connection,
@@ -399,16 +414,45 @@ impl FirmwareUpdate {
         Ok(None)
     }
 
+    fn apply_bootargs(bootloader_updated: bool) -> Result<()> {
+        let current_bootargs = bootloader_env::get("omnect_extra_bootargs").unwrap_or_default();
+        let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?; // has to exist
+        let custom_bootargs = match fs::read_to_string(bootargs_custom_file_path!()) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(), // optional: missing file
+            Err(e) => return Err(e.into()),
+        };
+        let new_bootargs = format!("{} {}", omnect_bootargs, custom_bootargs)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if current_bootargs != new_bootargs {
+            if bootloader_updated && new_bootargs.is_empty() {
+                bootloader_env::unset("omnect_extra_bootargs")?;
+            } else if bootloader_updated {
+                bootloader_env::set("omnect_extra_bootargs", &new_bootargs)?;
+            } else if new_bootargs.is_empty() {
+                bootloader_env::set("omnect_validate_extra_bootargs", "#noargs")?;
+            } else {
+                bootloader_env::set("omnect_validate_extra_bootargs", &new_bootargs)?;
+            }
+        }
+        Ok(())
+    }
+
     fn swupdate<P>(swu_file_path: P, selection: &str) -> Result<()>
     where
         P: AsRef<std::ffi::OsStr>,
     {
-        let stdio = std::process::Stdio::from(
-            std::fs::OpenOptions::new()
-                .write(true)
-                .open(log_file_path!())
-                .context("failed to open for write log file")?,
-        );
+        let stdio_logfile = std::fs::OpenOptions::new()
+            .write(true)
+            .open(log_file_path!())
+            .context("failed to open for write log file")?;
+
+        let stderr_logfile = stdio_logfile
+            .try_clone()
+            .context("failed to stdio clone log file handle")?;
 
         ensure!(
             std::process::Command::new("sudo")
@@ -423,7 +467,8 @@ impl FirmwareUpdate {
                 .arg("-e")
                 .arg(selection)
                 .current_dir("/usr/bin")
-                .stdout(stdio)
+                .stdout(std::process::Stdio::from(stdio_logfile))
+                .stderr(std::process::Stdio::from(stderr_logfile))
                 .status()?
                 .success(),
             "failed to run swupdate command"
@@ -449,7 +494,22 @@ impl FirmwareUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile;
+
+    // Serializes all bootargs tests because both set_env_var (for file paths)
+    // and the bootloader_env mock store are global state.
+    static BOOTARGS_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    // helper
+    fn setup_bootargs_files(tmp: &tempfile::TempDir, omnect: &str, custom: &str) {
+        let omnect_path = tmp.path().join("bootargs_omnect");
+        let custom_path = tmp.path().join("bootargs_custom");
+        fs::write(&omnect_path, omnect).unwrap();
+        fs::write(&custom_path, custom).unwrap();
+        crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", &omnect_path);
+        crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", &custom_path);
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn load_ok() {
@@ -602,5 +662,152 @@ mod tests {
             e.to_string()
                 .starts_with("failed to verify compatibility: compatibilityid")
         }));
+    }
+
+    #[test]
+    fn bootargs_no_update_new_args_sets_validate_key() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_bootargs_files(&tmp, "console=ttyS0,115200", "loglevel=7");
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        FirmwareUpdate::apply_bootargs(false).unwrap();
+
+        assert_eq!(
+            bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
+            "console=ttyS0,115200 loglevel=7"
+        );
+        // original key must be untouched
+        assert_eq!(
+            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            "old_value"
+        );
+    }
+
+    #[test]
+    fn bootargs_no_update_empty_args_sets_noargs_sentinel() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_bootargs_files(&tmp, "   ", ""); // whitespace only → normalizes to empty
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        FirmwareUpdate::apply_bootargs(false).unwrap();
+
+        assert_eq!(
+            bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
+            "#noargs"
+        );
+    }
+
+    #[test]
+    fn bootargs_bootloader_updated_new_args_sets_extra_bootargs() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_bootargs_files(&tmp, "quiet", "systemd.log_level=debug");
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        FirmwareUpdate::apply_bootargs(true).unwrap();
+
+        assert_eq!(
+            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            "quiet systemd.log_level=debug"
+        );
+    }
+
+    #[test]
+    fn bootargs_bootloader_updated_empty_args_unsets_extra_bootargs() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_bootargs_files(&tmp, "", "");
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        FirmwareUpdate::apply_bootargs(true).unwrap();
+
+        assert!(
+            bootloader_env::get("omnect_extra_bootargs")
+                .unwrap()
+                .is_empty(),
+            "expected omnect_extra_bootargs to be unset"
+        );
+    }
+
+    #[test]
+    fn bootargs_whitespace_is_normalized() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_bootargs_files(&tmp, "  arg1   arg2\n", "\n  arg3  ");
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        FirmwareUpdate::apply_bootargs(true).unwrap();
+
+        assert_eq!(
+            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            "arg1 arg2 arg3"
+        );
+    }
+
+    #[test]
+    fn bootargs_unchanged_does_not_write_env() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_bootargs_files(&tmp, "stable_arg", "");
+
+        bootloader_env::set("omnect_extra_bootargs", "stable_arg").unwrap();
+        FirmwareUpdate::apply_bootargs(false).unwrap();
+
+        assert_eq!(
+            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            "stable_arg"
+        );
+        assert!(
+            bootloader_env::get("omnect_validate_extra_bootargs")
+                .unwrap()
+                .is_empty(),
+            "omnect_validate_extra_bootargs was unexpectedly set"
+        );
+    }
+
+    #[test]
+    fn bootargs_missing_omnect_file_treated_as_error() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+
+        // omnect file is missing → apply_bootargs must return Err
+        crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", tmp.path().join("no_omnect"));
+        let custom_path = tmp.path().join("bootargs_custom");
+        fs::write(&custom_path, "loglevel=7").unwrap();
+        crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", &custom_path);
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+
+        assert!(FirmwareUpdate::apply_bootargs(false).is_err());
+    }
+
+    #[test]
+    fn bootargs_missing_custom_file_treated_as_empty() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+
+        // omnect file exists with a value, custom file is missing → treated as ""
+        let omnect_path = tmp.path().join("bootargs_omnect");
+        fs::write(&omnect_path, "console=ttyS0,115200").unwrap();
+        crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", &omnect_path);
+        crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", tmp.path().join("no_custom"));
+
+        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        FirmwareUpdate::apply_bootargs(false).unwrap();
+
+        assert_eq!(
+            bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
+            "console=ttyS0,115200"
+        );
     }
 }

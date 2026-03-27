@@ -180,11 +180,23 @@ impl UpdateValidation {
         info!("finalize update");
         let omnect_validate_update_part =
             RootPartition::from_index_string(bootloader_env::get("omnect_validate_update_part")?)?;
+        let omnect_validate_extra_bootargs =
+            bootloader_env::get("omnect_validate_extra_bootargs").unwrap_or_default();
 
         bootloader_env::set(
             "omnect_os_bootpart",
             &omnect_validate_update_part.index().to_string(),
         )?;
+
+        if omnect_validate_extra_bootargs == "#noargs" {
+            bootloader_env::unset("omnect_extra_bootargs")?;
+            bootloader_env::unset("omnect_validate_extra_bootargs")?;
+        } else if !omnect_validate_extra_bootargs.is_empty() {
+            bootloader_env::set("omnect_extra_bootargs", &omnect_validate_extra_bootargs)?;
+            bootloader_env::unset("omnect_validate_extra_bootargs")?;
+        }
+        // else empty omnect_validate_extra bootargs -> explicitly no set of omnect_extra_bootargs
+
         bootloader_env::unset("omnect_validate_update")?;
         bootloader_env::unset("omnect_validate_update_part")?;
 
