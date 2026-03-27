@@ -2,7 +2,10 @@ use anyhow::{Context, Result, bail, ensure};
 use std::process::Command;
 
 pub fn bootloader_env(key: &str) -> Result<String> {
-    let value = Command::new("sudo").arg("fw_printenv").arg(key).output()?;
+    let value = Command::new("/usr/bin/sudo")
+        .arg("/usr/bin/fw_printenv")
+        .arg(key)
+        .output()?;
     if !value.status.success() {
         bail!("fw_printenv {key} failed");
     }
@@ -21,8 +24,8 @@ pub fn bootloader_env(key: &str) -> Result<String> {
 
 pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
     ensure!(
-        Command::new("sudo")
-            .args(["fw_setenv", key, value])
+        Command::new("/usr/bin/sudo")
+            .args(["/usr/bin/fw_setenv_no_script.sh", key, value])
             .status()
             .context(format!("failed to execute 'fw_setenv {key} {value}'"))?
             .success(),
@@ -34,8 +37,8 @@ pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
 
 pub fn unset_bootloader_env(key: &str) -> Result<()> {
     ensure!(
-        Command::new("sudo")
-            .args(["fw_setenv", key])
+        Command::new("/usr/bin/sudo")
+            .args(["/usr/bin/fw_setenv", key])
             .status()
             .context(format!("failed to execute \"fw_setenv {key}\""))?
             .success(),

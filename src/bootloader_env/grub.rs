@@ -4,7 +4,7 @@ use std::process::Command;
 static GRUB_ENV_FILE: &str = "/boot/EFI/BOOT/grubenv";
 
 pub fn bootloader_env(key: &str) -> Result<String> {
-    let list = Command::new("grub-editenv")
+    let list = Command::new("/usr/bin/grub-editenv")
         .arg(GRUB_ENV_FILE)
         .arg("list")
         .output()
@@ -30,8 +30,8 @@ pub fn bootloader_env(key: &str) -> Result<String> {
 pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
     let set = format!("{key}={value}");
     ensure!(
-        Command::new("sudo")
-            .args(["grub-editenv", GRUB_ENV_FILE, "set", set.as_str()])
+        Command::new("/usr/bin/sudo")
+            .args(["/usr/bin/grub-editenv", GRUB_ENV_FILE, "set", set.as_str()])
             .status()
             .context(format!("failed to call \"sudo grub-editenv set {set}\""))?
             .success(),
@@ -43,8 +43,8 @@ pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
 
 pub fn unset_bootloader_env(key: &str) -> Result<()> {
     ensure!(
-        Command::new("sudo")
-            .args(["grub-editenv", GRUB_ENV_FILE, "unset", key])
+        Command::new("/usr/bin/sudo")
+            .args(["/usr/bin/grub-editenv", GRUB_ENV_FILE, "unset", key])
             .status()
             .context(format!("failed to call \"sudo grub-editenv unset {key}\""))?
             .success(),
