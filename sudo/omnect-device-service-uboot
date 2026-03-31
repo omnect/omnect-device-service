@@ -1,4 +1,4 @@
-# note: use /usr/bin/fw_setenv_no_script.sh_no_script.sh wrapper instead of fw_setenv for setting.
+# note: use /usr/bin/fw_setenv_no_script.sh wrapper instead of fw_setenv for setting.
 #       it checks if the value string includes script parameters
 
 # factory reset
