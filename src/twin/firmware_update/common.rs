@@ -8,6 +8,16 @@ pub struct UpdateValidationConfig {
 pub static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 pub static IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER: &str = "deviceupdate-agent.timer";
 
+pub static OMNECT_EXTRA_BOOTARGS: &str = "omnect_extra_bootargs";
+pub static OMNECT_VALIDATE_EXTRA_BOOTARGS: &str = "omnect_validate_extra_bootargs";
+pub static OMNECT_VALIDATE_UPDATE_PART: &str = "omnect_validate_update_part";
+pub static OMNECT_BOOTLOADER_UPDATED: &str = "omnect_bootloader_updated";
+pub static OMNECT_OS_BOOTPART: &str = "omnect_os_bootpart";
+
+/// Sentinel value written to `omnect_validate_extra_bootargs` to signal
+/// that the extra bootargs should be *removed* during update validation.
+pub static NOARGS_SENTINEL: &str = "#noargs";
+
 macro_rules! update_validation_config_path {
     () => {
         env::var("UPDATE_VALIDATION_CONFIG_PATH")

@@ -179,26 +179,26 @@ impl UpdateValidation {
     async fn finalize(status: Arc<RwLock<UpdateValidationStatus>>) -> Result<()> {
         info!("finalize update");
         let omnect_validate_update_part =
-            RootPartition::from_index_string(bootloader_env::get("omnect_validate_update_part")?)?;
+            RootPartition::from_index_string(bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART)?)?;
         let omnect_validate_extra_bootargs =
-            bootloader_env::get("omnect_validate_extra_bootargs").unwrap_or_default();
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap_or_default();
 
         bootloader_env::set(
-            "omnect_os_bootpart",
+            OMNECT_OS_BOOTPART,
             &omnect_validate_update_part.index().to_string(),
         )?;
 
-        if omnect_validate_extra_bootargs == "#noargs" {
-            bootloader_env::unset("omnect_extra_bootargs")?;
-            bootloader_env::unset("omnect_validate_extra_bootargs")?;
+        if omnect_validate_extra_bootargs == NOARGS_SENTINEL {
+            bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)?;
+            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
         } else if !omnect_validate_extra_bootargs.is_empty() {
-            bootloader_env::set("omnect_extra_bootargs", &omnect_validate_extra_bootargs)?;
-            bootloader_env::unset("omnect_validate_extra_bootargs")?;
+            bootloader_env::set(OMNECT_EXTRA_BOOTARGS, &omnect_validate_extra_bootargs)?;
+            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
         }
         // else empty omnect_validate_extra bootargs -> explicitly no set of omnect_extra_bootargs
 
         bootloader_env::unset("omnect_validate_update")?;
-        bootloader_env::unset("omnect_validate_update_part")?;
+        bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART)?;
 
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).context(format!(
             "update validation: remove {UPDATE_VALIDATION_COMPLETE_BARRIER_FILE}"

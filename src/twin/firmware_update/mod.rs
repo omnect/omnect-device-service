@@ -114,8 +114,8 @@ impl Drop for RunUpdateGuard {
                 }
 
                 // prevent booting from other partition if update failed, the bootloader maybe stuck otherwise when booting from a non-existing rootfs
-                if let Err(e) = bootloader_env::unset("omnect_validate_update_part") {
-                    error!("failed to unset omnect_validate_update_part: {e:#}")
+                if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART) {
+                    error!("failed to unset {OMNECT_VALIDATE_UPDATE_PART}: {e:#}")
                 }
 
                 if let Err(e) = systemd::unit::unit_action(
@@ -378,11 +378,11 @@ impl FirmwareUpdate {
         );
 
         if bootloader_updated {
-            bootloader_env::set("omnect_bootloader_updated", "1")?;
-            bootloader_env::set("omnect_os_bootpart", &target_partition.index().to_string())?;
+            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
+            bootloader_env::set(OMNECT_OS_BOOTPART, &target_partition.index().to_string())?;
         } else {
             bootloader_env::set(
-                "omnect_validate_update_part",
+                OMNECT_VALIDATE_UPDATE_PART,
                 &target_partition.index().to_string(),
             )?;
         }
@@ -415,7 +415,7 @@ impl FirmwareUpdate {
     }
 
     fn apply_bootargs(bootloader_updated: bool) -> Result<()> {
-        let current_bootargs = bootloader_env::get("omnect_extra_bootargs").unwrap_or_default();
+        let current_bootargs = bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap_or_default();
         let omnect_bootargs = fs::read_to_string(bootargs_omnect_file_path!())?; // has to exist
         let custom_bootargs = match fs::read_to_string(bootargs_custom_file_path!()) {
             Ok(s) => s,
@@ -429,13 +429,13 @@ impl FirmwareUpdate {
 
         if current_bootargs != new_bootargs {
             if bootloader_updated && new_bootargs.is_empty() {
-                bootloader_env::unset("omnect_extra_bootargs")?;
+                bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)?;
             } else if bootloader_updated {
-                bootloader_env::set("omnect_extra_bootargs", &new_bootargs)?;
+                bootloader_env::set(OMNECT_EXTRA_BOOTARGS, &new_bootargs)?;
             } else if new_bootargs.is_empty() {
-                bootloader_env::set("omnect_validate_extra_bootargs", "#noargs")?;
+                bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, NOARGS_SENTINEL)?;
             } else {
-                bootloader_env::set("omnect_validate_extra_bootargs", &new_bootargs)?;
+                bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, &new_bootargs)?;
             }
         }
         Ok(())
@@ -671,16 +671,16 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "console=ttyS0,115200", "loglevel=7");
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(false).unwrap();
 
         assert_eq!(
-            bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap(),
             "console=ttyS0,115200 loglevel=7"
         );
         // original key must be untouched
         assert_eq!(
-            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "old_value"
         );
     }
@@ -692,12 +692,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "   ", ""); // whitespace only → normalizes to empty
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(false).unwrap();
 
         assert_eq!(
-            bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
-            "#noargs"
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap(),
+            NOARGS_SENTINEL
         );
     }
 
@@ -708,11 +708,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "quiet", "systemd.log_level=debug");
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(true).unwrap();
 
         assert_eq!(
-            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "quiet systemd.log_level=debug"
         );
     }
@@ -724,11 +724,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "", "");
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(true).unwrap();
 
         assert!(
-            bootloader_env::get("omnect_extra_bootargs")
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS)
                 .unwrap()
                 .is_empty(),
             "expected omnect_extra_bootargs to be unset"
@@ -742,11 +742,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "  arg1   arg2\n", "\n  arg3  ");
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(true).unwrap();
 
         assert_eq!(
-            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "arg1 arg2 arg3"
         );
     }
@@ -758,15 +758,15 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         setup_bootargs_files(&tmp, "stable_arg", "");
 
-        bootloader_env::set("omnect_extra_bootargs", "stable_arg").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "stable_arg").unwrap();
         FirmwareUpdate::apply_bootargs(false).unwrap();
 
         assert_eq!(
-            bootloader_env::get("omnect_extra_bootargs").unwrap(),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "stable_arg"
         );
         assert!(
-            bootloader_env::get("omnect_validate_extra_bootargs")
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
                 .unwrap()
                 .is_empty(),
             "omnect_validate_extra_bootargs was unexpectedly set"
@@ -785,7 +785,7 @@ mod tests {
         fs::write(&custom_path, "loglevel=7").unwrap();
         crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", &custom_path);
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
 
         assert!(FirmwareUpdate::apply_bootargs(false).is_err());
     }
@@ -802,11 +802,11 @@ mod tests {
         crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", &omnect_path);
         crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", tmp.path().join("no_custom"));
 
-        bootloader_env::set("omnect_extra_bootargs", "old_value").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         FirmwareUpdate::apply_bootargs(false).unwrap();
 
         assert_eq!(
-            bootloader_env::get("omnect_validate_extra_bootargs").unwrap(),
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap(),
             "console=ttyS0,115200"
         );
     }

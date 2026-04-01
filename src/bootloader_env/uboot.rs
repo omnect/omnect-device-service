@@ -1,9 +1,14 @@
 use anyhow::{Context, Result, bail, ensure};
 use std::process::Command;
 
+static SUDO_BIN: &str = "/usr/bin/sudo";
+static FW_PRINTENV_BIN: &str = "/usr/bin/fw_printenv";
+static FW_SETENV_NO_SCRIPT_BIN: &str = "/usr/bin/fw_setenv_no_script.sh";
+static FW_SETENV_BIN: &str = "/usr/bin/fw_setenv";
+
 pub fn bootloader_env(key: &str) -> Result<String> {
-    let value = Command::new("/usr/bin/sudo")
-        .arg("/usr/bin/fw_printenv")
+    let value = Command::new(SUDO_BIN)
+        .arg(FW_PRINTENV_BIN)
         .arg(key)
         .output()?;
     if !value.status.success() {
@@ -24,8 +29,8 @@ pub fn bootloader_env(key: &str) -> Result<String> {
 
 pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
     ensure!(
-        Command::new("/usr/bin/sudo")
-            .args(["/usr/bin/fw_setenv_no_script.sh", key, value])
+        Command::new(SUDO_BIN)
+            .args([FW_SETENV_NO_SCRIPT_BIN, key, value])
             .status()
             .context(format!("failed to execute 'fw_setenv {key} {value}'"))?
             .success(),
@@ -37,8 +42,8 @@ pub fn set_bootloader_env(key: &str, value: &str) -> Result<()> {
 
 pub fn unset_bootloader_env(key: &str) -> Result<()> {
     ensure!(
-        Command::new("/usr/bin/sudo")
-            .args(["/usr/bin/fw_setenv", key])
+        Command::new(SUDO_BIN)
+            .args([FW_SETENV_BIN, key])
             .status()
             .context(format!("failed to execute \"fw_setenv {key}\""))?
             .success(),
