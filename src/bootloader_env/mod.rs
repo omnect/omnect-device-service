@@ -41,8 +41,6 @@ pub fn get(key: &str) -> Result<String> {
             .cloned()
             .unwrap_or_default());
     }
-
-    Ok("".to_string())
 }
 
 #[allow(unreachable_code, unused_variables)]
