@@ -23,7 +23,7 @@ mod mock_store {
     pub static STORE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
     pub fn store() -> std::sync::MutexGuard<'static, Option<HashMap<String, String>>> {
-        STORE.lock().unwrap()
+        STORE.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
