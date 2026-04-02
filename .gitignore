@@ -5,6 +5,7 @@ temp.data
 *.bb
 /temp
 *~
+*.bak
 CLAUDE.md
 GEMINI.md
 setup-ai.sh
