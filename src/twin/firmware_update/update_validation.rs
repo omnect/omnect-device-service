@@ -197,7 +197,7 @@ impl UpdateValidation {
         }
         // else empty omnect_validate_extra bootargs -> explicitly no set of omnect_extra_bootargs
 
-        bootloader_env::unset("omnect_validate_update")?;
+        bootloader_env::unset(OMNECT_VALIDATE_UPDATE)?;
         bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART)?;
 
         fs::remove_file(UPDATE_VALIDATION_COMPLETE_BARRIER_FILE).context(format!(

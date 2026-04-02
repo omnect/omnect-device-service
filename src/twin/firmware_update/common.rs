@@ -10,6 +10,7 @@ pub static IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER: &str = "deviceupdate-agent.timer
 
 pub static OMNECT_EXTRA_BOOTARGS: &str = "omnect_extra_bootargs";
 pub static OMNECT_VALIDATE_EXTRA_BOOTARGS: &str = "omnect_validate_extra_bootargs";
+pub static OMNECT_VALIDATE_UPDATE: &str = "omnect_validate_update";
 pub static OMNECT_VALIDATE_UPDATE_PART: &str = "omnect_validate_update_part";
 pub static OMNECT_BOOTLOADER_UPDATED: &str = "omnect_bootloader_updated";
 pub static OMNECT_OS_BOOTPART: &str = "omnect_os_bootpart";
