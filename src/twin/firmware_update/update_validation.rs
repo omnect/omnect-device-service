@@ -180,22 +180,12 @@ impl UpdateValidation {
         info!("finalize update");
         let omnect_validate_update_part =
             RootPartition::from_index_string(bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART)?)?;
-        let omnect_validate_extra_bootargs =
-            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap_or_default();
-
         bootloader_env::set(
             OMNECT_OS_BOOTPART,
             &omnect_validate_update_part.index().to_string(),
         )?;
 
-        if omnect_validate_extra_bootargs == NOARGS_SENTINEL {
-            bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)?;
-            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
-        } else if !omnect_validate_extra_bootargs.is_empty() {
-            bootloader_env::set(OMNECT_EXTRA_BOOTARGS, &omnect_validate_extra_bootargs)?;
-            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
-        }
-        // else empty omnect_validate_extra bootargs -> explicitly no set of omnect_extra_bootargs
+        Self::finalize_bootargs()?;
 
         bootloader_env::unset(OMNECT_VALIDATE_UPDATE)?;
         bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART)?;
@@ -272,6 +262,22 @@ impl UpdateValidation {
         Ok(())
     }
 
+    fn finalize_bootargs() -> Result<()> {
+        let omnect_validate_extra_bootargs =
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap_or_default();
+
+        if omnect_validate_extra_bootargs == NOARGS_SENTINEL {
+            bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)?;
+            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
+        } else if !omnect_validate_extra_bootargs.is_empty() {
+            bootloader_env::set(OMNECT_EXTRA_BOOTARGS, &omnect_validate_extra_bootargs)?;
+            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
+        }
+        // else empty omnect_validate_extra_bootargs -> no change to omnect_extra_bootargs
+
+        Ok(())
+    }
+
     fn timeout() -> Duration {
         let mut timeout = Duration::from_secs(UPDATE_VALIDATION_TIMEOUT_IN_SECS_DEFAULT);
         if let Ok(secs) = env::var("UPDATE_VALIDATION_TIMEOUT_IN_SECS") {
@@ -286,5 +292,71 @@ impl UpdateValidation {
             };
         }
         timeout
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalize_bootargs_noargs_sentinel_unsets_both_keys() {
+        crate::bootloader_env::clear_mock();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, NOARGS_SENTINEL).expect("set validate");
+
+        UpdateValidation::finalize_bootargs().expect("finalize_bootargs");
+
+        assert!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS)
+                .expect("get extra")
+                .is_empty(),
+            "expected omnect_extra_bootargs to be unset"
+        );
+        assert!(
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
+                .expect("get validate")
+                .is_empty(),
+            "expected omnect_validate_extra_bootargs to be unset"
+        );
+    }
+
+    #[test]
+    fn finalize_bootargs_real_value_promotes_and_cleans_up() {
+        crate::bootloader_env::clear_mock();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
+        bootloader_env::set(
+            OMNECT_VALIDATE_EXTRA_BOOTARGS,
+            "console=ttyS0,115200 loglevel=7",
+        )
+        .expect("set validate");
+
+        UpdateValidation::finalize_bootargs().expect("finalize_bootargs");
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            "console=ttyS0,115200 loglevel=7"
+        );
+        assert!(
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
+                .expect("get validate")
+                .is_empty(),
+            "expected omnect_validate_extra_bootargs to be unset"
+        );
+    }
+
+    #[test]
+    fn finalize_bootargs_absent_validate_key_leaves_extra_untouched() {
+        crate::bootloader_env::clear_mock();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "existing_args").expect("set extra");
+        // OMNECT_VALIDATE_EXTRA_BOOTARGS intentionally not set
+
+        UpdateValidation::finalize_bootargs().expect("finalize_bootargs");
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            "existing_args",
+            "expected omnect_extra_bootargs to remain unchanged"
+        );
     }
 }
