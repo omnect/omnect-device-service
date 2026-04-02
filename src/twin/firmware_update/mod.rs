@@ -377,16 +377,6 @@ impl FirmwareUpdate {
             log_file_path!()
         );
 
-        if bootloader_updated {
-            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
-            bootloader_env::set(OMNECT_OS_BOOTPART, &target_partition.index().to_string())?;
-        } else {
-            bootloader_env::set(
-                OMNECT_VALIDATE_UPDATE_PART,
-                &target_partition.index().to_string(),
-            )?;
-        }
-
         #[cfg(not(feature = "mock"))]
         Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).context(
             format!(
@@ -396,6 +386,16 @@ impl FirmwareUpdate {
         )?;
 
         Self::apply_bootargs(bootloader_updated)?;
+
+        if bootloader_updated {
+            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
+            bootloader_env::set(OMNECT_OS_BOOTPART, &target_partition.index().to_string())?;
+        } else {
+            bootloader_env::set(
+                OMNECT_VALIDATE_UPDATE_PART,
+                &target_partition.index().to_string(),
+            )?;
+        }
 
         to_json_file(
             &UpdateValidationConfig {
