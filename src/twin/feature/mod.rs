@@ -2,7 +2,7 @@ use crate::twin::{
     TwinUpdate, TwinUpdateState, consent, factory_reset, firmware_update, network, reboot,
     ssh_tunnel, system_info,
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::{DirectMethod, IotMessage};
 use futures::Stream;
 use futures::StreamExt;
@@ -42,6 +42,14 @@ pub enum Command {
     UserConsent(consent::UserConsentCommand),
 }
 
+fn parse_payload<T: serde::de::DeserializeOwned>(
+    payload: &serde_json::Value,
+    command_name: &str,
+) -> Result<T> {
+    serde_json::from_value(payload.clone())
+        .with_context(|| format!("cannot parse {command_name} from payload"))
+}
+
 impl Command {
     pub fn feature_id(&self) -> TypeId {
         use Command::*;
@@ -78,56 +86,38 @@ impl Command {
     pub fn from_direct_method(direct_method: &DirectMethod) -> Result<Command> {
         info!("direct method: {direct_method:?}");
 
-        // ToDo: write macro or fn for match arms
+        let payload = &direct_method.payload;
+
         match direct_method.name.as_str() {
-            "factory_reset" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Ok(Command::FactoryReset(c)),
-                Err(e) => {
-                    bail!("cannot parse FactoryReset from direct method payload {e}")
-                }
-            },
-            "user_consent" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Ok(Command::UserConsent(consent::UserConsentCommand {
-                    user_consent: c,
-                })),
-                Err(e) => {
-                    bail!("cannot parse UserConsent from direct method payload {e}")
-                }
-            },
-            "get_ssh_pub_key" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Ok(Command::GetSshPubKey(c)),
-                Err(e) => {
-                    bail!("cannot parse GetSshPubKey from direct method payload {e}")
-                }
-            },
-            "open_ssh_tunnel" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Ok(Command::OpenSshTunnel(c)),
-                Err(e) => {
-                    bail!("cannot parse OpenSshTunnel from direct method payload {e}")
-                }
-            },
-            "close_ssh_tunnel" => match serde_json::from_value(direct_method.payload.clone()) {
-                Ok(c) => Ok(Command::CloseSshTunnel(c)),
-                Err(e) => {
-                    bail!("cannot parse CloseSshTunnel from direct method payload {e}")
-                }
-            },
+            "factory_reset" => Ok(Command::FactoryReset(parse_payload(
+                payload,
+                "factory_reset",
+            )?)),
+            "user_consent" => Ok(Command::UserConsent(consent::UserConsentCommand {
+                user_consent: parse_payload(payload, "user_consent")?,
+            })),
+            "get_ssh_pub_key" => Ok(Command::GetSshPubKey(parse_payload(
+                payload,
+                "get_ssh_pub_key",
+            )?)),
+            "open_ssh_tunnel" => Ok(Command::OpenSshTunnel(parse_payload(
+                payload,
+                "open_ssh_tunnel",
+            )?)),
+            "close_ssh_tunnel" => Ok(Command::CloseSshTunnel(parse_payload(
+                payload,
+                "close_ssh_tunnel",
+            )?)),
             "reboot" => Ok(Command::Reboot),
-            "set_wait_online_timeout" => {
-                match serde_json::from_value(direct_method.payload.clone()) {
-                    Ok(c) => Ok(Command::SetWaitOnlineTimeout(c)),
-                    Err(e) => {
-                        bail!("cannot parse CloseSshTunnel from direct method payload {e}")
-                    }
-                }
-            }
-            _ => {
-                bail!(
-                    "cannot parse direct method {} with payload {}",
-                    direct_method.name,
-                    direct_method.payload
-                )
-            }
+            "set_wait_online_timeout" => Ok(Command::SetWaitOnlineTimeout(parse_payload(
+                payload,
+                "set_wait_online_timeout",
+            )?)),
+            _ => bail!(
+                "cannot parse direct method {} with payload {}",
+                direct_method.name,
+                direct_method.payload
+            ),
         }
     }
 
