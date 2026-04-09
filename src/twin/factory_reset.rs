@@ -8,7 +8,6 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
 use log::{debug, info, warn};
-use notify_debouncer_full::{Debouncer, NoCache, notify::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json};
 use serde_repr::*;
@@ -92,7 +91,6 @@ struct FactoryResetReport {
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     report: FactoryResetReport,
-    dir_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
 }
 
 impl Feature for FactoryReset {
@@ -134,14 +132,6 @@ impl Feature for FactoryReset {
         self.tx_reported_properties = Some(tx_reported_properties);
 
         Ok(())
-    }
-
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        let (dir_observer, stream) =
-            dir_modified_stream::<FactoryReset>(vec![&Path::new(&custom_config_dir_path!())])
-                .context("command_request_stream: cannot create dir_modified_stream")?;
-        self.dir_observer = Some(dir_observer);
-        Ok(Some(stream))
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
@@ -190,7 +180,13 @@ impl FactoryReset {
     const FACTORY_RESET_VERSION: u8 = 3;
     const ID: &'static str = "factory_reset";
 
-    pub fn new() -> Result<Self> {
+    pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
+        fs_watcher.add_watch::<FactoryReset>(
+            Path::new(&custom_config_dir_path!()),
+            FsEventKind::DirModified,
+            false,
+        )?;
+
         let report = FactoryResetReport {
             keys: FactoryReset::factory_reset_keys()?,
             result: FactoryReset::factory_reset_result()?,
@@ -199,7 +195,6 @@ impl FactoryReset {
         Ok(FactoryReset {
             tx_reported_properties: None,
             report,
-            dir_observer: None,
         })
     }
 
@@ -295,7 +290,8 @@ mod tests {
         crate::common::set_env_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path.clone());
         crate::common::set_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
 
-        let mut factory_reset = FactoryReset::new().unwrap();
+        let mut fs_watcher = FsWatcher::new().expect("FsWatcher::new");
+        let mut factory_reset = FactoryReset::new(&mut fs_watcher).expect("FactoryReset::new");
 
         assert!(
             factory_reset
