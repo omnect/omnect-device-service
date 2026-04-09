@@ -1,0 +1,692 @@
+use crate::twin::{
+    TwinUpdate, TwinUpdateState, consent, factory_reset, firmware_update, network, reboot,
+    ssh_tunnel, system_info,
+};
+use anyhow::{Context, Result, bail, ensure};
+use azure_iot_sdk::client::DirectMethod;
+use futures::Stream;
+use futures::StreamExt;
+use log::{debug, error, info, warn};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer, notify::*};
+use std::{
+    any::TypeId,
+    path::{Path, PathBuf},
+    pin::Pin,
+    time::Duration,
+};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+    time::Interval,
+};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Command {
+    CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
+    DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
+    DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
+    FactoryReset(factory_reset::FactoryResetCommand),
+    FleetId(system_info::FleetIdCommand),
+    FsEvent(FsEventCommand),
+    GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
+    Interval(IntervalCommand),
+    LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
+    OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand),
+    Reboot,
+    ReloadNetwork,
+    RunFirmwareUpdate(firmware_update::RunUpdateCommand),
+    SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
+    ValidateUpdate(bool),
+    UserConsent(consent::UserConsentCommand),
+}
+
+fn parse_payload<T: serde::de::DeserializeOwned>(
+    payload: &serde_json::Value,
+    command_name: &str,
+) -> Result<T> {
+    serde_json::from_value(payload.clone())
+        .with_context(|| format!("cannot parse {command_name} from payload"))
+}
+
+impl Command {
+    pub fn feature_id(&self) -> TypeId {
+        use Command::*;
+
+        match self {
+            CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
+            FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
+            FsEvent(cmd) => cmd.feature_id,
+            GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            Interval(cmd) => cmd.feature_id,
+            LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
+            Reboot => TypeId::of::<reboot::Reboot>(),
+            ReloadNetwork => TypeId::of::<network::Network>(),
+            RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
+            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
+            UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+        }
+    }
+
+    pub fn triggers_reboot(&self) -> bool {
+        matches!(
+            self,
+            Command::FactoryReset(_) | Command::Reboot | Command::RunFirmwareUpdate(_)
+        )
+    }
+
+    pub fn from_direct_method(direct_method: &DirectMethod) -> Result<Command> {
+        info!("direct method: {direct_method:?}");
+
+        let payload = &direct_method.payload;
+
+        match direct_method.name.as_str() {
+            "factory_reset" => Ok(Command::FactoryReset(parse_payload(
+                payload,
+                "factory_reset",
+            )?)),
+            "user_consent" => Ok(Command::UserConsent(consent::UserConsentCommand {
+                user_consent: parse_payload(payload, "user_consent")?,
+            })),
+            "get_ssh_pub_key" => Ok(Command::GetSshPubKey(parse_payload(
+                payload,
+                "get_ssh_pub_key",
+            )?)),
+            "open_ssh_tunnel" => Ok(Command::OpenSshTunnel(parse_payload(
+                payload,
+                "open_ssh_tunnel",
+            )?)),
+            "close_ssh_tunnel" => Ok(Command::CloseSshTunnel(parse_payload(
+                payload,
+                "close_ssh_tunnel",
+            )?)),
+            "reboot" => Ok(Command::Reboot),
+            "set_wait_online_timeout" => Ok(Command::SetWaitOnlineTimeout(parse_payload(
+                payload,
+                "set_wait_online_timeout",
+            )?)),
+            _ => bail!(
+                "cannot parse direct method {} with payload {}",
+                direct_method.name,
+                direct_method.payload
+            ),
+        }
+    }
+
+    // we only log errors and don't fail in this function if input cannot be parsed
+    pub fn from_desired_property(update: TwinUpdate) -> Vec<Command> {
+        info!("desired property: {update:?}");
+        let mut cmds = vec![];
+
+        let value = match update.state {
+            TwinUpdateState::Partial => &update.value,
+            TwinUpdateState::Complete => &update.value["desired"],
+        };
+
+        if let Some(map) = value.as_object() {
+            for k in map.keys() {
+                match k.as_str() {
+                    "ssh_tunnel_ca_pub" => match parse_payload(value, "DesiredUpdateDeviceSshCa") {
+                        Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
+                        Err(e) => error!("from_desired_property: {e:#}"),
+                    },
+                    "general_consent" => {
+                        match parse_payload(value, "DesiredGeneralConsentCommand") {
+                            Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
+                            Err(e) => error!("from_desired_property: {e:#}"),
+                        }
+                    }
+                    "fleet_id" => match parse_payload(value, "FleetIdCommand") {
+                        Ok(c) => cmds.push(Command::FleetId(c)),
+                        Err(e) => error!("from_desired_property: {e:#}"),
+                    },
+                    "$version" => { /*ignore*/ }
+                    _ => warn!("from_desired_property: unhandled desired property {k}"),
+                };
+            }
+        }
+
+        cmds
+    }
+}
+
+#[derive(Debug)]
+pub struct CommandRequest {
+    pub command: Command,
+    pub reply: Option<oneshot::Sender<CommandResult>>,
+}
+
+pub type CommandResult = Result<Option<serde_json::Value>>;
+pub type CommandRequestStream = Pin<Box<dyn Stream<Item = CommandRequest> + Send>>;
+pub type CommandRequestStreamResult = Result<Option<CommandRequestStream>>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FsEventKind {
+    DirModified,
+    FileCreated,
+    FileModified,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FsEventCommand {
+    pub kind: FsEventKind,
+    pub feature_id: TypeId,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntervalCommand {
+    pub feature_id: TypeId,
+}
+
+pub fn interval_stream<T>(interval: Interval) -> CommandRequestStream
+where
+    T: 'static,
+{
+    tokio_stream::wrappers::IntervalStream::new(interval)
+        .map(|_| CommandRequest {
+            command: Command::Interval(IntervalCommand {
+                feature_id: TypeId::of::<T>(),
+            }),
+            reply: None,
+        })
+        .boxed()
+}
+
+pub fn file_created_stream<T>(paths: Vec<&Path>) -> Result<(JoinHandle<()>, CommandRequestStream)>
+where
+    T: 'static,
+{
+    let (tx, rx) = mpsc::channel(2);
+    let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
+
+    let handle = tokio::task::spawn_blocking(move || {
+        loop {
+            for p in &inner_paths {
+                if matches!(p.try_exists(), Ok(true)) {
+                    let _ = tx.blocking_send(CommandRequest {
+                        command: Command::FsEvent(FsEventCommand {
+                            kind: FsEventKind::FileCreated,
+                            feature_id: TypeId::of::<T>(),
+                            path: p.clone(),
+                        }),
+                        reply: None,
+                    });
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    });
+
+    Ok((
+        handle,
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+    ))
+}
+
+pub fn file_modified_stream<T>(
+    paths: Vec<&Path>,
+) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
+where
+    T: 'static,
+{
+    let (tx, rx) = mpsc::channel(2);
+    let mut debouncer = new_debouncer(
+        Duration::from_secs(2),
+        None,
+        move |res: DebounceEventResult| match res {
+            Ok(debounced_events) => {
+                for de in debounced_events {
+                    if let EventKind::Modify(_) = de.event.kind {
+                        debug!("notify-event: {de:?}");
+                        for p in &de.paths {
+                            let _ = tx.blocking_send(CommandRequest {
+                                command: Command::FsEvent(FsEventCommand {
+                                    kind: FsEventKind::FileModified,
+                                    feature_id: TypeId::of::<T>(),
+                                    path: p.clone(),
+                                }),
+                                reply: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
+        },
+    )?;
+
+    for p in paths {
+        ensure!(p.is_file(), "{p:?} is not a regular existing file");
+        debug!("watch {p:?}");
+        debouncer.watch(p, RecursiveMode::NonRecursive)?;
+    }
+
+    Ok((
+        debouncer,
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+    ))
+}
+
+pub fn dir_modified_stream<T>(
+    paths: Vec<&Path>,
+) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
+where
+    T: 'static,
+{
+    let (tx, rx) = mpsc::channel(2);
+    let mut debouncer = new_debouncer(
+        Duration::from_secs(2),
+        None,
+        move |res: DebounceEventResult| match res {
+            Ok(debounced_events) => {
+                for de in debounced_events {
+                    if matches!(de.event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
+                        debug!("notify-event: {de:?}");
+                        for p in &de.paths {
+                            let _ = tx.blocking_send(CommandRequest {
+                                command: Command::FsEvent(FsEventCommand {
+                                    kind: FsEventKind::DirModified,
+                                    feature_id: TypeId::of::<T>(),
+                                    path: p.clone(),
+                                }),
+                                reply: None,
+                            });
+                        }
+                    }
+                }
+            }
+            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
+        },
+    )?;
+
+    for p in paths {
+        ensure!(p.is_dir(), "{p:?} is not a regular existing directory");
+        debug!("watch {p:?}");
+        debouncer.watch(p, RecursiveMode::Recursive)?;
+    }
+
+    Ok((
+        debouncer,
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::twin::factory_reset;
+    use reboot::SetWaitOnlineTimeoutCommand;
+    use serde_json::json;
+    use std::str::FromStr;
+    use tokio::sync::oneshot;
+
+    #[test]
+    fn triggers_reboot_test() {
+        assert!(Command::Reboot.triggers_reboot());
+        assert!(
+            Command::FactoryReset(factory_reset::FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec![]
+            })
+            .triggers_reboot()
+        );
+        assert!(
+            Command::RunFirmwareUpdate(firmware_update::RunUpdateCommand {
+                validate_iothub_connection: false
+            })
+            .triggers_reboot()
+        );
+
+        // Test some commands that should not trigger reboot
+        assert!(!Command::ReloadNetwork.triggers_reboot());
+        assert!(!Command::ValidateUpdate(true).triggers_reboot());
+    }
+
+    #[test]
+    fn from_direct_method_test() {
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "unknown".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 0,
+                    "preserve": ["1"],
+                }),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 1,
+                    "preserve": ["1"],
+                }),
+                responder,
+            })
+            .unwrap(),
+            Command::FactoryReset(factory_reset::FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec!["1".to_string()]
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 1,
+                    "preserve": [],
+                }),
+                responder,
+            })
+            .unwrap(),
+            Command::FactoryReset(factory_reset::FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec![]
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "user_consent".to_string(),
+                payload: json!({"foo": 1}),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "user_consent".to_string(),
+                payload: json!({"foo": "bar"}),
+                responder,
+            })
+            .unwrap(),
+            Command::UserConsent(consent::UserConsentCommand {
+                user_consent: std::collections::HashMap::from([(
+                    "foo".to_string(),
+                    "bar".to_string()
+                )]),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "close_ssh_tunnel".to_string(),
+                payload: json!({"tunnel_id": "no-uuid"}),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "close_ssh_tunnel".to_string(),
+                payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
+                responder,
+            })
+            .unwrap(),
+            Command::CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand {
+                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "get_ssh_pub_key".to_string(),
+                payload: json!({"tunnel_id": "no-uuid"}),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "get_ssh_pub_key".to_string(),
+                payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
+                responder,
+            })
+            .unwrap(),
+            Command::GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand {
+                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "open_ssh_tunnel".to_string(),
+                payload: json!({
+                    "tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d",
+                    "certificate": "cert",
+                    "host": "my-host",
+                    "port": 22,
+                    "user": "usr",
+                    "socket_path": "/socket",
+                }),
+                responder,
+            })
+            .unwrap(),
+            Command::OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand {
+                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
+                certificate: "cert".to_string(),
+                bastion_config: ssh_tunnel::BastionConfig {
+                    host: "my-host".to_string(),
+                    port: 22,
+                    user: "usr".to_string(),
+                    socket_path: PathBuf::from_str("/socket").unwrap(),
+                }
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "get_ssh_pub_key".to_string(),
+                payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
+                responder,
+            })
+            .unwrap(),
+            Command::GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand {
+                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "reboot".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .unwrap(),
+            Command::Reboot
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "set_wait_online_timeout".to_string(),
+                payload: json!({}),
+                responder,
+            })
+            .unwrap(),
+            Command::SetWaitOnlineTimeout(SetWaitOnlineTimeoutCommand { timeout_secs: None })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert_eq!(
+            Command::from_direct_method(&DirectMethod {
+                name: "set_wait_online_timeout".to_string(),
+                payload: json!({"timeout_secs": 1}),
+                responder,
+            })
+            .unwrap(),
+            Command::SetWaitOnlineTimeout(SetWaitOnlineTimeoutCommand {
+                timeout_secs: Some(1),
+            })
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "set_wait_online_timeout".to_string(),
+                payload: json!({"timeout_secs": "1"}),
+                responder,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn from_desired_property_test() {
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({})
+            }),
+            vec![]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({
+                    "$version": 1,
+                    "general_consent": ["swupdate"]})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                consent::DesiredGeneralConsentCommand {
+                    general_consent: vec!["swupdate".to_string()]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({"general_consent": []})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                consent::DesiredGeneralConsentCommand {
+                    general_consent: vec![]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Partial,
+                value: json!({"general_consent": ["one", "two"]})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                consent::DesiredGeneralConsentCommand {
+                    general_consent: vec!["one".to_string(), "two".to_string()]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({})
+            }),
+            vec![]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {}})
+            }),
+            vec![]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"general_consent": []}})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                consent::DesiredGeneralConsentCommand {
+                    general_consent: vec![]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"general_consent": ["one", "two"]}})
+            }),
+            vec![Command::DesiredGeneralConsent(
+                consent::DesiredGeneralConsentCommand {
+                    general_consent: vec!["one".to_string(), "two".to_string()]
+                }
+            )]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"key": "value"}})
+            }),
+            vec![]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"general_consent": ""}})
+            }),
+            vec![]
+        );
+
+        assert_eq!(
+            Command::from_desired_property(TwinUpdate {
+                state: TwinUpdateState::Complete,
+                value: json!({"desired": {"fleet_id": ""}})
+            }),
+            vec![Command::FleetId(system_info::FleetIdCommand {
+                fleet_id: "".to_string()
+            })]
+        );
+    }
+}
