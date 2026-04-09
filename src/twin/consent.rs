@@ -99,8 +99,12 @@ impl Feature for DeviceUpdateConsent {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::FileModified(file) => {
-                self.report_consent(from_json_file(&file.path)?).await?;
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
+                path,
+                ..
+            }) => {
+                self.report_consent(from_json_file(path)?).await?;
             }
             Command::DesiredGeneralConsent(cmd) => {
                 self.update_general_consent(cmd).await?;
@@ -198,7 +202,8 @@ mod tests {
 
         assert!(
             consent
-                .command(&Command::FileModified(PathCommand {
+                .command(&Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileModified,
                     feature_id: TypeId::of::<DeviceUpdateConsent>(),
                     path: Path::new("my-path").to_path_buf(),
                 }))
@@ -209,7 +214,8 @@ mod tests {
         );
 
         consent
-            .command(&Command::FileModified(PathCommand {
+            .command(&Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
                 path: Path::new("testfiles/positive/test_component/user_consent.json")
                     .to_path_buf(),

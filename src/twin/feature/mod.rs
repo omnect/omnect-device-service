@@ -25,11 +25,9 @@ pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
     DesiredGeneralConsent(consent::DesiredGeneralConsentCommand),
     DesiredUpdateDeviceSshCa(ssh_tunnel::UpdateDeviceSshCaCommand),
-    DirModified(PathCommand),
     FactoryReset(factory_reset::FactoryResetCommand),
     FleetId(system_info::FleetIdCommand),
-    FileCreated(PathCommand),
-    FileModified(PathCommand),
+    FsEvent(FsEventCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
     Interval(IntervalCommand),
     LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
@@ -58,11 +56,9 @@ impl Command {
             CloseSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             DesiredGeneralConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
             DesiredUpdateDeviceSshCa(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
-            DirModified(cmd) => cmd.feature_id,
             FactoryReset(_) => TypeId::of::<factory_reset::FactoryReset>(),
-            FileCreated(cmd) => cmd.feature_id,
-            FileModified(cmd) => cmd.feature_id,
             FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
+            FsEvent(cmd) => cmd.feature_id,
             GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Interval(cmd) => cmd.feature_id,
             LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -196,7 +192,15 @@ pub(crate) trait Feature {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PathCommand {
+pub enum FsEventKind {
+    DirModified,
+    FileCreated,
+    FileModified,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FsEventCommand {
+    pub kind: FsEventKind,
     pub feature_id: TypeId,
     pub path: PathBuf,
 }
@@ -232,7 +236,8 @@ where
             for p in &inner_paths {
                 if matches!(p.try_exists(), Ok(true)) {
                     let _ = tx.blocking_send(CommandRequest {
-                        command: Command::FileCreated(PathCommand {
+                        command: Command::FsEvent(FsEventCommand {
+                            kind: FsEventKind::FileCreated,
                             feature_id: TypeId::of::<T>(),
                             path: p.clone(),
                         }),
@@ -268,7 +273,8 @@ where
                         debug!("notify-event: {de:?}");
                         for p in &de.paths {
                             let _ = tx.blocking_send(CommandRequest {
-                                command: Command::FileModified(PathCommand {
+                                command: Command::FsEvent(FsEventCommand {
+                                    kind: FsEventKind::FileModified,
                                     feature_id: TypeId::of::<T>(),
                                     path: p.clone(),
                                 }),
@@ -311,7 +317,8 @@ where
                         debug!("notify-event: {de:?}");
                         for p in &de.paths {
                             let _ = tx.blocking_send(CommandRequest {
-                                command: Command::DirModified(PathCommand {
+                                command: Command::FsEvent(FsEventCommand {
+                                    kind: FsEventKind::DirModified,
                                     feature_id: TypeId::of::<T>(),
                                     path: p.clone(),
                                 }),

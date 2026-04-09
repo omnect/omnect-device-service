@@ -170,7 +170,10 @@ impl Feature for SystemInfo {
             Command::Interval(_) => {
                 self.metrics().await?;
             }
-            Command::FileCreated(_) => {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ..
+            }) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
                 self.report().await?;
             }

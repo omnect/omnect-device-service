@@ -146,7 +146,10 @@ impl Feature for FactoryReset {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::DirModified(_) => {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::DirModified,
+                ..
+            }) => {
                 let keys = FactoryReset::factory_reset_keys()?;
 
                 if keys != self.report.keys {
