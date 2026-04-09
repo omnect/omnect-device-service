@@ -1,5 +1,7 @@
 mod command;
+mod fs_watcher;
 pub use command::*;
+pub use fs_watcher::*;
 
 use anyhow::Result;
 use azure_iot_sdk::client::IotMessage;
