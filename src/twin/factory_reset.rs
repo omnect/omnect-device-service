@@ -421,4 +421,37 @@ mod tests {
         );
         assert!(FactoryReset::factory_reset_result().unwrap().is_none());
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dir_modified_command_test() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let config_file_path = temp_dir.path().join("factory-reset.json");
+        let custom_dir_path = temp_dir.path().join("factory-reset.d");
+
+        std::fs::copy(
+            "testfiles/positive/factory-reset.json",
+            config_file_path.clone().as_path(),
+        )
+        .expect("copy config");
+        std::fs::create_dir_all(custom_dir_path.clone()).expect("create custom dir");
+
+        crate::common::set_env_var(
+            "FACTORY_RESET_RESULT_FILE_PATH",
+            "testfiles/positive/omnect-os-initramfs-factory-reset.json",
+        );
+        crate::common::set_env_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path);
+        crate::common::set_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+
+        let mut fs_watcher = FsWatcher::new().expect("FsWatcher::new");
+        let mut factory_reset = FactoryReset::new(&mut fs_watcher).expect("FactoryReset::new");
+
+        let result = factory_reset
+            .command(&Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::DirModified,
+                feature_id: std::any::TypeId::of::<FactoryReset>(),
+                path: std::path::PathBuf::from("/unused"),
+            }))
+            .await;
+        assert!(result.is_ok());
+    }
 }

@@ -559,4 +559,65 @@ mod tests {
             })]
         );
     }
+
+    #[test]
+    fn feature_id_routing_test() {
+        use crate::twin::{
+            consent::DeviceUpdateConsent, factory_reset, firmware_update::FirmwareUpdate,
+            network::Network, reboot, ssh_tunnel::SshTunnel, system_info::SystemInfo,
+        };
+        use std::any::TypeId;
+
+        // FsEvent routes to the feature_id embedded in the command
+        let consent_id = TypeId::of::<DeviceUpdateConsent>();
+        assert_eq!(
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
+                feature_id: consent_id,
+                path: PathBuf::from("/test"),
+            })
+            .feature_id(),
+            consent_id
+        );
+
+        // Interval routes to the feature_id embedded in the command
+        let network_id = TypeId::of::<Network>();
+        assert_eq!(
+            Command::Interval(IntervalCommand {
+                feature_id: network_id,
+            })
+            .feature_id(),
+            network_id
+        );
+
+        // Spot-check fixed-feature commands
+        assert_eq!(Command::Reboot.feature_id(), TypeId::of::<reboot::Reboot>());
+        assert_eq!(Command::ReloadNetwork.feature_id(), TypeId::of::<Network>());
+        assert_eq!(
+            Command::ValidateUpdate(true).feature_id(),
+            TypeId::of::<FirmwareUpdate>()
+        );
+        assert_eq!(
+            Command::FactoryReset(factory_reset::FactoryResetCommand {
+                mode: factory_reset::FactoryResetMode::Mode1,
+                preserve: vec![],
+            })
+            .feature_id(),
+            TypeId::of::<factory_reset::FactoryReset>()
+        );
+        assert_eq!(
+            Command::CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand {
+                tunnel_id: "test".to_string(),
+            })
+            .feature_id(),
+            TypeId::of::<SshTunnel>()
+        );
+        assert_eq!(
+            Command::FleetId(system_info::FleetIdCommand {
+                fleet_id: "test".to_string(),
+            })
+            .feature_id(),
+            TypeId::of::<SystemInfo>()
+        );
+    }
 }
