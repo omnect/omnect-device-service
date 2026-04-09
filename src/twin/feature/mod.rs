@@ -134,23 +134,19 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
-                    "ssh_tunnel_ca_pub" => match serde_json::from_value(value.clone()) {
+                    "ssh_tunnel_ca_pub" => match parse_payload(value, "DesiredUpdateDeviceSshCa") {
                         Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
-                        Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredUpdateDeviceSshCa {e:#}"
-                        ),
+                        Err(e) => error!("from_desired_property: {e:#}"),
                     },
-                    "general_consent" => match serde_json::from_value(value.clone()) {
-                        Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
-                        Err(e) => error!(
-                            "from_desired_property: cannot parse DesiredGeneralConsentCommand {e:#}"
-                        ),
-                    },
-                    "fleet_id" => match serde_json::from_value(value.clone()) {
-                        Ok(c) => cmds.push(Command::FleetId(c)),
-                        Err(e) => {
-                            error!("from_desired_property: cannot parse FleetIdCommand {e:#}")
+                    "general_consent" => {
+                        match parse_payload(value, "DesiredGeneralConsentCommand") {
+                            Ok(c) => cmds.push(Command::DesiredGeneralConsent(c)),
+                            Err(e) => error!("from_desired_property: {e:#}"),
                         }
+                    }
+                    "fleet_id" => match parse_payload(value, "FleetIdCommand") {
+                        Ok(c) => cmds.push(Command::FleetId(c)),
+                        Err(e) => error!("from_desired_property: {e:#}"),
                     },
                     "$version" => { /*ignore*/ }
                     _ => warn!("from_desired_property: unhandled desired property {k}"),
