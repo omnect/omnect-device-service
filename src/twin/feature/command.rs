@@ -2,21 +2,23 @@ use crate::twin::{
     TwinUpdate, TwinUpdateState, consent, factory_reset, firmware_update, network, reboot,
     ssh_tunnel, system_info,
 };
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::DirectMethod;
 use futures::Stream;
 use futures::StreamExt;
-use log::{debug, error, info, warn};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer, notify::*};
+#[cfg(not(feature = "mock"))]
+use log::debug;
+use log::{error, info, warn};
 use std::{
     any::TypeId,
     path::{Path, PathBuf},
     pin::Pin,
     time::Duration,
 };
+#[cfg(not(feature = "mock"))]
+use std::{collections::HashMap, ffi::c_int};
 use tokio::{
     sync::{mpsc, oneshot},
-    task::JoinHandle,
     time::Interval,
 };
 
@@ -197,124 +199,227 @@ where
         .boxed()
 }
 
-pub fn file_created_stream<T>(paths: Vec<&Path>) -> Result<(JoinHandle<()>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let inner_paths: Vec<PathBuf> = paths.into_iter().map(|p| p.to_path_buf()).collect();
+const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
-    let handle = tokio::task::spawn_blocking(move || {
-        loop {
-            for p in &inner_paths {
-                if matches!(p.try_exists(), Ok(true)) {
-                    let _ = tx.blocking_send(CommandRequest {
-                        command: Command::FsEvent(FsEventCommand {
-                            kind: FsEventKind::FileCreated,
-                            feature_id: TypeId::of::<T>(),
-                            path: p.clone(),
-                        }),
-                        reply: None,
-                    });
-                    return;
+struct WatchInfo {
+    feature_id: TypeId,
+    path: PathBuf,
+    kind: FsEventKind,
+    oneshot: bool,
+}
+
+#[cfg(not(feature = "mock"))]
+pub struct FsWatcher {
+    inotify: Option<inotify::Inotify>,
+    watches: inotify::Watches,
+    watch_info: HashMap<c_int, WatchInfo>,
+}
+
+#[cfg(feature = "mock")]
+pub struct FsWatcher;
+
+#[cfg(not(feature = "mock"))]
+impl FsWatcher {
+    pub fn new() -> Result<Self> {
+        let inotify = inotify::Inotify::init().context("FsWatcher: failed to init inotify")?;
+        let watches = inotify.watches();
+        Ok(Self {
+            inotify: Some(inotify),
+            watches,
+            watch_info: HashMap::new(),
+        })
+    }
+
+    pub fn add_watch<T: 'static>(
+        &mut self,
+        path: &Path,
+        kind: FsEventKind,
+        oneshot: bool,
+    ) -> Result<()> {
+        use inotify::WatchMask;
+
+        let (watch_path, mask) = match kind {
+            FsEventKind::FileCreated => {
+                let parent = path
+                    .parent()
+                    .context("add_watch: FileCreated path has no parent")?;
+                let mut mask = WatchMask::CREATE;
+                if oneshot {
+                    mask |= WatchMask::ONESHOT;
                 }
+                (parent, mask)
             }
-            std::thread::sleep(Duration::from_millis(500));
+            FsEventKind::FileModified => (path, WatchMask::CLOSE_WRITE),
+            FsEventKind::DirModified => (path, WatchMask::CREATE | WatchMask::DELETE),
+        };
+
+        let wd = self
+            .watches
+            .add(watch_path, mask)
+            .with_context(|| format!("add_watch: failed to watch {watch_path:?}"))?;
+
+        debug!(
+            "add_watch: {:?} on {watch_path:?} (target: {path:?}, oneshot: {oneshot})",
+            wd.get_watch_descriptor_id()
+        );
+
+        self.watch_info.insert(
+            wd.get_watch_descriptor_id(),
+            WatchInfo {
+                feature_id: TypeId::of::<T>(),
+                path: path.to_path_buf(),
+                kind,
+                oneshot,
+            },
+        );
+
+        Ok(())
+    }
+
+    pub fn into_stream(mut self, tx: mpsc::Sender<CommandRequest>) -> Result<()> {
+        let inotify = self
+            .inotify
+            .take()
+            .context("into_stream: inotify already consumed")?;
+
+        // Race-condition handling for FileCreated watches: if file already exists,
+        // send the event immediately. Watch was set up on parent dir first, so any
+        // creation between watch-setup and this check will also fire an inotify event
+        // (duplicate is harmless).
+        for info in self.watch_info.values() {
+            if info.kind == FsEventKind::FileCreated && matches!(info.path.try_exists(), Ok(true)) {
+                debug!(
+                    "into_stream: file already exists {:?}, sending immediately",
+                    info.path
+                );
+                let _ = tx.blocking_send(CommandRequest {
+                    command: Command::FsEvent(FsEventCommand {
+                        kind: FsEventKind::FileCreated,
+                        feature_id: info.feature_id,
+                        path: info.path.clone(),
+                    }),
+                    reply: None,
+                });
+            }
         }
-    });
 
-    Ok((
-        handle,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
-}
+        tokio::spawn(async move {
+            let mut buffer = [0; 1024];
+            let mut stream = inotify
+                .into_event_stream(&mut buffer)
+                .expect("into_stream: failed to create event stream");
 
-pub fn file_modified_stream<T>(
-    paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
-        None,
-        move |res: DebounceEventResult| match res {
-            Ok(debounced_events) => {
-                for de in debounced_events {
-                    if let EventKind::Modify(_) = de.event.kind {
-                        debug!("notify-event: {de:?}");
-                        for p in &de.paths {
-                            let _ = tx.blocking_send(CommandRequest {
+            // Per-watch debounce: maps wd_id -> deadline. When deadline expires
+            // without new events, the command is dispatched.
+            let mut debounce_deadlines: HashMap<c_int, tokio::time::Instant> = HashMap::new();
+
+            loop {
+                let next_deadline = debounce_deadlines
+                    .values()
+                    .min()
+                    .copied()
+                    .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(3600));
+
+                tokio::select! {
+                    biased;
+
+                    event = stream.next() => {
+                        let Some(event) = event else {
+                            warn!("FsWatcher: inotify stream ended");
+                            return;
+                        };
+                        let event = match event {
+                            Ok(e) => e,
+                            Err(e) => {
+                                error!("FsWatcher: inotify error: {e:#}");
+                                continue;
+                            }
+                        };
+
+                        let wd_id = event.wd.get_watch_descriptor_id();
+                        let Some(info) = self.watch_info.get(&wd_id) else {
+                            debug!("FsWatcher: unknown wd {wd_id}");
+                            continue;
+                        };
+
+                        // For FileCreated: filter by filename match
+                        if info.kind == FsEventKind::FileCreated {
+                            let expected_name = info.path.file_name();
+                            let event_name = event.name.as_deref();
+                            if expected_name.is_none() || event_name != expected_name {
+                                continue;
+                            }
+                        }
+
+                        debug!("FsWatcher: event for {:?} ({:?})", info.path, info.kind);
+
+                        if info.oneshot {
+                            let _ = tx.send(CommandRequest {
                                 command: Command::FsEvent(FsEventCommand {
-                                    kind: FsEventKind::FileModified,
-                                    feature_id: TypeId::of::<T>(),
-                                    path: p.clone(),
+                                    kind: info.kind.clone(),
+                                    feature_id: info.feature_id,
+                                    path: info.path.clone(),
                                 }),
                                 reply: None,
-                            });
+                            }).await;
+                            self.watch_info.remove(&wd_id);
+                        } else {
+                            debounce_deadlines.insert(
+                                wd_id,
+                                tokio::time::Instant::now() + DEBOUNCE_DURATION,
+                            );
+                        }
+                    }
+
+                    _ = tokio::time::sleep_until(next_deadline), if !debounce_deadlines.is_empty() => {
+                        let now = tokio::time::Instant::now();
+                        let expired: Vec<c_int> = debounce_deadlines
+                            .iter()
+                            .filter(|(_, deadline)| **deadline <= now)
+                            .map(|(wd_id, _)| *wd_id)
+                            .collect();
+
+                        for wd_id in expired {
+                            debounce_deadlines.remove(&wd_id);
+                            if let Some(info) = self.watch_info.get(&wd_id) {
+                                debug!("FsWatcher: debounce elapsed for {:?}", info.path);
+                                let _ = tx.send(CommandRequest {
+                                    command: Command::FsEvent(FsEventCommand {
+                                        kind: info.kind.clone(),
+                                        feature_id: info.feature_id,
+                                        path: info.path.clone(),
+                                    }),
+                                    reply: None,
+                                }).await;
+                            }
                         }
                     }
                 }
             }
-            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-        },
-    )?;
+        });
 
-    for p in paths {
-        ensure!(p.is_file(), "{p:?} is not a regular existing file");
-        debug!("watch {p:?}");
-        debouncer.watch(p, RecursiveMode::NonRecursive)?;
+        Ok(())
     }
-
-    Ok((
-        debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
 }
 
-pub fn dir_modified_stream<T>(
-    paths: Vec<&Path>,
-) -> Result<(Debouncer<INotifyWatcher, NoCache>, CommandRequestStream)>
-where
-    T: 'static,
-{
-    let (tx, rx) = mpsc::channel(2);
-    let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
-        None,
-        move |res: DebounceEventResult| match res {
-            Ok(debounced_events) => {
-                for de in debounced_events {
-                    if matches!(de.event.kind, EventKind::Create(_) | EventKind::Remove(_)) {
-                        debug!("notify-event: {de:?}");
-                        for p in &de.paths {
-                            let _ = tx.blocking_send(CommandRequest {
-                                command: Command::FsEvent(FsEventCommand {
-                                    kind: FsEventKind::DirModified,
-                                    feature_id: TypeId::of::<T>(),
-                                    path: p.clone(),
-                                }),
-                                reply: None,
-                            });
-                        }
-                    }
-                }
-            }
-            Err(errors) => errors.iter().for_each(|e| error!("notify-error: {e:?}")),
-        },
-    )?;
-
-    for p in paths {
-        ensure!(p.is_dir(), "{p:?} is not a regular existing directory");
-        debug!("watch {p:?}");
-        debouncer.watch(p, RecursiveMode::Recursive)?;
+#[cfg(feature = "mock")]
+impl FsWatcher {
+    pub fn new() -> Result<Self> {
+        Ok(Self)
     }
 
-    Ok((
-        debouncer,
-        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
-    ))
+    pub fn add_watch<T: 'static>(
+        &mut self,
+        _path: &Path,
+        _kind: FsEventKind,
+        _oneshot: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn into_stream(self, _tx: mpsc::Sender<CommandRequest>) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
