@@ -262,7 +262,6 @@ impl ProvisioningConfig {
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
-    use tokio::time::Instant;
 
     use super::*;
 
@@ -340,7 +339,6 @@ mod tests {
         config
             .command(&Command::Interval(IntervalCommand {
                 feature_id: TypeId::of::<ProvisioningConfig>(),
-                instant: Instant::now(),
             }))
             .await
             .unwrap();

@@ -134,7 +134,6 @@ impl Feature for Network {
                         let req = CommandRequest {
                             command: Command::Interval(IntervalCommand {
                                 feature_id: TypeId::of::<Network>(),
-                                instant: tokio::time::Instant::now(),
                             }),
                             reply: None,
                         };

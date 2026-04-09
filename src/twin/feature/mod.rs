@@ -17,7 +17,7 @@ use std::{
 use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
-    time::{Instant, Interval},
+    time::Interval,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -204,7 +204,6 @@ pub struct PathCommand {
 #[derive(Clone, Debug, PartialEq)]
 pub struct IntervalCommand {
     pub feature_id: TypeId,
-    pub instant: Instant,
 }
 
 pub fn interval_stream<T>(interval: Interval) -> CommandRequestStream
@@ -212,10 +211,9 @@ where
     T: 'static,
 {
     tokio_stream::wrappers::IntervalStream::new(interval)
-        .map(|i| CommandRequest {
+        .map(|_| CommandRequest {
             command: Command::Interval(IntervalCommand {
                 feature_id: TypeId::of::<T>(),
-                instant: i,
             }),
             reply: None,
         })
