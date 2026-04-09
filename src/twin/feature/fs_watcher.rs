@@ -109,7 +109,7 @@ impl FsWatcher {
                     "into_stream: file already exists {:?}, sending immediately",
                     info.path
                 );
-                let _ = tx.blocking_send(CommandRequest {
+                let _ = tx.try_send(CommandRequest {
                     command: Command::FsEvent(FsEventCommand {
                         kind: FsEventKind::FileCreated,
                         feature_id: info.feature_id,
@@ -213,5 +213,231 @@ impl FsWatcher {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tokio::time::{Duration, timeout};
+
+    struct TestFeature;
+
+    #[tokio::test]
+    async fn add_watch_file_modified() {
+        let tmp = tempfile::NamedTempFile::new().expect("create temp file");
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(tmp.path(), FsEventKind::FileModified, false)
+            .expect("add_watch FileModified");
+    }
+
+    #[tokio::test]
+    async fn add_watch_dir_modified() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(tmp.path(), FsEventKind::DirModified, false)
+            .expect("add_watch DirModified");
+    }
+
+    #[tokio::test]
+    async fn add_watch_file_created() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("not-yet-existing.txt");
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch FileCreated");
+    }
+
+    #[tokio::test]
+    async fn into_stream_file_modified() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("create temp file");
+        let path = tmp.path().to_path_buf();
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&path, FsEventKind::FileModified, false)
+            .expect("add_watch");
+        watcher.into_stream(tx).expect("into_stream");
+
+        // Allow event loop to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger CLOSE_WRITE
+        writeln!(tmp, "hello").expect("write");
+        tmp.flush().expect("flush");
+        drop(tmp);
+
+        // Wait for debounced event (2s debounce + margin)
+        let req = timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("timeout waiting for event")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
+                ..
+            }) => {}
+            other => panic!("expected FsEvent(FileModified), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn into_stream_dir_modified() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let dir_path = tmp.path().to_path_buf();
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&dir_path, FsEventKind::DirModified, false)
+            .expect("add_watch");
+        watcher.into_stream(tx).expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        std::fs::write(dir_path.join("new-file.txt"), "content").expect("create file");
+
+        let req = timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("timeout waiting for event")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::DirModified,
+                ..
+            }) => {}
+            other => panic!("expected FsEvent(DirModified), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn into_stream_file_created_oneshot() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("will-appear.txt");
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch");
+        watcher.into_stream(tx).expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        std::fs::write(&target, "created").expect("create file");
+
+        let req = timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("timeout waiting for event")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ref path,
+                ..
+            }) => assert_eq!(path, &target),
+            other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn into_stream_file_created_race() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("already-exists.txt");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch");
+
+        // Create file BEFORE into_stream — race condition path
+        std::fs::write(&target, "pre-existing").expect("create file");
+
+        let (tx, mut rx) = mpsc::channel(16);
+        watcher.into_stream(tx).expect("into_stream");
+
+        // Should receive the event immediately (no debounce for race-detected oneshot)
+        let req = timeout(Duration::from_millis(500), rx.recv())
+            .await
+            .expect("timeout: race condition event should arrive immediately")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ref path,
+                ..
+            }) => assert_eq!(path, &target),
+            other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn into_stream_debounce() {
+        let tmp = tempfile::NamedTempFile::new().expect("create temp file");
+        let path = tmp.path().to_path_buf();
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&path, FsEventKind::FileModified, false)
+            .expect("add_watch");
+        watcher.into_stream(tx).expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Write 3 times in quick succession (each open+write+close triggers CLOSE_WRITE)
+        for i in 0..3 {
+            std::fs::write(&path, format!("write {i}")).expect("write");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        // First event should arrive after debounce (~2s after last write)
+        let req = timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("timeout waiting for debounced event")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
+                ..
+            }) => {}
+            other => panic!("expected FsEvent(FileModified), got {other:?}"),
+        }
+
+        // No second event should arrive (debounce coalesced all three writes)
+        let second = timeout(Duration::from_secs(3), rx.recv()).await;
+        assert!(
+            second.is_err(),
+            "expected no second event, but got one (debounce failed)"
+        );
+    }
+
+    #[tokio::test]
+    async fn noop_does_nothing() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut watcher = FsWatcher::noop();
+
+        watcher
+            .add_watch::<TestFeature>(Path::new("/nonexistent"), FsEventKind::FileModified, false)
+            .expect("noop add_watch should succeed");
+        watcher
+            .into_stream(tx)
+            .expect("noop into_stream should succeed");
+
+        // tx is consumed and dropped (no task spawned), so rx.recv() returns None
+        assert!(
+            rx.recv().await.is_none(),
+            "noop watcher should produce no events"
+        );
     }
 }
