@@ -71,18 +71,19 @@ impl Twin {
             - init features first
             - start with SystemInfo in order to log useful infos asap
         */
+        let mut fs_watcher = FsWatcher::new()?;
         let features = HashMap::from([
             (
                 TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::new_box(system_info::SystemInfo::new()?),
+                DynFeature::new_box(system_info::SystemInfo::new(&mut fs_watcher)?),
             ),
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::new_box(consent::DeviceUpdateConsent::default()),
+                DynFeature::new_box(consent::DeviceUpdateConsent::new(&mut fs_watcher)?),
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::new_box(factory_reset::FactoryReset::new()?),
+                DynFeature::new_box(factory_reset::FactoryReset::new(&mut fs_watcher)?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -113,6 +114,8 @@ impl Twin {
                 DynFeature::new_box(wifi_commissioning::WifiCommissioning::default()),
             ),
         ]);
+
+        fs_watcher.into_stream(tx_command_request.clone())?;
 
         let twin = Twin {
             client: None,

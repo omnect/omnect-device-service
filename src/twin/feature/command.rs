@@ -13,10 +13,9 @@ use std::{
     any::TypeId,
     path::{Path, PathBuf},
     pin::Pin,
-    time::Duration,
 };
 #[cfg(not(feature = "mock"))]
-use std::{collections::HashMap, ffi::c_int};
+use std::{collections::HashMap, ffi::c_int, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot},
     time::Interval,
@@ -199,8 +198,10 @@ where
         .boxed()
 }
 
+#[cfg(not(feature = "mock"))]
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
+#[cfg(not(feature = "mock"))]
 struct WatchInfo {
     feature_id: TypeId,
     path: PathBuf,

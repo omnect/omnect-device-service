@@ -653,21 +653,14 @@ pub mod mod_test {
         let test = |test_attr: &mut TestConfig| {
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
-            let mut ev_stream = test_attr
-                .twin
-                .features
-                .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
-                .unwrap()
-                .command_request_stream()
-                .unwrap()
-                .unwrap();
+            let history_path = test_attr.dir.join("history_consent.json");
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
                     .truncate(true)
-                    .open(&test_attr.dir.join("history_consent.json"))
-                    .unwrap(),
+                    .open(&history_path)
+                    .expect("open history_consent.json for write"),
                 &json!({
                     "user_consent_history": {
                         "swupdate": [
@@ -676,24 +669,25 @@ pub mod mod_test {
                     }
                 }),
             )
-            .unwrap();
+            .expect("serialize history_consent.json");
 
-            let cmd = block_on(async { ev_stream.next().await }).unwrap();
-
+            // FsWatcher is a no-op in mock builds; dispatch the FsEvent directly
             assert!(
                 block_on(async {
                     test_attr
                         .twin
                         .features
                         .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
-                        .unwrap()
-                        .command(&cmd.command)
+                        .expect("consent feature present")
+                        .command(&Command::FsEvent(FsEventCommand {
+                            kind: FsEventKind::FileModified,
+                            feature_id: TypeId::of::<consent::DeviceUpdateConsent>(),
+                            path: history_path,
+                        }))
                         .await
                 })
                 .is_ok()
             );
-
-            std::thread::sleep(Duration::from_secs(2));
         };
 
         TestCase::run(test_files, vec![], vec![], expect, test);
