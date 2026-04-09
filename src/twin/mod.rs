@@ -71,7 +71,10 @@ impl Twin {
             - init features first
             - start with SystemInfo in order to log useful infos asap
         */
+        #[cfg(not(feature = "mock"))]
         let mut fs_watcher = FsWatcher::new()?;
+        #[cfg(feature = "mock")]
+        let mut fs_watcher = FsWatcher::noop();
         let features = HashMap::from([
             (
                 TypeId::of::<system_info::SystemInfo>(),

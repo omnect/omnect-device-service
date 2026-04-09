@@ -1,23 +1,18 @@
-// Imports shared by both mock and non-mock builds
-use crate::twin::feature::{CommandRequest, FsEventKind};
-use anyhow::Result;
-use std::path::Path;
+use crate::twin::feature::{Command, CommandRequest, FsEventCommand, FsEventKind};
+use anyhow::{Context, Result};
+use futures::StreamExt;
+use log::{debug, error, warn};
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    ffi::c_int,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::sync::mpsc;
 
-// Imports only needed by the real inotify-based implementation
-#[cfg(not(feature = "mock"))]
-use {
-    crate::twin::feature::{Command, FsEventCommand},
-    anyhow::Context,
-    futures::StreamExt,
-    log::{debug, error, warn},
-    std::{any::TypeId, collections::HashMap, ffi::c_int, path::PathBuf, time::Duration},
-};
-
-#[cfg(not(feature = "mock"))]
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
-#[cfg(not(feature = "mock"))]
 struct WatchInfo {
     feature_id: TypeId,
     path: PathBuf,
@@ -25,26 +20,29 @@ struct WatchInfo {
     oneshot: bool,
 }
 
-#[cfg(not(feature = "mock"))]
 pub struct FsWatcher {
     inotify: Option<inotify::Inotify>,
-    watches: inotify::Watches,
+    watches: Option<inotify::Watches>,
     watch_info: HashMap<c_int, WatchInfo>,
 }
 
-#[cfg(feature = "mock")]
-pub struct FsWatcher;
-
-#[cfg(not(feature = "mock"))]
 impl FsWatcher {
     pub fn new() -> Result<Self> {
         let inotify = inotify::Inotify::init().context("FsWatcher: failed to init inotify")?;
         let watches = inotify.watches();
         Ok(Self {
             inotify: Some(inotify),
-            watches,
+            watches: Some(watches),
             watch_info: HashMap::new(),
         })
+    }
+
+    pub fn noop() -> Self {
+        Self {
+            inotify: None,
+            watches: None,
+            watch_info: HashMap::new(),
+        }
     }
 
     pub fn add_watch<T: 'static>(
@@ -54,6 +52,10 @@ impl FsWatcher {
         oneshot: bool,
     ) -> Result<()> {
         use inotify::WatchMask;
+
+        let Some(watches) = &mut self.watches else {
+            return Ok(());
+        };
 
         let (watch_path, mask) = match kind {
             FsEventKind::FileCreated => {
@@ -70,8 +72,7 @@ impl FsWatcher {
             FsEventKind::DirModified => (path, WatchMask::CREATE | WatchMask::DELETE),
         };
 
-        let wd = self
-            .watches
+        let wd = watches
             .add(watch_path, mask)
             .with_context(|| format!("add_watch: failed to watch {watch_path:?}"))?;
 
@@ -94,10 +95,9 @@ impl FsWatcher {
     }
 
     pub fn into_stream(mut self, tx: mpsc::Sender<CommandRequest>) -> Result<()> {
-        let inotify = self
-            .inotify
-            .take()
-            .context("into_stream: inotify already consumed")?;
+        let Some(inotify) = self.inotify.take() else {
+            return Ok(());
+        };
 
         // Race-condition handling for FileCreated watches: if file already exists,
         // send the event immediately. Watch was set up on parent dir first, so any
@@ -126,8 +126,6 @@ impl FsWatcher {
                 .into_event_stream(&mut buffer)
                 .expect("into_stream: failed to create event stream");
 
-            // Per-watch debounce: maps wd_id -> deadline. When deadline expires
-            // without new events, the command is dispatched.
             let mut debounce_deadlines: HashMap<c_int, tokio::time::Instant> = HashMap::new();
 
             loop {
@@ -159,7 +157,6 @@ impl FsWatcher {
                             continue;
                         };
 
-                        // For FileCreated: filter by filename match
                         if info.kind == FsEventKind::FileCreated {
                             let expected_name = info.path.file_name();
                             let event_name = event.name.as_deref();
@@ -215,26 +212,6 @@ impl FsWatcher {
             }
         });
 
-        Ok(())
-    }
-}
-
-#[cfg(feature = "mock")]
-impl FsWatcher {
-    pub fn new() -> Result<Self> {
-        Ok(Self)
-    }
-
-    pub fn add_watch<T: 'static>(
-        &mut self,
-        _path: &Path,
-        _kind: FsEventKind,
-        _oneshot: bool,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    pub fn into_stream(self, _tx: mpsc::Sender<CommandRequest>) -> Result<()> {
         Ok(())
     }
 }
