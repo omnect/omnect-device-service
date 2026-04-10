@@ -1,5 +1,5 @@
 use crate::twin::feature::{Command, CommandRequest, FsEventCommand, FsEventKind};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use futures::StreamExt;
 use log::{debug, error, warn};
 use std::{
@@ -59,13 +59,17 @@ impl FsWatcher {
 
         let (watch_path, mask) = match kind {
             FsEventKind::FileCreated => {
+                // FileCreated watches the parent dir and filters by filename —
+                // non-oneshot would cause spurious events for unrelated files
+                // in the debounce path, which dispatches without filename checks.
+                ensure!(oneshot, "add_watch: FileCreated requires oneshot=true");
                 let parent = path
                     .parent()
                     .context("add_watch: FileCreated path has no parent")?;
                 // Include MOVED_TO so files that appear via atomic rename/move
-                // are treated as created. No WatchMask::ONESHOT — any event in
-                // the parent dir would consume it before our target filename is
-                // seen. Oneshot is enforced in user-space by the event loop.
+                // are treated as created. Oneshot is enforced in user-space by
+                // the event loop (kernel ONESHOT would be consumed by any event
+                // in the parent dir before our target filename is seen).
                 (parent, WatchMask::CREATE | WatchMask::MOVED_TO)
             }
             FsEventKind::FileModified => (path, WatchMask::CLOSE_WRITE),
