@@ -23,12 +23,12 @@ use {
 use azure_iot_sdk::client::{IotHubClient, IotHubClientBuilder};
 
 use crate::{systemd, twin::feature::*, web_service};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::*;
 use dotenvy;
 use futures::stream;
 use futures_util::StreamExt;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -263,11 +263,19 @@ impl Twin {
             .get_mut(&cmd.feature_id())
             .context("handle_request: failed to get feature mutable")?;
 
-        ensure!(
-            feature.is_enabled(),
-            "handle_request: feature is disabled {}",
-            feature.name()
-        );
+        if !feature.is_enabled() {
+            // FsEvents and intervals have no reply channel — silently drop them
+            // for disabled features instead of erroring. Direct methods and web
+            // service requests carry a reply channel and should still fail loudly.
+            if reply.is_none() {
+                debug!(
+                    "handle_request: dropping command for disabled feature {}",
+                    feature.name()
+                );
+                return Ok(());
+            }
+            bail!("handle_request: feature is disabled {}", feature.name());
+        }
 
         info!("handle_request: {}({cmd_string})", feature.name());
 
