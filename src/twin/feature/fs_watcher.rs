@@ -23,7 +23,7 @@ struct WatchInfo {
 pub struct FsWatcher {
     inotify: Option<inotify::Inotify>,
     watches: Option<inotify::Watches>,
-    watch_info: HashMap<c_int, WatchInfo>,
+    watch_info: HashMap<c_int, (inotify::WatchDescriptor, Vec<WatchInfo>)>,
 }
 
 impl FsWatcher {
@@ -75,20 +75,24 @@ impl FsWatcher {
             .add(watch_path, mask)
             .with_context(|| format!("add_watch: failed to watch {watch_path:?}"))?;
 
-        debug!(
-            "add_watch: {:?} on {watch_path:?} (target: {path:?}, oneshot: {oneshot})",
-            wd.get_watch_descriptor_id()
-        );
+        let wd_id = wd.get_watch_descriptor_id();
+        debug!("add_watch: {wd_id:?} on {watch_path:?} (target: {path:?}, oneshot: {oneshot})");
 
-        self.watch_info.insert(
-            wd.get_watch_descriptor_id(),
-            WatchInfo {
-                feature_id: TypeId::of::<T>(),
-                path: path.to_path_buf(),
-                kind,
-                oneshot,
-            },
-        );
+        let info = WatchInfo {
+            feature_id: TypeId::of::<T>(),
+            path: path.to_path_buf(),
+            kind,
+            oneshot,
+        };
+
+        match self.watch_info.entry(wd_id) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert((wd, vec![info]));
+            }
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                e.get_mut().1.push(info);
+            }
+        }
 
         Ok(())
     }
@@ -102,31 +106,52 @@ impl FsWatcher {
         // send the event immediately. Watch was set up on parent dir first, so any
         // creation between watch-setup and this check will also fire an inotify event
         // (duplicate is harmless).
-        for info in self.watch_info.values() {
-            if info.kind == FsEventKind::FileCreated && matches!(info.path.try_exists(), Ok(true)) {
-                debug!(
-                    "into_stream: file already exists {:?}, sending immediately",
-                    info.path
-                );
-                if let Err(e) = tx.try_send(CommandRequest {
-                    command: Command::FsEvent(FsEventCommand {
-                        kind: FsEventKind::FileCreated,
-                        feature_id: info.feature_id,
-                        path: info.path.clone(),
-                    }),
-                    reply: None,
-                }) {
-                    error!("into_stream: failed to send FileCreated event: {e}");
+        for (_, infos) in self.watch_info.values() {
+            for info in infos {
+                if info.kind == FsEventKind::FileCreated
+                    && matches!(info.path.try_exists(), Ok(true))
+                {
+                    debug!(
+                        "into_stream: file already exists {:?}, sending immediately",
+                        info.path
+                    );
+                    if let Err(e) = tx.try_send(CommandRequest {
+                        command: Command::FsEvent(FsEventCommand {
+                            kind: FsEventKind::FileCreated,
+                            feature_id: info.feature_id,
+                            path: info.path.clone(),
+                        }),
+                        reply: None,
+                    }) {
+                        error!("into_stream: failed to send FileCreated event: {e}");
+                    }
                 }
             }
         }
 
-        // Clean up oneshot watch_info for files that were already dispatched
-        self.watch_info.retain(|_, info| {
-            !(info.oneshot
-                && info.kind == FsEventKind::FileCreated
-                && matches!(info.path.try_exists(), Ok(true)))
-        });
+        // Remove satisfied oneshot entries from their vecs
+        for (_, infos) in self.watch_info.values_mut() {
+            infos.retain(|info| {
+                !(info.oneshot
+                    && info.kind == FsEventKind::FileCreated
+                    && matches!(info.path.try_exists(), Ok(true)))
+            });
+        }
+
+        // Remove wd_ids with empty vecs and clean up their kernel watches
+        let empty_wds: Vec<c_int> = self
+            .watch_info
+            .iter()
+            .filter(|(_, (_, infos))| infos.is_empty())
+            .map(|(wd_id, _)| *wd_id)
+            .collect();
+        for wd_id in empty_wds {
+            if let Some((wd, _)) = self.watch_info.remove(&wd_id)
+                && let Some(watches) = &mut self.watches
+            {
+                let _ = watches.remove(wd);
+            }
+        }
 
         tokio::spawn(async move {
             let mut buffer = [0; 1024];
@@ -164,33 +189,52 @@ impl FsWatcher {
                         };
 
                         let wd_id = event.wd.get_watch_descriptor_id();
-                        let Some(info) = self.watch_info.get(&wd_id) else {
+                        let Some((_, infos)) = self.watch_info.get(&wd_id) else {
                             debug!("FsWatcher: unknown wd {wd_id}");
                             continue;
                         };
 
-                        if info.kind == FsEventKind::FileCreated {
-                            let expected_name = info.path.file_name();
-                            let event_name = event.name.as_deref();
-                            if expected_name.is_none() || event_name != expected_name {
-                                continue;
+                        // Find the matching entry index by kind-specific criteria
+                        let matched_idx = infos.iter().position(|info| {
+                            if info.kind == FsEventKind::FileCreated {
+                                let expected = info.path.file_name();
+                                let actual = event.name.as_deref();
+                                expected.is_some() && actual == expected
+                            } else {
+                                true
                             }
-                        }
+                        });
 
-                        debug!("FsWatcher: event for {:?} ({:?})", info.path, info.kind);
+                        let Some(idx) = matched_idx else {
+                            continue;
+                        };
 
-                        if info.oneshot {
+                        // Clone needed fields before mutating
+                        let kind = infos[idx].kind.clone();
+                        let feature_id = infos[idx].feature_id;
+                        let path = infos[idx].path.clone();
+                        let oneshot = infos[idx].oneshot;
+
+                        debug!("FsWatcher: event for {path:?} ({kind:?})");
+
+                        if oneshot {
                             let _ = tx.send(CommandRequest {
                                 command: Command::FsEvent(FsEventCommand {
-                                    kind: info.kind.clone(),
-                                    feature_id: info.feature_id,
-                                    path: info.path.clone(),
+                                    kind,
+                                    feature_id,
+                                    path,
                                 }),
                                 reply: None,
                             }).await;
-                            self.watch_info.remove(&wd_id);
-                            if let Some(watches) = &mut self.watches {
-                                let _ = watches.remove(event.wd);
+
+                            let (_, infos) = self.watch_info.get_mut(&wd_id)
+                                .expect("wd_id was just looked up");
+                            infos.remove(idx);
+                            if infos.is_empty()
+                                && let Some((wd, _)) = self.watch_info.remove(&wd_id)
+                                && let Some(watches) = &mut self.watches
+                            {
+                                let _ = watches.remove(wd);
                             }
                         } else {
                             debounce_deadlines.insert(
@@ -210,16 +254,18 @@ impl FsWatcher {
 
                         for wd_id in expired {
                             debounce_deadlines.remove(&wd_id);
-                            if let Some(info) = self.watch_info.get(&wd_id) {
-                                debug!("FsWatcher: debounce elapsed for {:?}", info.path);
-                                let _ = tx.send(CommandRequest {
-                                    command: Command::FsEvent(FsEventCommand {
-                                        kind: info.kind.clone(),
-                                        feature_id: info.feature_id,
-                                        path: info.path.clone(),
-                                    }),
-                                    reply: None,
-                                }).await;
+                            if let Some((_, infos)) = self.watch_info.get(&wd_id) {
+                                for info in infos {
+                                    debug!("FsWatcher: debounce elapsed for {:?}", info.path);
+                                    let _ = tx.send(CommandRequest {
+                                        command: Command::FsEvent(FsEventCommand {
+                                            kind: info.kind.clone(),
+                                            feature_id: info.feature_id,
+                                            path: info.path.clone(),
+                                        }),
+                                        reply: None,
+                                    }).await;
+                                }
                             }
                         }
                     }
@@ -515,6 +561,48 @@ mod tests {
             second.is_err(),
             "expected no duplicate event after race-condition dispatch"
         );
+    }
+
+    #[tokio::test]
+    async fn file_created_multiple_targets_same_dir() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target_a = tmp.path().join("a.txt");
+        let target_b = tmp.path().join("b.txt");
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target_a, FsEventKind::FileCreated, true)
+            .expect("watch a");
+        watcher
+            .add_watch::<TestFeature>(&target_b, FsEventKind::FileCreated, true)
+            .expect("watch b");
+        watcher.into_stream(tx).expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        std::fs::write(&target_a, "a").expect("create a");
+        std::fs::write(&target_b, "b").expect("create b");
+
+        let mut paths = Vec::new();
+        for _ in 0..2 {
+            let req = timeout(Duration::from_secs(4), rx.recv())
+                .await
+                .expect("timeout")
+                .expect("channel closed");
+            match req.command {
+                Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileCreated,
+                    path,
+                    ..
+                }) => {
+                    paths.push(path);
+                }
+                other => panic!("expected FileCreated, got {other:?}"),
+            }
+        }
+        paths.sort();
+        assert_eq!(paths, vec![target_a, target_b]);
     }
 
     #[tokio::test]
