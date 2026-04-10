@@ -62,10 +62,11 @@ impl FsWatcher {
                 let parent = path
                     .parent()
                     .context("add_watch: FileCreated path has no parent")?;
-                // No WatchMask::ONESHOT here — any CREATE in the parent dir would
-                // consume it before our target filename is seen. Oneshot semantics
-                // are enforced in user-space by the event loop instead.
-                (parent, WatchMask::CREATE)
+                // Include MOVED_TO so files that appear via atomic rename/move
+                // are treated as created. No WatchMask::ONESHOT — any event in
+                // the parent dir would consume it before our target filename is
+                // seen. Oneshot is enforced in user-space by the event loop.
+                (parent, WatchMask::CREATE | WatchMask::MOVED_TO)
             }
             FsEventKind::FileModified => (path, WatchMask::CLOSE_WRITE),
             FsEventKind::DirModified => (path, WatchMask::CREATE | WatchMask::DELETE),
