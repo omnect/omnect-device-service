@@ -606,6 +606,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_created_race_cleans_up_kernel_watch() {
+        // Regression: after race-path dispatch for a pre-existing file, the
+        // kernel watch on the parent dir must be removed. Otherwise, creating
+        // new files in the same dir generates inotify events for a stale wd
+        // with no watch_info entries.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("pre-existing.txt");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch");
+
+        // File exists before into_stream
+        std::fs::write(&target, "already here").expect("create file");
+
+        let (tx, mut rx) = mpsc::channel(16);
+        watcher.into_stream(tx).expect("into_stream");
+
+        // Consume the immediate race-path event
+        let _ = timeout(Duration::from_millis(500), rx.recv())
+            .await
+            .expect("timeout: immediate event expected")
+            .expect("channel closed");
+
+        // Create another file in the same parent dir — if the kernel watch
+        // was not cleaned up, this would trigger an inotify event for the
+        // stale wd. With proper cleanup, no event should arrive.
+        std::fs::write(tmp.path().join("other.txt"), "noise").expect("create other file");
+
+        let spurious = timeout(Duration::from_secs(1), rx.recv()).await;
+        assert!(
+            spurious.is_err(),
+            "expected no event after kernel watch cleanup, but got one"
+        );
+    }
+
+    #[tokio::test]
     async fn noop_does_nothing() {
         let (tx, mut rx) = mpsc::channel(16);
         let mut watcher = FsWatcher::noop();
