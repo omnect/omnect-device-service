@@ -21,60 +21,60 @@
 # Project Context
 
 ## 1. Role & Responsibility
-- **Role:** Long-running systemd daemon that bridges Azure IoT Hub (device twin, direct methods, D2C messages) with on-device operations — network configuration, firmware updates, factory reset, SSH tunnels, reboot, system info, modem info, and wifi commissioning.
-- **Runtime Target:** omnect OS device (runs as `omnect_device_service` user under systemd with watchdog, socket activation, and sd-notify).
+
+- **Role:** Long-running systemd service on omnect OS devices that bridges Azure IoT Hub (device twin, direct methods, D2C messages) with local device capabilities (factory reset, firmware update, SSH tunneling, network status, reboot, Wi-Fi commissioning, modem info, consent management). Also exposes a local HTTP web service for publishing device state to other on-device consumers.
+- **Runtime Target:** omnect OS device (ARM/x86 Linux with systemd)
 
 ## 2. Architecture & Tech Stack
-- **Language / Runtime:** Rust 1.93 (edition 2024), async via Tokio.
+
+- **Language / Runtime:** Rust 1.93.0 (edition 2024), async via Tokio
 - **Key Frameworks:**
-  - `azure-iot-sdk` (omnect fork) — IoT Hub client (module client mode), device twin, direct methods, D2C messaging.
-  - `actix-web` — local HTTP web service for publish/subscribe and health endpoints.
-  - `zbus` / `systemd-zbus` — D-Bus communication with systemd (unit control, networkd).
-  - `dynosaur` — object-safe async trait dispatch for the `Feature` trait.
+  - `azure-iot-sdk` (omnect fork) — IoT Hub module client (twin, direct methods, messages)
+  - `actix-web` — local HTTP web service for publish/subscribe of device state
+  - `zbus` / `systemd-zbus` — D-Bus communication with systemd and networkd
+  - `dynosaur` — trait-object boxing for the `Feature` trait (enables `HashMap<TypeId, Box<DynFeature>>`)
 - **Notable Dependencies:**
-  - `notify` / `notify-debouncer-full` — filesystem event watching (used for update validation, config changes).
-  - `reqwest` + `reqwest-middleware` + `reqwest-retry` — HTTP client with exponential backoff for publish endpoints.
-  - `sd-notify` — systemd readiness and watchdog notification.
-  - `modemmanager` (optional, behind `modem_info` feature) — modem status via D-Bus.
-  - `sysinfo` — disk, system, and component metrics.
+  - `notify` / `notify-debouncer-full` — file-system watching (triggers commands on file changes)
+  - `reqwest` + `reqwest-retry` — HTTP client with retry middleware (used for publishing to endpoints)
+  - `modemmanager` (optional, behind `modem_info` feature) — modem status via D-Bus
+  - `sd-notify` — systemd readiness notification
+  - `sysinfo` — disk, component, and system information
 
 ## 3. Key Entry Points & Files
-- `src/main.rs` — binary entry point; sets up logging and delegates to `Twin::run()`.
-- `src/lib.rs` — crate root; declares top-level modules.
-- `src/twin/mod.rs` — core orchestrator: IoT Hub client lifecycle, feature dispatch loop, signal handling.
-- `src/twin/feature/mod.rs` — `Feature` trait definition (via `dynosaur`), `Command` enum routing direct methods / twin updates / file events to features.
-- `src/twin/{consent,factory_reset,reboot,ssh_tunnel,network,system_info,wifi_commissioning,modem_info,provisioning_config}.rs` — individual feature implementations (each implements `Feature`).
-- `src/twin/firmware_update/` — firmware update feature (multi-file: ADU types, OS version parsing, update validation state machine).
-- `src/web_service.rs` — actix-web HTTP server for local publish/subscribe endpoints and status.
-- `src/bootloader_env/` — bootloader variable access; dispatches to `grub.rs` or `uboot.rs` based on feature flag, with an in-memory mock for tests.
-- `src/systemd/` — systemd integration: `networkd.rs` (network config), `unit.rs` (service control), `watchdog.rs` (watchdog petting).
-- `src/common.rs` — shared utilities (JSON file I/O, root partition helpers).
-- `src/reboot_reason.rs` — persists reboot reason to filesystem.
-- `src/build.rs` — build script; enforces exactly one bootloader feature flag, embeds git rev.
-- `systemd/` — systemd unit files (`.service`, `.socket`, `.timer`) and helper scripts.
-- `healthcheck/` — shell-based health check scripts (coredumps, timesync, services, reboot reason).
-- `sudo/` — sudoers rules and `fw_setenv_no_script.sh` (safe u-boot env writes).
-- `polkit/` — polkit rules for privileged operations (reboot, networkd, systemd).
+
+- `src/main.rs` — binary entry point; sets up logging, delegates to `Twin::run()`
+- `src/twin/mod.rs` — core event loop: creates IoT Hub client, initializes all features, dispatches commands from direct methods / desired properties / file watches / intervals
+- `src/twin/feature/mod.rs` — `Feature` trait definition, `Command` enum (all dispatchable operations), `CommandRequest` types
+- `src/web_service.rs` — actix-web HTTP server exposing publish channels (`/publish/v1/{channel}`) and status endpoints; manages publish endpoints and retry logic
+- `src/twin/*.rs` — one module per feature: `consent`, `factory_reset`, `firmware_update/`, `modem_info`, `network`, `provisioning_config`, `reboot`, `ssh_tunnel`, `system_info`, `wifi_commissioning`
+- `src/systemd/` — systemd integration: `unit.rs` (start/stop/restart units via D-Bus), `networkd.rs` (network link status), `watchdog.rs` (systemd watchdog keep-alive)
+- `src/bootloader_env/` — bootloader variable get/set, dispatched by feature flag to `grub.rs` or `uboot.rs`
+- `src/build.rs` — build script (compile-time metadata)
+- `healthcheck/` — shell scripts for device health checks (coredumps, services, timesync, reboot reason)
+- `systemd/` — unit files: `omnect-device-service.service`, `.socket`, `.timer`, plus update-validation-observer
+- `sudo/` — sudoers drop-in files granting the service permission for specific privileged commands
+- `polkit/` — polkit rules for D-Bus permissions
+- `testfiles/` — test fixtures (positive/negative cases, Wi-Fi commissioning configs)
 
 ## 4. Repository-Specific Constraints
-- **Mutually exclusive bootloader features:** Exactly one of `bootloader_uboot`, `bootloader_grub`, or `mock` must be enabled. The build script (`src/build.rs`) enforces this at compile time via `compile_error!`.
-- **`mock` feature:** Used for testing. Swaps out the IoT Hub client (`MockMyIotHub`), the bootloader env (in-memory `HashMap`), and systemd reboot. Tests compile with `--features mock`.
-- **Feature modules pattern:** Each device capability (consent, factory reset, reboot, etc.) is a separate module under `src/twin/` implementing the `Feature` trait. The `Feature` trait uses `dynosaur` for object-safe async dispatch (`DynFeature`). Features are registered by `TypeId` in a `HashMap` in `Twin::new()`.
-- **Command routing:** All external inputs (direct methods, twin desired properties, file system events, intervals) are converted to a `Command` enum variant in `src/twin/feature/mod.rs`, then dispatched to the owning feature via `feature_id() -> TypeId`.
-- **Privileged operations:** The service runs as unprivileged user `omnect_device_service`. Privileged actions (reboot, fw_setenv, journalctl) are executed via `sudo` with allowlists in `sudo/`. Polkit rules in `polkit/` authorize D-Bus operations (networkd, systemd).
-- **Environment configuration:** Runtime config is read from `/etc/omnect/omnect-device-service.env` (via `EnvironmentFile` in the systemd unit) and env vars; `dotenvy` is used for `.env` loading in dev.
-- **No `config/` directory:** Configuration lives in env vars and the systemd unit file, not in a dedicated config directory.
+
+- **Mutually exclusive feature flags:** Exactly one of `bootloader_grub`, `bootloader_uboot`, or `mock` must be active. The `mock` feature stubs out hardware/systemd interactions for testing.
+- **Feature trait pattern:** Every device capability implements the `Feature` trait (in its own `src/twin/*.rs` module). Adding a new feature means: (1) implement `Feature`, (2) add a `Command` variant, (3) register in `Twin::new()` feature map.
+- **Command dispatch:** All operations flow through the `Command` enum in `feature/mod.rs`. Direct methods, desired properties, file-system events, and intervals all produce `Command` values that get routed to the owning feature via `TypeId`.
+- **Web service publish pattern:** Features publish state via `web_service::publish(PublishChannel, value)`. External consumers register endpoints in `/run/omnect-device-service/publish_endpoints.json`.
+- **`#[cfg(test)]` IoT Hub mock:** In test builds, `Twin` uses `MockMyIotHub` (generated via `mockall`) instead of the real `IotHubClient`. See `src/twin/mod_test.rs`.
+- **Privileged operations:** The service runs unprivileged but uses sudoers rules (`sudo/`) and polkit (`polkit/`) for specific operations (grub-editenv, fw_setenv, journalctl, reboot).
+- **`modem_info` feature:** Opt-in via the `modem_info` Cargo feature (pulls in the `modemmanager` crate). Not active by default.
 
 ## 5. Local Dev Scripts
+
+- **Build (non-mock):** `cargo build --features bootloader_grub`
 - **Build (mock/test):** `cargo build --features mock`
-- **Build (uboot):** `cargo build --features bootloader_uboot`
-- **Build (grub):** `cargo build --features bootloader_grub`
 - **Run Tests:** `cargo test --features mock`
-- **Check:** `cargo check --features mock`
-- **Lint:** `cargo clippy --features mock -- -D warnings`
-- **Format:** `cargo fmt -- --check`
-- **Audit:** `cargo audit` (ignore list in `Cargo.audit.ignore`)
+- **Lint:** `cargo clippy --features bootloader_grub`
+- **Format:** `cargo fmt`
+- **Pre-commit check:** `cargo fmt && cargo clippy --features bootloader_grub` (must pass before committing)
 
 ## 6. Global Rule Overrides
-- **`anyhow` for error handling:** This repo uses `anyhow::Result` throughout (not custom error types). The service is a long-running daemon where error context chains matter more than typed matching at call sites. This overrides the user preference for explicit error types.
-- **`unwrap()` in tests:** Use `unwrap()` in test code. Do not use `expect("reason")` in tests.
+
+- **Error handling:** Uses `anyhow` throughout (no custom error types). This is intentional — the service is a top-level application, not a library, so ergonomic error propagation is preferred over typed errors.

@@ -10,13 +10,14 @@ pub mod mod_test {
     use futures_executor::block_on;
     use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
-    use rand::{
-        distr::Alphanumeric,
-        {Rng, rng},
-    };
+    use rand::{Rng, distr::Alphanumeric, rng};
     use serde_json::json;
-    use std::fs::{copy, create_dir_all, remove_dir_all};
-    use std::{env, fs::OpenOptions, path::PathBuf, time::Duration};
+    use std::{
+        env,
+        fs::{OpenOptions, copy, create_dir_all, remove_dir_all},
+        path::PathBuf,
+        time::Duration,
+    };
 
     lazy_static! {
         static ref LOG: () = if cfg!(debug_assertions) {

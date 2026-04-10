@@ -4,8 +4,7 @@ use crate::twin::{
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::DirectMethod;
-use futures::Stream;
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use log::{error, info, warn};
 use std::{any::TypeId, path::PathBuf, pin::Pin};
 use tokio::{sync::oneshot, time::Interval};

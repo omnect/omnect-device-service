@@ -12,8 +12,10 @@ mod inner {
 
     use futures::future::join_all;
     use log::{debug, info, warn};
-    use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
-    use modemmanager::types::ModemCapability;
+    use modemmanager::{
+        dbus::{bearer, modem, modem3gpp, sim},
+        types::ModemCapability,
+    };
     use serde::Serialize;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
