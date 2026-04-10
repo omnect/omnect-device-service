@@ -62,11 +62,10 @@ impl FsWatcher {
                 let parent = path
                     .parent()
                     .context("add_watch: FileCreated path has no parent")?;
-                let mut mask = WatchMask::CREATE;
-                if oneshot {
-                    mask |= WatchMask::ONESHOT;
-                }
-                (parent, mask)
+                // No WatchMask::ONESHOT here — any CREATE in the parent dir would
+                // consume it before our target filename is seen. Oneshot semantics
+                // are enforced in user-space by the event loop instead.
+                (parent, WatchMask::CREATE)
             }
             FsEventKind::FileModified => (path, WatchMask::CLOSE_WRITE),
             FsEventKind::DirModified => (path, WatchMask::CREATE | WatchMask::DELETE),
@@ -109,22 +108,35 @@ impl FsWatcher {
                     "into_stream: file already exists {:?}, sending immediately",
                     info.path
                 );
-                let _ = tx.try_send(CommandRequest {
+                if let Err(e) = tx.try_send(CommandRequest {
                     command: Command::FsEvent(FsEventCommand {
                         kind: FsEventKind::FileCreated,
                         feature_id: info.feature_id,
                         path: info.path.clone(),
                     }),
                     reply: None,
-                });
+                }) {
+                    error!("into_stream: failed to send FileCreated event: {e}");
+                }
             }
         }
 
+        // Clean up oneshot watch_info for files that were already dispatched
+        self.watch_info.retain(|_, info| {
+            !(info.oneshot
+                && info.kind == FsEventKind::FileCreated
+                && matches!(info.path.try_exists(), Ok(true)))
+        });
+
         tokio::spawn(async move {
             let mut buffer = [0; 1024];
-            let mut stream = inotify
-                .into_event_stream(&mut buffer)
-                .expect("into_stream: failed to create event stream");
+            let mut stream = match inotify.into_event_stream(&mut buffer) {
+                Ok(stream) => stream,
+                Err(e) => {
+                    error!("into_stream: failed to create event stream: {e}");
+                    return;
+                }
+            };
 
             let mut debounce_deadlines: HashMap<c_int, tokio::time::Instant> = HashMap::new();
 
@@ -177,6 +189,9 @@ impl FsWatcher {
                                 reply: None,
                             }).await;
                             self.watch_info.remove(&wd_id);
+                            if let Some(watches) = &mut self.watches {
+                                let _ = watches.remove(event.wd);
+                            }
                         } else {
                             debounce_deadlines.insert(
                                 wd_id,
