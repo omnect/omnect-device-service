@@ -438,6 +438,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_created_oneshot_ignores_unrelated_files() {
+        // Regression: kernel ONESHOT on the parent dir would be consumed by any
+        // CREATE event, not just the target filename. With user-space oneshot,
+        // unrelated files must not prevent the target from being detected.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("target.txt");
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch");
+        watcher.into_stream(tx).expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Create an unrelated file first — must NOT consume the watch
+        std::fs::write(tmp.path().join("unrelated.txt"), "noise").expect("create unrelated");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Now create the target file
+        std::fs::write(&target, "found").expect("create target");
+
+        let req = timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("timeout: target event should arrive despite unrelated file")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ref path,
+                ..
+            }) => assert_eq!(path, &target),
+            other => panic!("expected FsEvent(FileCreated) for target, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn file_created_race_no_duplicate() {
+        // Regression: after into_stream dispatches an immediate event for a
+        // pre-existing file, the watch_info must be cleaned up so the inotify
+        // watch (still active on parent dir) doesn't produce a duplicate event.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("exists.txt");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch");
+
+        // File exists before into_stream
+        std::fs::write(&target, "pre-existing").expect("create file");
+
+        let (tx, mut rx) = mpsc::channel(16);
+        watcher.into_stream(tx).expect("into_stream");
+
+        // First event: immediate dispatch from race-condition handling
+        let req = timeout(Duration::from_millis(500), rx.recv())
+            .await
+            .expect("timeout: immediate event expected")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ..
+            }) => {}
+            other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+        }
+
+        // No duplicate event should arrive (watch_info was cleaned up)
+        let second = timeout(Duration::from_secs(1), rx.recv()).await;
+        assert!(
+            second.is_err(),
+            "expected no duplicate event after race-condition dispatch"
+        );
+    }
+
+    #[tokio::test]
     async fn noop_does_nothing() {
         let (tx, mut rx) = mpsc::channel(16);
         let mut watcher = FsWatcher::noop();
