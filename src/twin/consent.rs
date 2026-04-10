@@ -111,11 +111,7 @@ impl DeviceUpdateConsent {
     const ID: &'static str = "device_update_consent";
 
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
-        for path in [
-            request_consent_path!(),
-            history_consent_path!(),
-            general_consent_path!(),
-        ] {
+        for path in [request_consent_path!(), history_consent_path!()] {
             fs_watcher.add_watch::<DeviceUpdateConsent>(&path, FsEventKind::FileModified, false)?;
         }
 
