@@ -107,58 +107,59 @@ impl FsWatcher {
             return Ok(());
         };
 
-        // Race-condition handling for FileCreated watches: if file already exists,
-        // send the event immediately. Watch was set up on parent dir first, so any
-        // creation between watch-setup and this check will also fire an inotify event
-        // (duplicate is harmless).
-        for (_, infos) in self.watch_info.values() {
-            for info in infos {
-                if info.kind == FsEventKind::FileCreated
-                    && matches!(info.path.try_exists(), Ok(true))
-                {
-                    debug!(
-                        "into_stream: file already exists {:?}, sending immediately",
-                        info.path
-                    );
-                    if let Err(e) = tx.try_send(CommandRequest {
-                        command: Command::FsEvent(FsEventCommand {
-                            kind: FsEventKind::FileCreated,
-                            feature_id: info.feature_id,
-                            path: info.path.clone(),
-                        }),
-                        reply: None,
-                    }) {
-                        error!("into_stream: failed to send FileCreated event: {e}");
+        tokio::spawn(async move {
+            // Race-condition handling for FileCreated watches: if file already
+            // exists, send the event immediately with guaranteed delivery (.await).
+            // Only clean up oneshot entries after successful send.
+            for (_, infos) in self.watch_info.values() {
+                for info in infos {
+                    if info.kind == FsEventKind::FileCreated
+                        && matches!(info.path.try_exists(), Ok(true))
+                    {
+                        debug!(
+                            "into_stream: file already exists {:?}, sending immediately",
+                            info.path
+                        );
+                        if let Err(e) = tx
+                            .send(CommandRequest {
+                                command: Command::FsEvent(FsEventCommand {
+                                    kind: FsEventKind::FileCreated,
+                                    feature_id: info.feature_id,
+                                    path: info.path.clone(),
+                                }),
+                                reply: None,
+                            })
+                            .await
+                        {
+                            error!("into_stream: failed to send FileCreated event: {e}");
+                        }
                     }
                 }
             }
-        }
 
-        // Remove satisfied oneshot entries from their vecs
-        for (_, infos) in self.watch_info.values_mut() {
-            infos.retain(|info| {
-                !(info.oneshot
-                    && info.kind == FsEventKind::FileCreated
-                    && matches!(info.path.try_exists(), Ok(true)))
-            });
-        }
-
-        // Remove wd_ids with empty vecs and clean up their kernel watches
-        let empty_wds: Vec<c_int> = self
-            .watch_info
-            .iter()
-            .filter(|(_, (_, infos))| infos.is_empty())
-            .map(|(wd_id, _)| *wd_id)
-            .collect();
-        for wd_id in empty_wds {
-            if let Some((wd, _)) = self.watch_info.remove(&wd_id)
-                && let Some(watches) = &mut self.watches
-            {
-                let _ = watches.remove(wd);
+            // Remove satisfied oneshot entries from their vecs
+            for (_, infos) in self.watch_info.values_mut() {
+                infos.retain(|info| {
+                    !(info.oneshot
+                        && info.kind == FsEventKind::FileCreated
+                        && matches!(info.path.try_exists(), Ok(true)))
+                });
             }
-        }
 
-        tokio::spawn(async move {
+            // Remove wd_ids with empty vecs and clean up their kernel watches
+            let empty_wds: Vec<c_int> = self
+                .watch_info
+                .iter()
+                .filter(|(_, (_, infos))| infos.is_empty())
+                .map(|(wd_id, _)| *wd_id)
+                .collect();
+            for wd_id in empty_wds {
+                if let Some((wd, _)) = self.watch_info.remove(&wd_id)
+                    && let Some(watches) = &mut self.watches
+                {
+                    let _ = watches.remove(wd);
+                }
+            }
             let mut buffer = [0; 1024];
             let mut stream = match inotify.into_event_stream(&mut buffer) {
                 Ok(stream) => stream,
