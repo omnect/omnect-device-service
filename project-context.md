@@ -34,7 +34,7 @@
   - `zbus` / `systemd-zbus` — D-Bus communication with systemd and networkd
   - `dynosaur` — trait-object boxing for the `Feature` trait (enables `HashMap<TypeId, Box<DynFeature>>`)
 - **Notable Dependencies:**
-  - `notify` / `notify-debouncer-full` — file-system watching (triggers commands on file changes)
+  - `inotify` — centralized file-system watching via `FsWatcher` (triggers commands on file changes)
   - `reqwest` + `reqwest-retry` — HTTP client with retry middleware (used for publishing to endpoints)
   - `modemmanager` (optional, behind `modem_info` feature) — modem status via D-Bus
   - `sd-notify` — systemd readiness notification
@@ -44,7 +44,9 @@
 
 - `src/main.rs` — binary entry point; sets up logging, delegates to `Twin::run()`
 - `src/twin/mod.rs` — core event loop: creates IoT Hub client, initializes all features, dispatches commands from direct methods / desired properties / file watches / intervals
-- `src/twin/feature/mod.rs` — `Feature` trait definition, `Command` enum (all dispatchable operations), `CommandRequest` types
+- `src/twin/feature/mod.rs` — `Feature` trait definition and `DynFeature` (re-exports from `command.rs` and `fs_watcher.rs`)
+- `src/twin/feature/command.rs` — `Command` enum, `CommandRequest` types, `parse_payload` helper, `interval_stream`
+- `src/twin/feature/fs_watcher.rs` — centralized `FsWatcher` (inotify-based, per-watch debounce, oneshot support)
 - `src/web_service.rs` — actix-web HTTP server exposing publish channels (`/publish/v1/{channel}`) and status endpoints; manages publish endpoints and retry logic
 - `src/twin/*.rs` — one module per feature: `consent`, `factory_reset`, `firmware_update/`, `modem_info`, `network`, `provisioning_config`, `reboot`, `ssh_tunnel`, `system_info`, `wifi_commissioning`
 - `src/systemd/` — systemd integration: `unit.rs` (start/stop/restart units via D-Bus), `networkd.rs` (network link status), `watchdog.rs` (systemd watchdog keep-alive)
@@ -60,7 +62,7 @@
 
 - **Mutually exclusive feature flags:** Exactly one of `bootloader_grub`, `bootloader_uboot`, or `mock` must be active. The `mock` feature stubs out hardware/systemd interactions for testing.
 - **Feature trait pattern:** Every device capability implements the `Feature` trait (in its own `src/twin/*.rs` module). Adding a new feature means: (1) implement `Feature`, (2) add a `Command` variant, (3) register in `Twin::new()` feature map.
-- **Command dispatch:** All operations flow through the `Command` enum in `feature/mod.rs`. Direct methods, desired properties, file-system events, and intervals all produce `Command` values that get routed to the owning feature via `TypeId`.
+- **Command dispatch:** All operations flow through the `Command` enum and parsing helpers in `src/twin/feature/command.rs`, with file-watch handling in `fs_watcher.rs`. Direct methods, desired properties, file-system events, and intervals all produce `Command` values that get routed to the owning feature via `TypeId`.
 - **Web service publish pattern:** Features publish state via `web_service::publish(PublishChannel, value)`. External consumers register endpoints in `/run/omnect-device-service/publish_endpoints.json`.
 - **`#[cfg(test)]` IoT Hub mock:** In test builds, `Twin` uses `MockMyIotHub` (generated via `mockall`) instead of the real `IotHubClient`. See `src/twin/mod_test.rs`.
 - **Privileged operations:** The service runs unprivileged but uses sudoers rules (`sudo/`) and polkit (`polkit/`) for specific operations (grub-editenv, fw_setenv, journalctl, reboot).
