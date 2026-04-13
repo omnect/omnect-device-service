@@ -61,6 +61,13 @@ impl Drop for LoadUpdateGuard {
     }
 }
 
+fn merge_bootargs(omnect: &str, custom: &str) -> String {
+    format!("{omnect} {custom}")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 struct RunUpdateGuard {
     succeeded: bool,
     wdt: Option<Duration>,
@@ -125,10 +132,7 @@ impl RunUpdateGuard {
                     let omnect_args = fs::read_to_string(&omnect_file).unwrap_or_default();
                     let custom_args =
                         fs::read_to_string(bootargs_custom_file_path!()).unwrap_or_default();
-                    let new_bootargs = format!("{omnect_args} {custom_args}")
-                        .split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                    let new_bootargs = merge_bootargs(&omnect_args, &custom_args);
 
                     let result = if new_bootargs.is_empty() {
                         bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)
@@ -482,10 +486,7 @@ impl FirmwareUpdate {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(), // optional: missing file
             Err(e) => return Err(e.into()),
         };
-        let new_bootargs = format!("{} {}", omnect_bootargs, custom_bootargs)
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let new_bootargs = merge_bootargs(&omnect_bootargs, &custom_bootargs);
 
         if current_bootargs != new_bootargs {
             if bootloader_updated && new_bootargs.is_empty() {
