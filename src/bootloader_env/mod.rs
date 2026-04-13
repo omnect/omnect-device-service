@@ -3,6 +3,9 @@ mod grub;
 #[cfg(feature = "bootloader_uboot")]
 mod uboot;
 
+#[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
+static SUDO_BIN: &str = "/usr/bin/sudo";
+
 use anyhow::Result;
 #[cfg(feature = "bootloader_grub")]
 use grub::{
@@ -35,11 +38,11 @@ pub fn get(key: &str) -> Result<String> {
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
         let guard = mock_store::store();
-        return Ok(guard
+        Ok(guard
             .as_ref()
             .and_then(|m| m.get(key))
             .cloned()
-            .unwrap_or_default());
+            .unwrap_or_default())
     }
 }
 
@@ -55,10 +58,8 @@ pub fn set(key: &str, value: &str) -> Result<()> {
         guard
             .get_or_insert_with(HashMap::new)
             .insert(key.to_string(), value.to_string());
-        return Ok(());
+        Ok(())
     }
-
-    Ok(())
 }
 
 #[allow(unreachable_code, unused_variables)]
@@ -72,10 +73,8 @@ pub fn unset(key: &str) -> Result<()> {
         if let Some(m) = guard.as_mut() {
             m.remove(key);
         }
-        return Ok(());
+        Ok(())
     }
-
-    Ok(())
 }
 
 /// Clears the mock store. Call this at the start of each test that uses

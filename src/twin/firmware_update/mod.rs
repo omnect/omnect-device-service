@@ -103,9 +103,9 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    fn rollback(bootloader_updated: bool, bootargs_omnect_backup: Option<PathBuf>) {
+    fn rollback(&mut self) {
         // cannot rollback a stable,bootloader image once flashed
-        if bootloader_updated {
+        if self.bootloader_updated {
             warn!("bootloader was updated: rollback not possible");
             return;
         }
@@ -114,7 +114,7 @@ impl RunUpdateGuard {
             error!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}: {e:#}");
         }
 
-        if let Some(backup) = bootargs_omnect_backup {
+        if let Some(backup) = self.bootargs_omnect_backup.take() {
             let omnect_file = bootargs_omnect_file_path!();
             match fs::copy(&backup, &omnect_file) {
                 Err(e) => {
@@ -150,12 +150,12 @@ impl Drop for RunUpdateGuard {
     fn drop(&mut self) {
         if !(self.succeeded) {
             let wdt = self.wdt.take();
-            let bootloader_updated = self.bootloader_updated;
-            let bootargs_omnect_backup = self.bootargs_omnect_backup.take();
 
             debug!(
                 "run update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}"
             );
+
+            self.rollback();
 
             tokio::spawn(async move {
                 if let Some(wdt) = wdt
@@ -163,8 +163,6 @@ impl Drop for RunUpdateGuard {
                 {
                     error!("failed to restore wdt interval: {e:#}")
                 }
-
-                Self::rollback(bootloader_updated, bootargs_omnect_backup);
 
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
@@ -465,6 +463,7 @@ impl FirmwareUpdate {
             )?;
         }
 
+        // explicitly finalize even if reboot fails
         guard.finalize();
 
         systemd::reboot("swupdate", "local update").await?;
@@ -871,6 +870,18 @@ mod tests {
         );
     }
 
+    fn make_guard(
+        bootloader_updated: bool,
+        bootargs_omnect_backup: Option<PathBuf>,
+    ) -> RunUpdateGuard {
+        RunUpdateGuard {
+            succeeded: true, // prevent Drop from running async cleanup
+            wdt: None,
+            bootloader_updated,
+            bootargs_omnect_backup,
+        }
+    }
+
     fn setup_rollback_files(
         tmp: &tempfile::TempDir,
         omnect: &str,
@@ -900,7 +911,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
 
-        RunUpdateGuard::rollback(false, Some(backup_path.clone()));
+        make_guard(false, Some(backup_path.clone())).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
@@ -932,7 +943,7 @@ mod tests {
 
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
 
-        RunUpdateGuard::rollback(false, Some(backup_path));
+        make_guard(false, Some(backup_path)).rollback();
 
         assert!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS)
@@ -950,7 +961,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
 
-        RunUpdateGuard::rollback(false, None);
+        make_guard(false, None).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
@@ -973,7 +984,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
 
-        RunUpdateGuard::rollback(true, None);
+        make_guard(true, None).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
@@ -983,6 +994,24 @@ mod tests {
             bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).expect("get validate"),
             "staged",
             "expected validate key to remain when bootloader was updated"
+        );
+    }
+
+    #[test]
+    fn rollback_removes_update_validation_config() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let config_path = tmp.path().join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+
+        make_guard(false, None).rollback();
+
+        assert!(
+            !config_path.exists(),
+            "expected update validation config to be removed by rollback"
         );
     }
 }

@@ -1,6 +1,6 @@
-#!/bin/bash -e
+#!/bin/bash
 # Wrapper for fw_setenv – blocks script-file mode.
-set -uo pipefail
+set -efuo pipefail
 
 FW_SETENV=/usr/bin/fw_setenv
 

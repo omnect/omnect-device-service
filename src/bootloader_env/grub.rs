@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, ensure};
 use std::process::Command;
 
-static SUDO_BIN: &str = "/usr/bin/sudo";
+use super::SUDO_BIN;
+
 static GRUB_EDITENV_BIN: &str = "/usr/bin/grub-editenv";
 static GRUB_ENV_FILE: &str = "/boot/EFI/BOOT/grubenv";
 static GRUB_CMD_LIST: &str = "list";

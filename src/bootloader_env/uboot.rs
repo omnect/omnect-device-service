@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, bail, ensure};
 use std::process::Command;
 
-static SUDO_BIN: &str = "/usr/bin/sudo";
+use super::SUDO_BIN;
+
 static FW_PRINTENV_BIN: &str = "/usr/bin/fw_printenv";
 static FW_SETENV_NO_SCRIPT_BIN: &str = "/usr/bin/fw_setenv_no_script.sh";
 static FW_SETENV_BIN: &str = "/usr/bin/fw_setenv";
