@@ -1015,4 +1015,55 @@ mod tests {
             "expected update validation config to be removed by rollback"
         );
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn drop_without_finalize_triggers_rollback() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+
+        let config_path = tmp.path().join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+
+        // simulate kernelargs swupdate overwriting the omnect file
+        fs::write(&omnect_path, "corrupted").expect("overwrite omnect");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
+
+        // guard with succeeded=false — Drop must trigger rollback
+        {
+            let _guard = RunUpdateGuard {
+                succeeded: false,
+                wdt: None,
+                bootloader_updated: false,
+                bootargs_omnect_backup: Some(backup_path.clone()),
+            };
+        } // _guard dropped here
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            "original_arg custom_arg"
+        );
+        assert!(
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
+                .expect("get validate")
+                .is_empty(),
+            "expected validate key to be unset"
+        );
+        assert_eq!(
+            fs::read_to_string(&omnect_path).expect("read omnect"),
+            "original_arg",
+            "expected omnect file to be restored from backup"
+        );
+        assert!(
+            !backup_path.exists(),
+            "expected backup file to be cleaned up"
+        );
+        assert!(
+            !config_path.exists(),
+            "expected update validation config to be removed"
+        );
+    }
 }
