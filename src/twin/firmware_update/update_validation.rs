@@ -298,9 +298,15 @@ impl UpdateValidation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serializes finalize_bootargs tests to prevent races on the global
+    // bootloader_env mock store when cargo runs tests in parallel.
+    static BOOTARGS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn finalize_bootargs_noargs_sentinel_unsets_both_keys() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, NOARGS_SENTINEL).expect("set validate");
@@ -323,6 +329,7 @@ mod tests {
 
     #[test]
     fn finalize_bootargs_real_value_promotes_and_cleans_up() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
         bootloader_env::set(
@@ -347,6 +354,7 @@ mod tests {
 
     #[test]
     fn finalize_bootargs_absent_validate_key_leaves_extra_untouched() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "existing_args").expect("set extra");
         // OMNECT_VALIDATE_EXTRA_BOOTARGS intentionally not set
