@@ -141,7 +141,7 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+    fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {

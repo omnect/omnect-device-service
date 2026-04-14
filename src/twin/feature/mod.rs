@@ -2,6 +2,7 @@ mod command;
 mod fs_watcher;
 pub use command::*;
 pub use fs_watcher::*;
+pub use tokio_util::sync::CancellationToken;
 
 use anyhow::Result;
 use azure_iot_sdk::client::IotMessage;
@@ -25,7 +26,7 @@ pub(crate) trait Feature {
         Ok(())
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+    fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         Ok(None)
     }
 

@@ -5,9 +5,10 @@ use crate::twin::{
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::DirectMethod;
 use futures::{Stream, StreamExt};
-use log::{error, info, warn};
-use std::{any::TypeId, path::PathBuf, pin::Pin};
+use log::{debug, error, info, warn};
+use std::{any::TypeId, future::Future, path::PathBuf, pin::Pin, time::Duration};
 use tokio::{sync::oneshot, time::Interval};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -184,6 +185,84 @@ where
             reply: None,
         })
         .boxed()
+}
+
+/// Debounce an async event source into a `CommandRequestStream`.
+///
+/// `source_fut` is resolved inside the spawned task, so this works from sync
+/// call sites (e.g. `command_request_stream()`). After the future resolves,
+/// each item from the resulting stream resets a silence timer. When `silence`
+/// elapses without new items, a single `Command::Interval` is emitted.
+///
+/// The spawned task exits when `cancel` is triggered or the source stream ends.
+pub fn debounced_command_stream<F, S, I, T>(
+    source_fut: F,
+    silence: Duration,
+    cancel: CancellationToken,
+) -> CommandRequestStream
+where
+    F: Future<Output = Result<S>> + Send + 'static,
+    S: Stream<Item = I> + Send + 'static,
+    I: Send,
+    T: 'static,
+{
+    // Capacity 1: debounce guarantees at most one pending request
+    // (next emission only after the previous silence window expires).
+    let (tx, rx) = tokio::sync::mpsc::channel::<CommandRequest>(1);
+
+    tokio::spawn(async move {
+        let stream = match source_fut.await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("debounced_command_stream: source init failed: {e:#}");
+                return;
+            }
+        };
+        tokio::pin!(stream);
+
+        let mut deadline: Option<tokio::time::Instant> = None;
+
+        loop {
+            // Far-future placeholder when no debounce is pending, so the
+            // sleep branch doesn't fire spuriously.
+            const FAR_FUTURE: Duration = Duration::from_secs(3600);
+            let sleep_until = deadline.unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
+
+            tokio::select! {
+                biased;
+
+                _ = cancel.cancelled() => return,
+
+                item = stream.next() => match item {
+                    Some(_) => {
+                        debug!("debounced_command_stream: event, (re)arming debounce");
+                        deadline = Some(tokio::time::Instant::now() + silence);
+                    }
+                    None => {
+                        warn!("debounced_command_stream: source stream ended");
+                        return;
+                    }
+                },
+
+                _ = tokio::time::sleep_until(sleep_until), if deadline.is_some() => {
+                    deadline = None;
+                    debug!("debounced_command_stream: silence elapsed, emitting");
+                    let req = CommandRequest {
+                        command: Command::Interval(IntervalCommand {
+                            feature_id: TypeId::of::<T>(),
+                        }),
+                        reply: None,
+                    };
+                    if tx.send(req).await.is_err() {
+                        debug!("debounced_command_stream: receiver dropped, stopping");
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
 }
 
 #[cfg(test)]

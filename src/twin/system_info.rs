@@ -144,7 +144,7 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+    fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
             0 => None,
             _ => Some(interval_stream::<SystemInfo>(interval(

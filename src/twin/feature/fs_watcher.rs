@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
@@ -102,7 +103,11 @@ impl FsWatcher {
         Ok(())
     }
 
-    pub fn into_stream(mut self, tx: mpsc::Sender<CommandRequest>) -> Result<()> {
+    pub fn into_stream(
+        mut self,
+        tx: mpsc::Sender<CommandRequest>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
         let Some(inotify) = self.inotify.take() else {
             return Ok(());
         };
@@ -180,6 +185,8 @@ impl FsWatcher {
 
                 tokio::select! {
                     biased;
+
+                    _ = cancel.cancelled() => return,
 
                     event = stream.next() => {
                         let Some(event) = event else {
@@ -329,7 +336,9 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(&path, FsEventKind::FileModified, false)
             .expect("add_watch");
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         // Allow event loop to start
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -364,7 +373,9 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(&dir_path, FsEventKind::DirModified, false)
             .expect("add_watch");
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -394,7 +405,9 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
             .expect("add_watch");
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -429,7 +442,9 @@ mod tests {
         std::fs::write(&target, "pre-existing").expect("create file");
 
         let (tx, mut rx) = mpsc::channel(16);
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         // Should receive the event immediately (no debounce for race-detected oneshot)
         let req = timeout(Duration::from_millis(500), rx.recv())
@@ -457,7 +472,9 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(&path, FsEventKind::FileModified, false)
             .expect("add_watch");
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -502,7 +519,9 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
             .expect("add_watch");
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -545,7 +564,9 @@ mod tests {
         std::fs::write(&target, "pre-existing").expect("create file");
 
         let (tx, mut rx) = mpsc::channel(16);
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         // First event: immediate dispatch from race-condition handling
         let req = timeout(Duration::from_millis(500), rx.recv())
@@ -583,7 +604,9 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(&target_b, FsEventKind::FileCreated, true)
             .expect("watch b");
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -629,7 +652,9 @@ mod tests {
         std::fs::write(&target, "already here").expect("create file");
 
         let (tx, mut rx) = mpsc::channel(16);
-        watcher.into_stream(tx).expect("into_stream");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
 
         // Consume the immediate race-path event
         let _ = timeout(Duration::from_millis(500), rx.recv())
@@ -658,7 +683,7 @@ mod tests {
             .add_watch::<TestFeature>(Path::new("/nonexistent"), FsEventKind::FileModified, false)
             .expect("noop add_watch should succeed");
         watcher
-            .into_stream(tx)
+            .into_stream(tx, CancellationToken::new())
             .expect("noop into_stream should succeed");
 
         // tx is consumed and dropped (no task spawned), so rx.recv() returns None

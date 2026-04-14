@@ -58,6 +58,7 @@ pub struct Twin {
     state: TwinState,
     features: HashMap<TypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
+    cancel: CancellationToken,
 }
 
 impl Twin {
@@ -118,7 +119,8 @@ impl Twin {
             ),
         ]);
 
-        fs_watcher.into_stream(tx_command_request.clone())?;
+        let cancel = CancellationToken::new();
+        fs_watcher.into_stream(tx_command_request.clone(), cancel.child_token())?;
 
         let twin = Twin {
             client: None,
@@ -129,6 +131,7 @@ impl Twin {
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
+            cancel,
         };
 
         twin.connect_web_service().await?;
@@ -309,6 +312,8 @@ impl Twin {
     ) {
         info!("shutdown");
 
+        self.cancel.cancel();
+
         if let Some(client) = self.client.as_mut() {
             // report remaining properties
             while let Ok(reported) = rx_reported_properties.try_recv() {
@@ -352,7 +357,7 @@ impl Twin {
             .values_mut()
             .filter_map(|f| {
                 if f.is_enabled() {
-                    f.command_request_stream().unwrap()
+                    f.command_request_stream(self.cancel.child_token()).unwrap()
                 } else {
                     None
                 }
