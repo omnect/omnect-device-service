@@ -20,12 +20,12 @@ use uboot::{
 
 #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
 mod mock_store {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::sync::Mutex;
 
-    pub static STORE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+    pub static STORE: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
 
-    pub fn store() -> std::sync::MutexGuard<'static, Option<HashMap<String, String>>> {
+    pub fn store() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
         STORE.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
@@ -38,11 +38,7 @@ pub fn get(key: &str) -> Result<String> {
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
         let guard = mock_store::store();
-        Ok(guard
-            .as_ref()
-            .and_then(|m| m.get(key))
-            .cloned()
-            .unwrap_or_default())
+        Ok(guard.get(key).cloned().unwrap_or_default())
     }
 }
 
@@ -53,11 +49,8 @@ pub fn set(key: &str, value: &str) -> Result<()> {
 
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
-        use std::collections::HashMap;
         let mut guard = mock_store::store();
-        guard
-            .get_or_insert_with(HashMap::new)
-            .insert(key.to_string(), value.to_string());
+        guard.insert(key.to_string(), value.to_string());
         Ok(())
     }
 }
@@ -70,9 +63,7 @@ pub fn unset(key: &str) -> Result<()> {
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
         let mut guard = mock_store::store();
-        if let Some(m) = guard.as_mut() {
-            m.remove(key);
-        }
+        guard.remove(key);
         Ok(())
     }
 }
@@ -81,5 +72,5 @@ pub fn unset(key: &str) -> Result<()> {
 /// bootloader_env, to prevent state leaking between tests.
 #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
 pub fn clear_mock() {
-    *mock_store::store() = None;
+    mock_store::store().clear();
 }
