@@ -187,7 +187,7 @@ impl ProvisioningConfig {
     pub fn new() -> Result<Self> {
         let path = env::var("IDENTITY_CONFIG_FILE_PATH")
             .unwrap_or(ProvisioningConfig::IDENTITY_CONFIG_FILE_PATH_DEFAULT.to_string());
-        let config: toml::map::Map<String, toml::Value> = std::fs::read_to_string(&path)
+        let config: toml::Table = std::fs::read_to_string(&path)
             .context(format!("provisioning_config: cannot read {path}"))?
             .parse::<toml::Table>()
             .context("provisioning_config: cannot parse table")?;
@@ -200,12 +200,13 @@ impl ProvisioningConfig {
         let prov_source = config["provisioning"]["source"].as_str();
         let prov_auth_method = config["provisioning"]
             .get("authentication")
-            .and_then(|val| val.as_str());
+            .and_then(|val: &toml::Value| val.as_str());
         let dps_attestation_method = config["provisioning"]
             .get("attestation")
-            .and_then(|val| val.get("method").and_then(|val| val.as_str()));
-        let dps_attestation_identity_cert_method =
-            config["provisioning"].get("attestation").and_then(|val| {
+            .and_then(|val: &toml::Value| val.get("method").and_then(|val| val.as_str()));
+        let dps_attestation_identity_cert_method = config["provisioning"]
+            .get("attestation")
+            .and_then(|val: &toml::Value| {
                 val.get("identity_cert")
                     .and_then(|val| val.get("method").and_then(|val| val.as_str()))
             });

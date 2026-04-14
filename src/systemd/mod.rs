@@ -13,7 +13,7 @@ pub fn sd_notify_ready() {
     static SD_NOTIFY_ONCE: Once = Once::new();
     SD_NOTIFY_ONCE.call_once(|| {
         info!("notify ready=1");
-        let _ = sd_notify::notify(false, &[NotifyState::Ready]);
+        let _ = sd_notify::notify(&[NotifyState::Ready]);
     });
 }
 
