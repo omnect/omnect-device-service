@@ -70,7 +70,10 @@ pub fn unset(key: &str) -> Result<()> {
 
 /// Clears the mock store. Call this at the start of each test that uses
 /// bootloader_env, to prevent state leaking between tests.
-#[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
+#[cfg(all(
+    not(any(feature = "bootloader_grub", feature = "bootloader_uboot")),
+    test
+))]
 pub fn clear_mock() {
     mock_store::store().clear();
 }
