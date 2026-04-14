@@ -884,11 +884,12 @@ mod tests {
     }
 
     fn make_guard(
+        succeeded: bool,
         bootloader_updated: bool,
         bootargs_omnect_backup: Option<PathBuf>,
     ) -> RunUpdateGuard {
         RunUpdateGuard {
-            succeeded: true, // prevent Drop from running async cleanup
+            succeeded,
             wdt: None,
             bootloader_updated,
             bootargs_omnect_backup,
@@ -924,7 +925,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
 
-        make_guard(false, Some(backup_path.clone())).rollback();
+        make_guard(true, false, Some(backup_path.clone())).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
@@ -956,7 +957,7 @@ mod tests {
 
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
 
-        make_guard(false, Some(backup_path)).rollback();
+        make_guard(true, false, Some(backup_path)).rollback();
 
         assert!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS)
@@ -974,7 +975,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
 
-        make_guard(false, None).rollback();
+        make_guard(true, false, None).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
@@ -997,7 +998,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra");
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
 
-        make_guard(true, None).rollback();
+        make_guard(true, true, None).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
@@ -1020,7 +1021,7 @@ mod tests {
         fs::write(&config_path, r#"{"local":true}"#).expect("write config");
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
-        make_guard(false, None).rollback();
+        make_guard(true, false, None).rollback();
 
         assert!(
             !config_path.exists(),
@@ -1046,12 +1047,7 @@ mod tests {
 
         // guard with succeeded=false — Drop must trigger rollback
         {
-            let _guard = RunUpdateGuard {
-                succeeded: false,
-                wdt: None,
-                bootloader_updated: false,
-                bootargs_omnect_backup: Some(backup_path.clone()),
-            };
+            let _guard = make_guard(false, false, Some(backup_path.clone()));
         } // _guard dropped here
 
         // rollback runs inside tokio::spawn + spawn_blocking; wait for completion
