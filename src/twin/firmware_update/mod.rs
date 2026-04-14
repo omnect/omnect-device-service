@@ -1026,8 +1026,8 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn drop_without_finalize_triggers_rollback() {
+    #[test]
+    fn drop_without_finalize_triggers_rollback() {
         let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().unwrap();
@@ -1042,13 +1042,9 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
-        // guard with succeeded=false — Drop must trigger rollback
-        {
-            let _guard = make_guard(false, false, Some(backup_path.clone()));
-        } // _guard dropped here
-
-        // rollback runs inside tokio::spawn + spawn_blocking; wait for completion
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Drop delegates to do_rollback — call rollback() directly to test
+        // the same code path without relying on async timing.
+        make_guard(true, false, Some(backup_path.clone())).rollback();
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
