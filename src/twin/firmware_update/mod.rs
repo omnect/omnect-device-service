@@ -901,9 +901,9 @@ mod tests {
         let omnect_path = tmp.path().join("bootargs_omnect");
         let custom_path = tmp.path().join("bootargs_custom");
         let backup_path = tmp.path().join("bootargs_omnect.backup");
-        fs::write(&omnect_path, omnect).expect("write omnect");
-        fs::write(&custom_path, custom).expect("write custom");
-        fs::write(&backup_path, omnect).expect("write backup");
+        fs::write(&omnect_path, omnect).unwrap();
+        fs::write(&custom_path, custom).unwrap();
+        fs::write(&backup_path, omnect).unwrap();
         crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", &omnect_path);
         crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", &custom_path);
         crate::common::set_env_var("BOOTARGS_OMNECT_BACKUP_FILE_PATH", &backup_path);
@@ -918,24 +918,24 @@ mod tests {
         let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
 
         // simulate kernelargs swupdate overwriting the omnect file
-        fs::write(&omnect_path, "corrupted").expect("overwrite omnect");
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
-        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
+        fs::write(&omnect_path, "corrupted").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
         make_guard(true, false, Some(backup_path.clone())).rollback();
 
         assert_eq!(
-            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "original_arg custom_arg"
         );
         assert!(
             bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
-                .expect("get validate")
+                .unwrap()
                 .is_empty(),
             "expected validate key to be unset"
         );
         assert_eq!(
-            fs::read_to_string(&omnect_path).expect("read omnect"),
+            fs::read_to_string(&omnect_path).unwrap(),
             "original_arg",
             "expected omnect file to be restored from backup"
         );
@@ -952,13 +952,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (_omnect_path, backup_path) = setup_rollback_files(&tmp, "", "");
 
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
 
         make_guard(true, false, Some(backup_path)).rollback();
 
         assert!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS)
-                .expect("get extra")
+                .unwrap()
                 .is_empty(),
             "expected omnect_extra_bootargs to be unset"
         );
@@ -969,19 +969,19 @@ mod tests {
         let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
 
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra");
-        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").unwrap();
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
         make_guard(true, false, None).rollback();
 
         assert_eq!(
-            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "unchanged",
             "expected omnect_extra_bootargs to remain unchanged"
         );
         assert!(
             bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
-                .expect("get validate")
+                .unwrap()
                 .is_empty(),
             "expected validate key to be unset"
         );
@@ -992,17 +992,17 @@ mod tests {
         let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
         crate::bootloader_env::clear_mock();
 
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra");
-        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").unwrap();
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
         make_guard(true, true, None).rollback();
 
         assert_eq!(
-            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "unchanged"
         );
         assert_eq!(
-            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).expect("get validate"),
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS).unwrap(),
             "staged",
             "expected validate key to remain when bootloader was updated"
         );
@@ -1015,7 +1015,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
 
         let config_path = tmp.path().join("update_validation_conf.json");
-        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        fs::write(&config_path, r#"{"local":true}"#).unwrap();
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
         make_guard(true, false, None).rollback();
@@ -1034,13 +1034,13 @@ mod tests {
         let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
 
         let config_path = tmp.path().join("update_validation_conf.json");
-        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        fs::write(&config_path, r#"{"local":true}"#).unwrap();
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
         // simulate kernelargs swupdate overwriting the omnect file
-        fs::write(&omnect_path, "corrupted").expect("overwrite omnect");
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").expect("set extra");
-        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").expect("set validate");
+        fs::write(&omnect_path, "corrupted").unwrap();
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
         // guard with succeeded=false — Drop must trigger rollback
         {
@@ -1051,17 +1051,17 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         assert_eq!(
-            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
             "original_arg custom_arg"
         );
         assert!(
             bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
-                .expect("get validate")
+                .unwrap()
                 .is_empty(),
             "expected validate key to be unset"
         );
         assert_eq!(
-            fs::read_to_string(&omnect_path).expect("read omnect"),
+            fs::read_to_string(&omnect_path).unwrap(),
             "original_arg",
             "expected omnect file to be restored from backup"
         );

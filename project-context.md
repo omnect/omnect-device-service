@@ -77,3 +77,4 @@
 
 ## 6. Global Rule Overrides
 - **`anyhow` for error handling:** This repo uses `anyhow::Result` throughout (not custom error types). The service is a long-running daemon where error context chains matter more than typed matching at call sites. This overrides the user preference for explicit error types.
+- **`unwrap()` in tests:** Use `unwrap()` in test code. Do not use `expect("reason")` in tests.
