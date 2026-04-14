@@ -111,10 +111,17 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    // rollback only logs errors during its processing and doesn't return on them
+    #[cfg(test)]
     fn rollback(&mut self) {
+        Self::do_rollback(self.bootloader_updated, self.bootargs_omnect_backup.take());
+    }
+
+    /// Rollback only logs errors during its processing and doesn't return on
+    /// them.  Extracted as a free-standing associated function so `Drop` can
+    /// move the fields into `spawn_blocking` without borrowing `self`.
+    fn do_rollback(bootloader_updated: bool, bootargs_omnect_backup: Option<PathBuf>) {
         // cannot rollback a stable,bootloader image once flashed
-        if self.bootloader_updated {
+        if bootloader_updated {
             warn!("bootloader was updated: rollback not possible");
             return;
         }
@@ -123,7 +130,7 @@ impl RunUpdateGuard {
             error!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}: {e:#}");
         }
 
-        if let Some(backup) = self.bootargs_omnect_backup.take() {
+        if let Some(backup) = bootargs_omnect_backup {
             let omnect_file = bootargs_omnect_file_path!();
             match fs::copy(&backup, &omnect_file) {
                 Err(e) => {
@@ -156,14 +163,20 @@ impl Drop for RunUpdateGuard {
     fn drop(&mut self) {
         if !(self.succeeded) {
             let wdt = self.wdt.take();
+            let bootloader_updated = self.bootloader_updated;
+            let bootargs_backup = self.bootargs_omnect_backup.take();
 
             debug!(
                 "run update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}"
             );
 
-            self.rollback();
-
             tokio::spawn(async move {
+                tokio::task::spawn_blocking(move || {
+                    Self::do_rollback(bootloader_updated, bootargs_backup);
+                })
+                .await
+                .unwrap_or_else(|e| error!("rollback task panicked: {e:#}"));
+
                 if let Some(wdt) = wdt
                     && let Err(e) = WatchdogManager::interval(wdt).await
                 {
@@ -1043,6 +1056,9 @@ mod tests {
                 bootargs_omnect_backup: Some(backup_path.clone()),
             };
         } // _guard dropped here
+
+        // rollback runs inside tokio::spawn + spawn_blocking; wait for completion
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra"),
