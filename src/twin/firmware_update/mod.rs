@@ -483,6 +483,7 @@ impl FirmwareUpdate {
         }
 
         // explicitly finalize even if reboot fails
+        // we don't want to rollback if the reboot call fails, but a system reboot is actually triggered
         guard.finalize();
 
         systemd::reboot("swupdate", "local update").await?;
