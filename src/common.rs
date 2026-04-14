@@ -43,6 +43,10 @@ impl RootPartition {
         "stable,bootloader"
     }
 
+    pub fn kernelargs_update_params(&self) -> &str {
+        "stable,kernelargs"
+    }
+
     pub fn other(&self) -> Self {
         match self {
             Self::A => Self::B,
