@@ -298,11 +298,8 @@ impl UpdateValidation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    // Serializes finalize_bootargs tests to prevent races on the global
-    // bootloader_env mock store when cargo runs tests in parallel.
-    static BOOTARGS_TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::bootloader_env::TEST_LOCK as BOOTARGS_TEST_LOCK;
 
     #[test]
     fn finalize_bootargs_noargs_sentinel_unsets_both_keys() {

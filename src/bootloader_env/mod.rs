@@ -77,3 +77,10 @@ pub fn unset(key: &str) -> Result<()> {
 pub(crate) fn clear_mock() {
     mock_store::store().clear();
 }
+
+/// Shared lock for all tests that mutate the global mock store or
+/// process-wide env vars used by bootloader_env.  Both
+/// `firmware_update::tests` and `update_validation::tests` must acquire
+/// this to prevent concurrent mutation.
+#[cfg(test)]
+pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

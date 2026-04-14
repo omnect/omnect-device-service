@@ -566,12 +566,9 @@ impl FirmwareUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile;
 
-    // Serializes all bootargs tests because both set_env_var (for file paths)
-    // and the bootloader_env mock store are global state.
-    static BOOTARGS_TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::bootloader_env::TEST_LOCK as BOOTARGS_TEST_LOCK;
 
     // helper
     fn setup_bootargs_files(tmp: &tempfile::TempDir, omnect: &str, custom: &str) {
