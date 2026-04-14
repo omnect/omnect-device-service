@@ -4,10 +4,11 @@ use crate::twin::{
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::DirectMethod;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, stream};
 use log::{debug, error, info, warn};
 use std::{any::TypeId, future::Future, path::PathBuf, pin::Pin, time::Duration};
-use tokio::{sync::oneshot, time::Interval};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::Interval;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -263,6 +264,45 @@ where
     });
 
     tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
+}
+
+pub fn direct_method_stream(rx: mpsc::Receiver<DirectMethod>) -> CommandRequestStream {
+    tokio_stream::wrappers::ReceiverStream::new(rx)
+        .filter_map(|dm| async move {
+            match Command::from_direct_method(&dm) {
+                Ok(command) => Some(CommandRequest {
+                    command,
+                    reply: Some(dm.responder),
+                }),
+                Err(e) => {
+                    error!(
+                        "parsing direct method: {} with payload: {} failed with error: {e:#}",
+                        dm.name, dm.payload
+                    );
+                    if dm.responder.send(Err(e)).is_err() {
+                        error!("direct method response receiver dropped")
+                    }
+                    None
+                }
+            }
+        })
+        .boxed()
+}
+
+pub fn desired_properties_stream(rx: mpsc::Receiver<TwinUpdate>) -> CommandRequestStream {
+    tokio_stream::wrappers::ReceiverStream::new(rx)
+        .filter_map(|twin| async move {
+            let c: Vec<CommandRequest> = Command::from_desired_property(twin)
+                .iter()
+                .map(|cmd| CommandRequest {
+                    command: cmd.clone(),
+                    reply: None,
+                })
+                .collect();
+            (!c.is_empty()).then_some(c)
+        })
+        .flat_map(stream::iter)
+        .boxed()
 }
 
 #[cfg(test)]

@@ -26,7 +26,6 @@ use crate::{systemd, twin::feature::*, web_service};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::*;
 use dotenvy;
-use futures::stream;
 use futures_util::StreamExt;
 use log::{debug, error, info, warn};
 use serde_json::json;
@@ -406,8 +405,8 @@ impl Twin {
         systemd::sd_notify_ready();
 
         let mut command_requests = twin.feature_command_request_streams();
-        command_requests.push(Self::direct_method_stream(rx_direct_method));
-        command_requests.push(Self::desired_properties_stream(rx_twin_desired));
+        command_requests.push(direct_method_stream(rx_direct_method));
+        command_requests.push(desired_properties_stream(rx_twin_desired));
         command_requests.push(ReceiverStream::new(rx_command_request).boxed());
 
         tokio::pin! {
@@ -490,44 +489,5 @@ impl Twin {
         builder.build_module_client(
             &env::var("CONNECTION_STRING").context("connection string missing")?,
         )
-    }
-
-    fn direct_method_stream(rx: mpsc::Receiver<DirectMethod>) -> CommandRequestStream {
-        ReceiverStream::new(rx)
-            .filter_map(|dm| async move {
-                match Command::from_direct_method(&dm) {
-                    Ok(command) => Some(CommandRequest {
-                        command,
-                        reply: Some(dm.responder),
-                    }),
-                    Err(e) => {
-                        error!(
-                            "parsing direct method: {} with payload: {} failed with error: {e:#}",
-                            dm.name, dm.payload
-                        );
-                        if dm.responder.send(Err(e)).is_err() {
-                            error!("direct method response receiver dropped")
-                        }
-                        None
-                    }
-                }
-            })
-            .boxed()
-    }
-
-    fn desired_properties_stream(rx: mpsc::Receiver<TwinUpdate>) -> CommandRequestStream {
-        ReceiverStream::new(rx)
-            .filter_map(|twin| async move {
-                let c: Vec<CommandRequest> = Command::from_desired_property(twin)
-                    .iter()
-                    .map(|cmd| CommandRequest {
-                        command: cmd.clone(),
-                        reply: None,
-                    })
-                    .collect();
-                (!c.is_empty()).then_some(c)
-            })
-            .flat_map(stream::iter)
-            .boxed()
     }
 }
