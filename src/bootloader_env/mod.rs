@@ -74,6 +74,6 @@ pub fn unset(key: &str) -> Result<()> {
     not(any(feature = "bootloader_grub", feature = "bootloader_uboot")),
     test
 ))]
-pub fn clear_mock() {
+pub(crate) fn clear_mock() {
     mock_store::store().clear();
 }
