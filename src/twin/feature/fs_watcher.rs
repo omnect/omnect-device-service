@@ -115,7 +115,9 @@ impl FsWatcher {
         tokio::spawn(async move {
             // Race-condition handling for FileCreated watches: if file already
             // exists, send the event immediately with guaranteed delivery (.await).
-            // Only clean up oneshot entries after successful send.
+            // Collect dispatched paths to remove their entries in a single pass
+            // (avoids a second try_exists check that could race with deletion).
+            let mut dispatched: Vec<PathBuf> = Vec::new();
             for (_, infos) in self.watch_info.values() {
                 for info in infos {
                     if info.kind == FsEventKind::FileCreated
@@ -138,20 +140,15 @@ impl FsWatcher {
                         {
                             error!("into_stream: failed to send FileCreated event: {e}");
                         }
+                        dispatched.push(info.path.clone());
                     }
                 }
             }
 
-            // Remove satisfied oneshot entries from their vecs
+            // Remove dispatched oneshot entries and clean up empty kernel watches
             for (_, infos) in self.watch_info.values_mut() {
-                infos.retain(|info| {
-                    !(info.oneshot
-                        && info.kind == FsEventKind::FileCreated
-                        && matches!(info.path.try_exists(), Ok(true)))
-                });
+                infos.retain(|info| !(info.oneshot && dispatched.contains(&info.path)));
             }
-
-            // Remove wd_ids with empty vecs and clean up their kernel watches
             let empty_wds: Vec<c_int> = self
                 .watch_info
                 .iter()
@@ -165,7 +162,8 @@ impl FsWatcher {
                     let _ = watches.remove(wd);
                 }
             }
-            let mut buffer = [0; 1024];
+            const INOTIFY_EVENT_BUF_LEN: usize = 4096;
+            let mut buffer = [0; INOTIFY_EVENT_BUF_LEN];
             let mut stream = match inotify.into_event_stream(&mut buffer) {
                 Ok(stream) => stream,
                 Err(e) => {
@@ -174,6 +172,9 @@ impl FsWatcher {
                 }
             };
 
+            // Debounce is keyed by wd_id, not by individual WatchInfo entry.
+            // Multiple non-oneshot watches sharing the same inotify descriptor
+            // (e.g. two features watching the same path) share a single deadline.
             let mut debounce_deadlines: HashMap<c_int, tokio::time::Instant> = HashMap::new();
 
             loop {

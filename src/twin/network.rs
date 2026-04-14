@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::sync::mpsc::Sender;
+use tokio_util::sync::CancellationToken;
 
 lazy_static! {
     static ref REFRESH_NETWORK_STATUS_INTERVAL_SECS: u64 = {

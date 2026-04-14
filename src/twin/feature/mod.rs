@@ -1,12 +1,11 @@
 mod command;
 mod fs_watcher;
-pub use command::*;
-pub use fs_watcher::*;
-pub use tokio_util::sync::CancellationToken;
-
 use anyhow::Result;
 use azure_iot_sdk::client::IotMessage;
+pub use command::*;
+pub use fs_watcher::*;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 #[dynosaur::dynosaur(pub DynFeature = dyn(box) Feature, bridge(none))]
 pub(crate) trait Feature {

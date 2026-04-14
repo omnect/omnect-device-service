@@ -40,6 +40,7 @@ use std::{
 };
 use tokio::{select, sync::mpsc};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
+use tokio_util::sync::CancellationToken;
 
 #[derive(PartialEq)]
 enum TwinState {

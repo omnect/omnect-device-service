@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::{sync::mpsc::Sender, time::interval};
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "modem_info")]
 mod inner {

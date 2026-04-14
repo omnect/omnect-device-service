@@ -8,6 +8,7 @@ use serde_json::json;
 use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
 use tokio::{sync::mpsc::Sender, time::interval};
+use tokio_util::sync::CancellationToken;
 
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {

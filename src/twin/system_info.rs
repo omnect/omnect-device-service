@@ -17,6 +17,7 @@ use tokio::{
     sync::mpsc,
     time::{Duration, interval},
 };
+use tokio_util::sync::CancellationToken;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 
