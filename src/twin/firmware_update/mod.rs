@@ -111,11 +111,6 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    #[cfg(test)]
-    fn rollback(&mut self) {
-        Self::do_rollback(self.bootloader_updated, self.bootargs_omnect_backup.take());
-    }
-
     /// Rollback only logs errors during its processing and doesn't return on
     /// them.  Extracted as a free-standing associated function so `Drop` can
     /// move the fields into `spawn_blocking` without borrowing `self`.
@@ -893,6 +888,13 @@ mod tests {
         }
     }
 
+    fn rollback(guard: &mut RunUpdateGuard) {
+        RunUpdateGuard::do_rollback(
+            guard.bootloader_updated,
+            guard.bootargs_omnect_backup.take(),
+        );
+    }
+
     fn setup_rollback_files(
         tmp: &tempfile::TempDir,
         omnect: &str,
@@ -922,7 +924,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
-        make_guard(true, false, Some(backup_path.clone())).rollback();
+        rollback(&mut make_guard(true, false, Some(backup_path.clone())));
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
@@ -954,7 +956,7 @@ mod tests {
 
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "old_value").unwrap();
 
-        make_guard(true, false, Some(backup_path)).rollback();
+        rollback(&mut make_guard(true, false, Some(backup_path)));
 
         assert!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS)
@@ -972,7 +974,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").unwrap();
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
-        make_guard(true, false, None).rollback();
+        rollback(&mut make_guard(true, false, None));
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
@@ -995,7 +997,7 @@ mod tests {
         bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").unwrap();
         bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged").unwrap();
 
-        make_guard(true, true, None).rollback();
+        rollback(&mut make_guard(true, true, None));
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
@@ -1018,7 +1020,7 @@ mod tests {
         fs::write(&config_path, r#"{"local":true}"#).unwrap();
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
-        make_guard(true, false, None).rollback();
+        rollback(&mut make_guard(true, false, None));
 
         assert!(
             !config_path.exists(),
@@ -1044,7 +1046,7 @@ mod tests {
 
         // Drop delegates to do_rollback — call rollback() directly to test
         // the same code path without relying on async timing.
-        make_guard(true, false, Some(backup_path.clone())).rollback();
+        rollback(&mut make_guard(true, false, Some(backup_path.clone())));
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
