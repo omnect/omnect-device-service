@@ -62,8 +62,9 @@ impl Drop for LoadUpdateGuard {
 }
 
 fn merge_bootargs(omnect: &str, custom: &str) -> String {
-    format!("{omnect} {custom}")
+    omnect
         .split_whitespace()
+        .chain(custom.split_whitespace())
         .collect::<Vec<_>>()
         .join(" ")
 }
