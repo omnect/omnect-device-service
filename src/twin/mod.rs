@@ -27,7 +27,7 @@ use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::*;
 use dotenvy;
 use futures_util::StreamExt;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -271,7 +271,7 @@ impl Twin {
             // for disabled features instead of erroring. Direct methods and web
             // service requests carry a reply channel and should still fail loudly.
             if reply.is_none() {
-                debug!(
+                info!(
                     "handle_request: dropping command for disabled feature {}",
                     feature.name()
                 );

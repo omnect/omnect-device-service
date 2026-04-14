@@ -13,6 +13,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
+const FAR_FUTURE: Duration = Duration::from_secs(3600);
+const INOTIFY_EVENT_BUF_LEN: usize = 4096;
+const MAX_CONSECUTIVE_INOTIFY_ERRORS: u32 = 10;
 
 struct WatchInfo {
     feature_id: TypeId,
@@ -38,6 +41,7 @@ impl FsWatcher {
         })
     }
 
+    #[cfg(any(test, feature = "mock"))]
     pub fn noop() -> Self {
         Self {
             inotify: None,
@@ -71,10 +75,16 @@ impl FsWatcher {
                 // are treated as created. Oneshot is enforced in user-space by
                 // the event loop (kernel ONESHOT would be consumed by any event
                 // in the parent dir before our target filename is seen).
-                (parent, WatchMask::CREATE | WatchMask::MOVED_TO)
+                (
+                    parent,
+                    WatchMask::CREATE | WatchMask::MOVED_TO | WatchMask::MASK_ADD,
+                )
             }
-            FsEventKind::FileModified => (path, WatchMask::CLOSE_WRITE),
-            FsEventKind::DirModified => (path, WatchMask::CREATE | WatchMask::DELETE),
+            FsEventKind::FileModified => (path, WatchMask::CLOSE_WRITE | WatchMask::MASK_ADD),
+            FsEventKind::DirModified => (
+                path,
+                WatchMask::CREATE | WatchMask::DELETE | WatchMask::MASK_ADD,
+            ),
         };
 
         let wd = watches
@@ -120,28 +130,35 @@ impl FsWatcher {
             let mut dispatched: Vec<PathBuf> = Vec::new();
             for (_, infos) in self.watch_info.values() {
                 for info in infos {
-                    if info.kind == FsEventKind::FileCreated
-                        && matches!(info.path.try_exists(), Ok(true))
-                    {
-                        debug!(
-                            "into_stream: file already exists {:?}, sending immediately",
-                            info.path
-                        );
-                        if let Err(e) = tx
-                            .send(CommandRequest {
-                                command: Command::FsEvent(FsEventCommand {
-                                    kind: FsEventKind::FileCreated,
-                                    feature_id: info.feature_id,
-                                    path: info.path.clone(),
-                                }),
-                                reply: None,
-                            })
-                            .await
-                        {
-                            error!("into_stream: failed to send FileCreated event: {e}");
-                        }
-                        dispatched.push(info.path.clone());
+                    if info.kind != FsEventKind::FileCreated {
+                        continue;
                     }
+                    match info.path.try_exists() {
+                        Ok(false) => continue,
+                        Err(e) => {
+                            warn!("into_stream: cannot check {:?}: {e}", info.path);
+                            continue;
+                        }
+                        Ok(true) => {}
+                    }
+                    debug!(
+                        "into_stream: file already exists {:?}, sending immediately",
+                        info.path
+                    );
+                    if let Err(e) = tx
+                        .send(CommandRequest {
+                            command: Command::FsEvent(FsEventCommand {
+                                kind: FsEventKind::FileCreated,
+                                feature_id: info.feature_id,
+                                path: info.path.clone(),
+                            }),
+                            reply: None,
+                        })
+                        .await
+                    {
+                        error!("into_stream: failed to send FileCreated event: {e}");
+                    }
+                    dispatched.push(info.path.clone());
                 }
             }
 
@@ -158,11 +175,11 @@ impl FsWatcher {
             for wd_id in empty_wds {
                 if let Some((wd, _)) = self.watch_info.remove(&wd_id)
                     && let Some(watches) = &mut self.watches
+                    && let Err(e) = watches.remove(wd)
                 {
-                    let _ = watches.remove(wd);
+                    debug!("into_stream: failed to remove kernel watch: {e}");
                 }
             }
-            const INOTIFY_EVENT_BUF_LEN: usize = 4096;
             let mut buffer = [0; INOTIFY_EVENT_BUF_LEN];
             let mut stream = match inotify.into_event_stream(&mut buffer) {
                 Ok(stream) => stream,
@@ -176,13 +193,14 @@ impl FsWatcher {
             // Multiple non-oneshot watches sharing the same inotify descriptor
             // (e.g. two features watching the same path) share a single deadline.
             let mut debounce_deadlines: HashMap<c_int, tokio::time::Instant> = HashMap::new();
+            let mut consecutive_inotify_errors: u32 = 0;
 
             loop {
                 let next_deadline = debounce_deadlines
                     .values()
                     .min()
                     .copied()
-                    .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(3600));
+                    .unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
 
                 tokio::select! {
                     biased;
@@ -191,13 +209,23 @@ impl FsWatcher {
 
                     event = stream.next() => {
                         let Some(event) = event else {
-                            warn!("FsWatcher: inotify stream ended");
+                            error!("FsWatcher: inotify stream ended, all file watches are now inactive");
                             return;
                         };
                         let event = match event {
-                            Ok(e) => e,
+                            Ok(e) => {
+                                consecutive_inotify_errors = 0;
+                                e
+                            }
                             Err(e) => {
-                                error!("FsWatcher: inotify error: {e:#}");
+                                consecutive_inotify_errors += 1;
+                                error!(
+                                    "FsWatcher: inotify error ({consecutive_inotify_errors}/{MAX_CONSECUTIVE_INOTIFY_ERRORS}): {e:#}"
+                                );
+                                if consecutive_inotify_errors >= MAX_CONSECUTIVE_INOTIFY_ERRORS {
+                                    error!("FsWatcher: too many consecutive errors, stopping");
+                                    return;
+                                }
                                 continue;
                             }
                         };
@@ -232,23 +260,29 @@ impl FsWatcher {
                         debug!("FsWatcher: event for {path:?} ({kind:?})");
 
                         if oneshot {
-                            let _ = tx.send(CommandRequest {
+                            if tx.send(CommandRequest {
                                 command: Command::FsEvent(FsEventCommand {
                                     kind,
                                     feature_id,
                                     path,
                                 }),
                                 reply: None,
-                            }).await;
+                            }).await.is_err() {
+                                debug!("FsWatcher: receiver dropped, stopping");
+                                return;
+                            }
 
-                            let (_, infos) = self.watch_info.get_mut(&wd_id)
-                                .expect("wd_id was just looked up");
+                            let Some((_, infos)) = self.watch_info.get_mut(&wd_id) else {
+                                error!("FsWatcher: wd {wd_id} disappeared unexpectedly");
+                                continue;
+                            };
                             infos.remove(idx);
                             if infos.is_empty()
                                 && let Some((wd, _)) = self.watch_info.remove(&wd_id)
                                 && let Some(watches) = &mut self.watches
+                                && let Err(e) = watches.remove(wd)
                             {
-                                let _ = watches.remove(wd);
+                                debug!("FsWatcher: failed to remove kernel watch: {e}");
                             }
                         } else {
                             debounce_deadlines.insert(
@@ -271,14 +305,17 @@ impl FsWatcher {
                             if let Some((_, infos)) = self.watch_info.get(&wd_id) {
                                 for info in infos {
                                     debug!("FsWatcher: debounce elapsed for {:?}", info.path);
-                                    let _ = tx.send(CommandRequest {
+                                    if tx.send(CommandRequest {
                                         command: Command::FsEvent(FsEventCommand {
                                             kind: info.kind.clone(),
                                             feature_id: info.feature_id,
                                             path: info.path.clone(),
                                         }),
                                         reply: None,
-                                    }).await;
+                                    }).await.is_err() {
+                                        debug!("FsWatcher: receiver dropped, stopping");
+                                        return;
+                                    }
                                 }
                             }
                         }

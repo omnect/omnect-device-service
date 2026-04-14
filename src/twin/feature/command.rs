@@ -507,19 +507,6 @@ mod tests {
         let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
-                name: "get_ssh_pub_key".to_string(),
-                payload: json!({"tunnel_id": "3015d09d-b5e5-4c47-91d1-72460fd67b5d"}),
-                responder,
-            })
-            .unwrap(),
-            Command::GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand {
-                tunnel_id: "3015d09d-b5e5-4c47-91d1-72460fd67b5d".to_string(),
-            })
-        );
-
-        let (responder, _rx) = oneshot::channel::<CommandResult>();
-        assert_eq!(
-            Command::from_direct_method(&DirectMethod {
                 name: "reboot".to_string(),
                 payload: json!({}),
                 responder,
