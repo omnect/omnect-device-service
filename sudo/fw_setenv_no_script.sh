@@ -21,8 +21,8 @@ KEY="$1"
 VALUE="$2"
 
 # Block -s / --script anywhere in the value (as a word)
-for word in $VALUE; do
-    if [[ "$word" == "-s" || "$word" == "--script" || "$word" == --script=* ]]; then
+for word in $KEY $VALUE; do
+    if [[ "$word" == "-s" || "$word" == "--script" || "$word" == -s=* || "$word" == --script=* ]]; then
         die "Script-file mode is not allowed (flag: $word)"
     fi
 done
