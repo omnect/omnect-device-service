@@ -111,7 +111,7 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    // rollback only logs error's during it's processing and doesn't return on them
+    // rollback only logs errors during its processing and doesn't return on them
     fn rollback(&mut self) {
         // cannot rollback a stable,bootloader image once flashed
         if self.bootloader_updated {
