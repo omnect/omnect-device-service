@@ -446,13 +446,8 @@ impl FirmwareUpdate {
 
         let omnect_file = bootargs_omnect_file_path!();
         let backup_file = PathBuf::from(bootargs_omnect_backup_file_path!());
-        if Path::new(&omnect_file).exists() {
-            fs::copy(&omnect_file, &backup_file)
-                .context("failed to back up omnect bootargs file")?;
-            guard.bootargs_omnect_backup = Some(backup_file);
-        } else {
-            error!("omnect bootargs file not found: {omnect_file}, skipping backup");
-        }
+        fs::copy(&omnect_file, &backup_file).context("failed to back up omnect bootargs file")?;
+        guard.bootargs_omnect_backup = Some(backup_file);
 
         #[cfg(not(feature = "mock"))]
         Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).context(
