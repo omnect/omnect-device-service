@@ -499,14 +499,15 @@ impl FirmwareUpdate {
         let new_bootargs = merge_bootargs(&omnect_bootargs, &custom_bootargs);
 
         if current_bootargs != new_bootargs {
-            if bootloader_updated && new_bootargs.is_empty() {
-                bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)?;
-            } else if bootloader_updated {
-                bootloader_env::set(OMNECT_EXTRA_BOOTARGS, &new_bootargs)?;
-            } else if new_bootargs.is_empty() {
-                bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, NOARGS_SENTINEL)?;
-            } else {
-                bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, &new_bootargs)?;
+            match (bootloader_updated, new_bootargs.is_empty()) {
+                (true, true) => bootloader_env::unset(OMNECT_EXTRA_BOOTARGS)?,
+                (true, false) => bootloader_env::set(OMNECT_EXTRA_BOOTARGS, &new_bootargs)?,
+                (false, true) => {
+                    bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, NOARGS_SENTINEL)?
+                }
+                (false, false) => {
+                    bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, &new_bootargs)?
+                }
             }
         }
         Ok(())
