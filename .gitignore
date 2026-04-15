@@ -5,7 +5,9 @@ temp.data
 *.bb
 /temp
 *~
+*.bak
 CLAUDE.md
 GEMINI.md
 setup-ai.sh
 .github/copilot-instructions.md
+.user-context.md

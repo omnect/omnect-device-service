@@ -8,6 +8,17 @@ pub struct UpdateValidationConfig {
 pub static IOT_HUB_DEVICE_UPDATE_SERVICE: &str = "deviceupdate-agent.service";
 pub static IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER: &str = "deviceupdate-agent.timer";
 
+pub static OMNECT_EXTRA_BOOTARGS: &str = "omnect_extra_bootargs";
+pub static OMNECT_VALIDATE_EXTRA_BOOTARGS: &str = "omnect_validate_extra_bootargs";
+pub static OMNECT_VALIDATE_UPDATE: &str = "omnect_validate_update";
+pub static OMNECT_VALIDATE_UPDATE_PART: &str = "omnect_validate_update_part";
+pub static OMNECT_BOOTLOADER_UPDATED: &str = "omnect_bootloader_updated";
+pub static OMNECT_OS_BOOTPART: &str = "omnect_os_bootpart";
+
+/// Sentinel value written to `omnect_validate_extra_bootargs` to signal
+/// that the extra bootargs should be *removed* during update validation.
+pub static NOARGS_SENTINEL: &str = "#noargs";
+
 macro_rules! update_validation_config_path {
     () => {
         env::var("UPDATE_VALIDATION_CONFIG_PATH")
@@ -53,6 +64,30 @@ macro_rules! bootloader_updated_file_path {
     };
 }
 
+macro_rules! bootargs_omnect_file_path {
+    () => {
+        env::var("BOOTARGS_OMNECT_FILE_PATH")
+            .unwrap_or("/boot/omnect_extra_bootargs_omnect".to_string())
+    };
+}
+
+macro_rules! bootargs_custom_file_path {
+    () => {
+        env::var("BOOTARGS_CUSTOM_FILE_PATH")
+            .unwrap_or("/boot/omnect_extra_bootargs_custom".to_string())
+    };
+}
+
+macro_rules! bootargs_omnect_backup_file_path {
+    () => {
+        env::var("BOOTARGS_OMNECT_BACKUP_FILE_PATH")
+            .unwrap_or("/tmp/omnect_extra_bootargs_omnect.backup".to_string())
+    };
+}
+
+pub(crate) use bootargs_custom_file_path;
+pub(crate) use bootargs_omnect_backup_file_path;
+pub(crate) use bootargs_omnect_file_path;
 pub(crate) use bootloader_updated_file_path;
 pub(crate) use du_config_path;
 pub(crate) use log_file_path;
