@@ -7,6 +7,8 @@ use azure_iot_sdk::client::DirectMethod;
 use futures::{Stream, StreamExt, stream};
 use log::{debug, error, info, warn};
 use std::{any::TypeId, future::Future, path::PathBuf, pin::Pin, time::Duration};
+
+pub(crate) const FAR_FUTURE: Duration = Duration::from_secs(3600);
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
 use tokio_util::sync::CancellationToken;
@@ -155,7 +157,7 @@ pub type CommandResult = Result<Option<serde_json::Value>>;
 pub type CommandRequestStream = Pin<Box<dyn Stream<Item = CommandRequest> + Send>>;
 pub type CommandRequestStreamResult = Result<Option<CommandRequestStream>>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FsEventKind {
     DirModified,
     FileCreated,
@@ -224,9 +226,6 @@ where
         let mut deadline: Option<tokio::time::Instant> = None;
 
         loop {
-            // Far-future placeholder when no debounce is pending, so the
-            // sleep branch doesn't fire spuriously.
-            const FAR_FUTURE: Duration = Duration::from_secs(3600);
             let sleep_until = deadline.unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
 
             tokio::select! {
@@ -240,7 +239,7 @@ where
                         deadline = Some(tokio::time::Instant::now() + silence);
                     }
                     None => {
-                        warn!("debounced_command_stream: source stream ended");
+                        error!("debounced_command_stream: source stream ended, feature will no longer receive events");
                         return;
                     }
                 },
@@ -293,9 +292,9 @@ pub fn desired_properties_stream(rx: mpsc::Receiver<TwinUpdate>) -> CommandReque
     tokio_stream::wrappers::ReceiverStream::new(rx)
         .filter_map(|twin| async move {
             let c: Vec<CommandRequest> = Command::from_desired_property(twin)
-                .iter()
-                .map(|cmd| CommandRequest {
-                    command: cmd.clone(),
+                .into_iter()
+                .map(|command| CommandRequest {
+                    command,
                     reply: None,
                 })
                 .collect();
@@ -662,6 +661,159 @@ mod tests {
             vec![Command::FleetId(system_info::FleetIdCommand {
                 fleet_id: "".to_string()
             })]
+        );
+    }
+
+    #[test]
+    fn from_desired_property_ssh_tunnel_ca_pub_test() {
+        // Valid ssh_tunnel_ca_pub
+        let cmds = Command::from_desired_property(TwinUpdate {
+            state: TwinUpdateState::Partial,
+            value: json!({"ssh_tunnel_ca_pub": "ssh-ed25519 AAAA..."}),
+        });
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(cmds[0], Command::DesiredUpdateDeviceSshCa(_)));
+
+        // Malformed ssh_tunnel_ca_pub — error is logged, no command produced
+        let cmds = Command::from_desired_property(TwinUpdate {
+            state: TwinUpdateState::Partial,
+            value: json!({"ssh_tunnel_ca_pub": 42}),
+        });
+        assert!(cmds.is_empty());
+    }
+
+    #[tokio::test]
+    async fn direct_method_stream_error_reply_test() {
+        let (tx, rx) = mpsc::channel(16);
+        let mut stream = direct_method_stream(rx);
+
+        let (responder, reply_rx) = oneshot::channel::<CommandResult>();
+        tx.send(DirectMethod {
+            name: "nonexistent_method".to_string(),
+            payload: json!({}),
+            responder,
+        })
+        .await
+        .expect("send direct method");
+
+        // The stream should filter out the failed parse (return None)
+        // and forward the error through the responder
+        drop(tx);
+        use futures::StreamExt;
+        let next = stream.next().await;
+        assert!(next.is_none(), "failed parse should be filtered out");
+
+        // The error must have been forwarded to the responder
+        let reply = reply_rx
+            .await
+            .expect("responder should have received error");
+        assert!(reply.is_err());
+    }
+
+    #[tokio::test]
+    async fn debounced_command_stream_basic_test() {
+        let cancel = CancellationToken::new();
+        let (source_tx, source_rx) = mpsc::channel::<()>(16);
+        const SILENCE: Duration = Duration::from_millis(200);
+
+        let mut stream = debounced_command_stream::<_, _, _, network::Network>(
+            async { Ok(tokio_stream::wrappers::ReceiverStream::new(source_rx)) },
+            SILENCE,
+            cancel.clone(),
+        );
+
+        // Send one event
+        source_tx.send(()).await.expect("send");
+        // Wait for silence + margin
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        use futures::StreamExt;
+        let req = tokio::time::timeout(Duration::from_millis(200), stream.next())
+            .await
+            .expect("timeout waiting for debounced event")
+            .expect("stream ended");
+        assert!(matches!(req.command, Command::Interval(_)));
+
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn debounced_command_stream_coalesces_events_test() {
+        let cancel = CancellationToken::new();
+        let (source_tx, source_rx) = mpsc::channel::<()>(16);
+        const SILENCE: Duration = Duration::from_millis(200);
+
+        let mut stream = debounced_command_stream::<_, _, _, network::Network>(
+            async { Ok(tokio_stream::wrappers::ReceiverStream::new(source_rx)) },
+            SILENCE,
+            cancel.clone(),
+        );
+
+        // Send 3 events in rapid succession
+        for _ in 0..3 {
+            source_tx.send(()).await.expect("send");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        // Wait for debounce
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        use futures::StreamExt;
+        let req = tokio::time::timeout(Duration::from_millis(200), stream.next())
+            .await
+            .expect("timeout")
+            .expect("stream ended");
+        assert!(matches!(req.command, Command::Interval(_)));
+
+        // No second event should arrive
+        let second = tokio::time::timeout(Duration::from_millis(400), stream.next()).await;
+        assert!(second.is_err(), "debounce should coalesce into one event");
+
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn debounced_command_stream_cancellation_test() {
+        let cancel = CancellationToken::new();
+        let (_source_tx, source_rx) = mpsc::channel::<()>(16);
+        const SILENCE: Duration = Duration::from_millis(200);
+
+        let mut stream = debounced_command_stream::<_, _, _, network::Network>(
+            async { Ok(tokio_stream::wrappers::ReceiverStream::new(source_rx)) },
+            SILENCE,
+            cancel.clone(),
+        );
+
+        // Cancel immediately
+        cancel.cancel();
+
+        use futures::StreamExt;
+        // Stream should end (return None)
+        let result = tokio::time::timeout(Duration::from_millis(500), stream.next()).await;
+        assert!(
+            matches!(result, Ok(None)),
+            "stream should end after cancellation"
+        );
+    }
+
+    #[tokio::test]
+    async fn debounced_command_stream_source_init_failure_test() {
+        let cancel = CancellationToken::new();
+        const SILENCE: Duration = Duration::from_millis(200);
+
+        let mut stream =
+            debounced_command_stream::<_, futures::stream::Empty<()>, (), network::Network>(
+                async { anyhow::bail!("D-Bus connection failed") },
+                SILENCE,
+                cancel,
+            );
+
+        use futures::StreamExt;
+        // Stream should end immediately since the source future failed
+        let result = tokio::time::timeout(Duration::from_millis(500), stream.next()).await;
+        assert!(
+            matches!(result, Ok(None)),
+            "stream should end when source init fails"
         );
     }
 

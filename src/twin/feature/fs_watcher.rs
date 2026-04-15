@@ -1,19 +1,17 @@
-use crate::twin::feature::{Command, CommandRequest, FsEventCommand, FsEventKind};
+use crate::twin::feature::{Command, CommandRequest, FAR_FUTURE, FsEventCommand, FsEventKind};
 use anyhow::{Context, Result, ensure};
 use futures::StreamExt;
 use log::{debug, error, warn};
 use std::{
     any::TypeId,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::c_int,
     path::{Path, PathBuf},
-    time::Duration,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
-const FAR_FUTURE: Duration = Duration::from_secs(3600);
+const DEBOUNCE_DURATION: std::time::Duration = std::time::Duration::from_secs(2);
 const INOTIFY_EVENT_BUF_LEN: usize = 4096;
 const MAX_CONSECUTIVE_INOTIFY_ERRORS: u32 = 10;
 
@@ -117,17 +115,17 @@ impl FsWatcher {
         mut self,
         tx: mpsc::Sender<CommandRequest>,
         cancel: CancellationToken,
-    ) -> Result<()> {
+    ) -> Result<Option<JoinHandle<()>>> {
         let Some(inotify) = self.inotify.take() else {
-            return Ok(());
+            return Ok(None);
         };
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // Race-condition handling for FileCreated watches: if file already
             // exists, send the event immediately with guaranteed delivery (.await).
             // Collect dispatched paths to remove their entries in a single pass
             // (avoids a second try_exists check that could race with deletion).
-            let mut dispatched: Vec<PathBuf> = Vec::new();
+            let mut dispatched: HashSet<PathBuf> = HashSet::new();
             for (_, infos) in self.watch_info.values() {
                 for info in infos {
                     if info.kind != FsEventKind::FileCreated {
@@ -156,9 +154,10 @@ impl FsWatcher {
                         })
                         .await
                     {
-                        error!("into_stream: failed to send FileCreated event: {e}");
+                        error!("into_stream: receiver dropped during race-condition check: {e}");
+                        return;
                     }
-                    dispatched.push(info.path.clone());
+                    dispatched.insert(info.path.clone());
                 }
             }
 
@@ -251,8 +250,7 @@ impl FsWatcher {
                             continue;
                         };
 
-                        // Clone needed fields before mutating
-                        let kind = infos[idx].kind.clone();
+                        let kind = infos[idx].kind;
                         let feature_id = infos[idx].feature_id;
                         let path = infos[idx].path.clone();
                         let oneshot = infos[idx].oneshot;
@@ -268,7 +266,7 @@ impl FsWatcher {
                                 }),
                                 reply: None,
                             }).await.is_err() {
-                                debug!("FsWatcher: receiver dropped, stopping");
+                                warn!("FsWatcher: receiver dropped, stopping");
                                 return;
                             }
 
@@ -307,13 +305,13 @@ impl FsWatcher {
                                     debug!("FsWatcher: debounce elapsed for {:?}", info.path);
                                     if tx.send(CommandRequest {
                                         command: Command::FsEvent(FsEventCommand {
-                                            kind: info.kind.clone(),
+                                            kind: info.kind,
                                             feature_id: info.feature_id,
                                             path: info.path.clone(),
                                         }),
                                         reply: None,
                                     }).await.is_err() {
-                                        debug!("FsWatcher: receiver dropped, stopping");
+                                        warn!("FsWatcher: receiver dropped, stopping");
                                         return;
                                     }
                                 }
@@ -324,7 +322,7 @@ impl FsWatcher {
             }
         });
 
-        Ok(())
+        Ok(Some(handle))
     }
 }
 
@@ -720,14 +718,96 @@ mod tests {
         watcher
             .add_watch::<TestFeature>(Path::new("/nonexistent"), FsEventKind::FileModified, false)
             .expect("noop add_watch should succeed");
-        watcher
+        let handle = watcher
             .into_stream(tx, CancellationToken::new())
             .expect("noop into_stream should succeed");
+
+        assert!(handle.is_none(), "noop should not spawn a task");
 
         // tx is consumed and dropped (no task spawned), so rx.recv() returns None
         assert!(
             rx.recv().await.is_none(),
             "noop watcher should produce no events"
         );
+    }
+
+    #[tokio::test]
+    async fn add_watch_file_created_rejects_non_oneshot() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("target.txt");
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+
+        let result = watcher.add_watch::<TestFeature>(&target, FsEventKind::FileCreated, false);
+        assert!(
+            result.is_err(),
+            "FileCreated with oneshot=false must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_event_loop() {
+        let tmp = tempfile::NamedTempFile::new().expect("create temp file");
+        let path = tmp.path().to_path_buf();
+        let (tx, mut rx) = mpsc::channel(16);
+        let cancel = CancellationToken::new();
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&path, FsEventKind::FileModified, false)
+            .expect("add_watch");
+        let handle = watcher
+            .into_stream(tx, cancel.clone())
+            .expect("into_stream")
+            .expect("should spawn a task");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        cancel.cancel();
+
+        // The spawned task should exit, completing the JoinHandle
+        let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
+        assert!(result.is_ok(), "task should exit after cancellation");
+
+        // Channel should close (tx dropped by the exiting task)
+        assert!(
+            rx.recv().await.is_none(),
+            "channel should close after cancellation"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_created_via_rename() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("atomically-created.txt");
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .add_watch::<TestFeature>(&target, FsEventKind::FileCreated, true)
+            .expect("add_watch");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Create via atomic rename (tempfile + rename), which produces MOVED_TO
+        let staging = tmp.path().join(".staging.tmp");
+        std::fs::write(&staging, "atomic content").expect("write staging");
+        std::fs::rename(&staging, &target).expect("rename");
+
+        let req = timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("timeout: MOVED_TO event should be detected")
+            .expect("channel closed");
+
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ref path,
+                ..
+            }) => assert_eq!(path, &target),
+            other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+        }
     }
 }

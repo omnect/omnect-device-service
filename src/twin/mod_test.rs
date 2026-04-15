@@ -592,6 +592,62 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn disabled_feature_drops_fs_event_silently_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+        let env_vars = vec![("SUPPRESS_FACTORY_RESET", "true")];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
+
+            // FsEvent targeting a disabled feature (no reply channel) should be dropped silently
+            let result = block_on(async {
+                test_attr
+                    .twin
+                    .handle_request(CommandRequest {
+                        command: Command::FsEvent(FsEventCommand {
+                            kind: feature::FsEventKind::DirModified,
+                            feature_id: TypeId::of::<factory_reset::FactoryReset>(),
+                            path: PathBuf::from("/unused"),
+                        }),
+                        reply: None,
+                    })
+                    .await
+            });
+            assert!(result.is_ok(), "FsEvent for disabled feature should be Ok");
+
+            // Direct method targeting a disabled feature (with reply channel) should fail
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            let result = block_on(async {
+                test_attr
+                    .twin
+                    .handle_request(CommandRequest {
+                        command: Command::FactoryReset(factory_reset::FactoryResetCommand {
+                            mode: factory_reset::FactoryResetMode::Mode1,
+                            preserve: vec![],
+                        }),
+                        reply: Some(tx),
+                    })
+                    .await
+            });
+            assert!(
+                result.is_err(),
+                "command with reply for disabled feature should fail"
+            );
+        };
+
+        TestCase::run(test_files, vec![], env_vars, expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",

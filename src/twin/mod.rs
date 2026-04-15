@@ -38,7 +38,7 @@ use std::{
     path::Path,
     time::{self, Duration},
 };
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::sync::CancellationToken;
 
@@ -59,6 +59,7 @@ pub struct Twin {
     features: HashMap<TypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
     cancel: CancellationToken,
+    fs_watcher_handle: Option<JoinHandle<()>>,
 }
 
 impl Twin {
@@ -120,7 +121,8 @@ impl Twin {
         ]);
 
         let cancel = CancellationToken::new();
-        fs_watcher.into_stream(tx_command_request.clone(), cancel.child_token())?;
+        let fs_watcher_handle =
+            fs_watcher.into_stream(tx_command_request.clone(), cancel.child_token())?;
 
         let twin = Twin {
             client: None,
@@ -132,6 +134,7 @@ impl Twin {
             features,
             waiting_for_reboot: false,
             cancel,
+            fs_watcher_handle,
         };
 
         twin.connect_web_service().await?;
@@ -356,10 +359,18 @@ impl Twin {
         self.features
             .values_mut()
             .filter_map(|f| {
-                if f.is_enabled() {
-                    f.command_request_stream(self.cancel.child_token()).unwrap()
-                } else {
-                    None
+                if !f.is_enabled() {
+                    return None;
+                }
+                match f.command_request_stream(self.cancel.child_token()) {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        error!(
+                            "feature_command_request_streams: {} failed: {e:#}",
+                            f.name()
+                        );
+                        None
+                    }
                 }
             })
             .collect()
@@ -410,6 +421,9 @@ impl Twin {
         command_requests.push(desired_properties_stream(rx_twin_desired));
         command_requests.push(ReceiverStream::new(rx_command_request).boxed());
 
+        let mut fs_watcher_handle = twin.fs_watcher_handle.take();
+        let mut fs_watcher_alive = fs_watcher_handle.is_some();
+
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
             let trigger_watchdog = match systemd::watchdog::WatchdogManager::init().await {
@@ -432,6 +446,18 @@ impl Twin {
                     twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
                     signals.handle().close();
                     return Ok(())
+                },
+                result = async {
+                    match &mut fs_watcher_handle {
+                        Some(h) => h.await,
+                        None => std::future::pending().await,
+                    }
+                }, if fs_watcher_alive => {
+                    fs_watcher_alive = false;
+                    match result {
+                        Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
+                        Err(e) => error!("FsWatcher task panicked: {e}"),
+                    }
                 },
                 result = &mut client_created, if twin.client.is_none() => {
                     match result {
