@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+
 const DEFAULT_FILTER_DEBUG: &str = "warn,\
     azure_iot_sdk=debug,\
     eis_utils=debug,\
@@ -16,7 +18,7 @@ fn default_filter() -> &'static str {
 }
 
 #[cfg(feature = "mock")]
-pub fn init() {
+pub fn init() -> Result<()> {
     use env_logger::{Builder, Env, Target};
     use std::io::Write;
 
@@ -31,7 +33,8 @@ pub fn init() {
             _ => writeln!(buf, "<7>{}", record.args()),
         })
         .target(Target::Stdout)
-        .init();
+        .try_init()
+        .context("install env_logger")
 }
 
 #[cfg(not(feature = "mock"))]
@@ -56,17 +59,18 @@ impl<L: log::Log> log::Log for FilteredLog<L> {
 }
 
 #[cfg(not(feature = "mock"))]
-pub fn init() {
+pub fn init() -> Result<()> {
     use systemd_journal_logger::JournalLog;
 
     let filter = env_filter::Builder::new().parse(default_filter()).build();
     let max_level = filter.filter();
 
-    let journal = JournalLog::new().expect("create JournalLog");
+    let journal = JournalLog::new().context("create JournalLog")?;
     log::set_boxed_logger(Box::new(FilteredLog {
         filter,
         inner: journal,
     }))
-    .expect("install journal logger");
+    .context("install journal logger")?;
     log::set_max_level(max_level);
+    Ok(())
 }
