@@ -23,11 +23,11 @@ pub fn bootloader_env(key: &str) -> Result<String> {
     let list = list.split('\n');
     let mut value = "".to_string();
     for i in list {
-        if let Some((k, v)) = i.split_once('=') {
-            if k == key {
-                value = v.trim().to_string();
-                break;
-            }
+        if let Some((k, v)) = i.split_once('=')
+            && k == key
+        {
+            value = v.trim().to_string();
+            break;
         }
     }
     Ok(value)

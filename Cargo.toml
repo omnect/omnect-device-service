@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "https://github.com/omnect/omnect-device-service.git"
-version = "0.42.0"
+version = "0.42.1"
 
 [dependencies]
 actix-server = { version = "2.6", default-features = false }
@@ -30,14 +30,14 @@ log = { version = "0.4", default-features = false }
 log-panics = { version = "2", default-features = false }
 modemmanager = { git = "https://github.com/omnect/modemmanager.git", tag = "0.3.4", default-features = false, optional = true }
 notify = { version = "8.2", default-features = false }
-notify-debouncer-full = { version = "0.5", default-features = false }
+notify-debouncer-full = { version = "0.7", default-features = false }
 regex-lite = { version = "0.1", default-features = true }
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
   "default-tls",
 ] }
-reqwest-middleware = { version = "0.4", default-features = false }
-reqwest-retry = { version = "0.7", default-features = false }
-sd-notify = { version = "0.4", default-features = false }
+reqwest-middleware = { version = "0.5", default-features = false }
+reqwest-retry = { version = "0.9", default-features = false }
+sd-notify = { version = "0.5", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }
 serde_repr = { version = "0.1", default-features = false }
@@ -45,13 +45,13 @@ serde_with = { version = "3.14", default-features = false, features = [
   "std",
   "macros",
 ] }
-signal-hook = { version = "0.3", default-features = false }
-signal-hook-tokio = { version = "0.3", default-features = false, features = [
+signal-hook = { version = "0.4", default-features = false }
+signal-hook-tokio = { version = "0.4", default-features = false, features = [
   "futures-v0_3",
 ] }
-sha2 = { version = "0.10", default-features = false }
-strum_macros = { version = "0.27", default-features = false }
-sysinfo = { version = "0.35", default-features = false, features = [
+sha2 = { version = "0.11", default-features = false }
+strum_macros = { version = "0.28", default-features = false }
+sysinfo = { version = "0.38", default-features = false, features = [
   "component",
   "disk",
   "system",
@@ -63,9 +63,9 @@ tokio = { version = "1", default-features = false }
 tokio-stream = { version = "0.1", default-features = false, features = [
   "time",
 ] }
-toml = { version = "0.8", default-features = false, features = ["parse"] }
+toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
 uuid = { version = "1.18", default-features = false }
-x509-parser = { version = "0.17", default-features = false }
+x509-parser = { version = "0.18", default-features = false }
 zbus = { version = "5.11", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
@@ -73,7 +73,7 @@ actix-web = "4"
 assert-json-diff = "2.0"
 cp_r = "0.5"
 futures-executor = "0.3"
-mockall = "0.13"
+mockall = "0.14"
 rand = "0.9"
 regex = "1"
 omnect-device-service = { path = ".", features = ["mock"] }

@@ -309,13 +309,16 @@ impl FirmwareUpdate {
             } else if path_ends_with(&path, ".swu.importManifest.json") {
                 file.unpack(&path)
                     .context("failed to unpack *.swu.importManifest.json")?;
-                manifest_sha1 = format!(
-                    "{:X}",
-                    Sha256::digest(
-                        std::fs::read(&path)
-                            .context("failed to read *.swu.importManifest.json for hash")?
-                    )
-                );
+                manifest_sha1 = Sha256::digest(
+                    std::fs::read(&path)
+                        .context("failed to read *.swu.importManifest.json for hash")?,
+                )
+                .iter()
+                .fold(String::new(), |mut s, b| {
+                    use std::fmt::Write;
+                    let _ = write!(s, "{b:02X}");
+                    s
+                });
                 manifest_path = Some(path);
             } else if path_ends_with(&path, ".swu.importManifest.json.sha256") {
                 file.unpack(&path)
