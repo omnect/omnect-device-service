@@ -648,6 +648,46 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn fs_watcher_exit_bails_and_shuts_down_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+            mock.expect_shutdown().times(1).returning(|_| ());
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
+            let (_tx_out, mut rx_out) = mpsc::channel(100);
+
+            // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
+            let err = block_on(async {
+                test_attr
+                    .twin
+                    .handle_fs_watcher_exit(Ok(()), &mut rx_rep, &mut rx_out)
+                    .await
+            })
+            .expect_err("handle_fs_watcher_exit must return Err");
+
+            assert!(
+                err.to_string().contains("FsWatcher task ended"),
+                "unexpected error message: {err:#}"
+            );
+            assert!(
+                test_attr.twin.client.is_none(),
+                "shutdown must drop the iot hub client"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",

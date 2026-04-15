@@ -112,7 +112,7 @@ impl DeviceUpdateConsent {
 
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
         for path in [request_consent_path!(), history_consent_path!()] {
-            fs_watcher.add_watch::<DeviceUpdateConsent>(&path, FsEventKind::FileModified, false)?;
+            fs_watcher.watch_file_modified::<DeviceUpdateConsent>(&path)?;
         }
 
         Ok(Self {

@@ -7,11 +7,14 @@ use azure_iot_sdk::client::DirectMethod;
 use futures::{Stream, StreamExt, stream};
 use log::{debug, error, info, warn};
 use std::{any::TypeId, future::Future, path::PathBuf, pin::Pin, time::Duration};
-
-pub(crate) const FAR_FUTURE: Duration = Duration::from_secs(3600);
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
 use tokio_util::sync::CancellationToken;
+
+/// Trailing-edge silence window used by every event source that coalesces
+/// rapid bursts into a single `Command`. Shared by `FsWatcher` (inotify) and
+/// `Network` (networkd D-Bus signals) so both layers debounce identically.
+pub(crate) const COMMAND_EVENT_DEBOUNCE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -37,8 +40,9 @@ fn parse_payload<T: serde::de::DeserializeOwned>(
     payload: &serde_json::Value,
     command_name: &str,
 ) -> Result<T> {
-    serde_json::from_value(payload.clone())
-        .with_context(|| format!("cannot parse {command_name} from payload"))
+    // `&serde_json::Value` implements `Deserializer`, so we can deserialize
+    // without cloning the payload.
+    T::deserialize(payload).with_context(|| format!("cannot parse {command_name} from payload"))
 }
 
 impl Command {
@@ -226,8 +230,6 @@ where
         let mut deadline: Option<tokio::time::Instant> = None;
 
         loop {
-            let sleep_until = deadline.unwrap_or_else(|| tokio::time::Instant::now() + FAR_FUTURE);
-
             tokio::select! {
                 biased;
 
@@ -244,7 +246,14 @@ where
                     }
                 },
 
-                _ = tokio::time::sleep_until(sleep_until), if deadline.is_some() => {
+                // When no deadline is armed, `pending()` makes this arm never fire,
+                // avoiding the periodic wake-up of a far-future sentinel sleep.
+                _ = async {
+                    match deadline {
+                        Some(d) => tokio::time::sleep_until(d).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
                     deadline = None;
                     debug!("debounced_command_stream: silence elapsed, emitting");
                     let req = CommandRequest {

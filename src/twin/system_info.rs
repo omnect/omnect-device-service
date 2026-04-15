@@ -207,7 +207,7 @@ impl SystemInfo {
             Some(Self::boot_time()?)
         } else {
             debug!("new: start timesync watcher since not synced yet");
-            fs_watcher.add_watch::<SystemInfo>(&TIMESYNC_FILE, FsEventKind::FileCreated, true)?;
+            fs_watcher.watch_file_created_oneshot::<SystemInfo>(&TIMESYNC_FILE)?;
             None
         };
 

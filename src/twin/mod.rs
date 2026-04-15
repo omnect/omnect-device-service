@@ -26,6 +26,7 @@ use crate::{systemd, twin::feature::*, web_service};
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::*;
 use dotenvy;
+use futures::future::OptionFuture;
 use futures_util::StreamExt;
 use log::{error, info, warn};
 use serde_json::json;
@@ -308,6 +309,24 @@ impl Twin {
         Ok(())
     }
 
+    // Without FsWatcher, feature commands triggered by file changes are lost
+    // silently. Shut down and surface an error so main exits non-zero and
+    // systemd restarts the service with a fresh watcher.
+    async fn handle_fs_watcher_exit(
+        &mut self,
+        result: Result<(), tokio::task::JoinError>,
+        rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
+        rx_outgoing_message: &mut mpsc::Receiver<IotMessage>,
+    ) -> Result<()> {
+        match result {
+            Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
+            Err(e) => error!("FsWatcher task panicked: {e}"),
+        }
+        self.shutdown(rx_reported_properties, rx_outgoing_message)
+            .await;
+        bail!("FsWatcher task ended; exiting to let systemd restart the service")
+    }
+
     async fn shutdown(
         &mut self,
         rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
@@ -422,7 +441,6 @@ impl Twin {
         command_requests.push(ReceiverStream::new(rx_command_request).boxed());
 
         let mut fs_watcher_handle = twin.fs_watcher_handle.take();
-        let mut fs_watcher_alive = fs_watcher_handle.is_some();
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
@@ -447,17 +465,15 @@ impl Twin {
                     signals.handle().close();
                     return Ok(())
                 },
-                result = async {
-                    match &mut fs_watcher_handle {
-                        Some(h) => h.await,
-                        None => std::future::pending().await,
-                    }
-                }, if fs_watcher_alive => {
-                    fs_watcher_alive = false;
-                    match result {
-                        Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
-                        Err(e) => error!("FsWatcher task panicked: {e}"),
-                    }
+                Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
+                    signals.handle().close();
+                    return twin
+                        .handle_fs_watcher_exit(
+                            result,
+                            &mut rx_reported_properties,
+                            &mut rx_outgoing_message,
+                        )
+                        .await;
                 },
                 result = &mut client_created, if twin.client.is_none() => {
                     match result {

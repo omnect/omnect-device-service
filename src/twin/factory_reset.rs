@@ -181,11 +181,7 @@ impl FactoryReset {
     const ID: &'static str = "factory_reset";
 
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
-        fs_watcher.add_watch::<FactoryReset>(
-            Path::new(&custom_config_dir_path!()),
-            FsEventKind::DirModified,
-            false,
-        )?;
+        fs_watcher.watch_dir_modified::<FactoryReset>(Path::new(&custom_config_dir_path!()))?;
 
         let report = FactoryResetReport {
             keys: FactoryReset::factory_reset_keys()?,

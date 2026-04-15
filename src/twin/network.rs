@@ -9,7 +9,9 @@ use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use serde_json::json;
-use std::{env, time::Duration};
+use std::env;
+#[cfg(feature = "mock")]
+use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
@@ -83,11 +85,9 @@ impl Feature for Network {
             return Ok(None);
         }
 
-        const DEBOUNCE: Duration = Duration::from_secs(2);
-
         Ok(Some(debounced_command_stream::<_, _, _, Network>(
             networkd::networkd_signal_stream(),
-            DEBOUNCE,
+            COMMAND_EVENT_DEBOUNCE,
             cancel,
         )))
     }
