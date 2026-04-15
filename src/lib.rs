@@ -1,5 +1,6 @@
 pub mod bootloader_env;
 pub mod common;
+pub mod logging;
 pub mod reboot_reason;
 pub mod systemd;
 pub mod twin;

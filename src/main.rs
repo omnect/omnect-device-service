@@ -1,39 +1,11 @@
-use env_logger::{Builder, Env, Target};
 use log::{error, info};
-use omnect_device_service::twin::Twin;
-use std::{io::Write, process};
+use omnect_device_service::{logging, twin::Twin};
+use std::process;
 
 #[tokio::main]
 async fn main() -> process::ExitCode {
     log_panics::init();
-
-    let mut builder = if cfg!(debug_assertions) {
-        Builder::from_env(Env::default().default_filter_or(
-            "warn, \
-            azure_iot_sdk=debug, \
-            eis_utils=debug, \
-            omnect_device_service=debug",
-        ))
-    } else {
-        Builder::from_env(Env::default().default_filter_or(
-            "warn, \
-            azure_iot_sdk=info, \
-            eis_utils=info, \
-            omnect_device_service=info",
-        ))
-    };
-
-    builder.format(|buf, record| match record.level() {
-        log::Level::Info => writeln!(buf, "<6>{}: {}", record.target(), record.args()),
-        log::Level::Warn => writeln!(buf, "<4>{}: {}", record.target(), record.args()),
-        log::Level::Error => {
-            eprintln!("<3>{}: {}", record.target(), record.args());
-            Ok(())
-        }
-        _ => writeln!(buf, "<7>{}: {}", record.target(), record.args()),
-    });
-
-    builder.target(Target::Stdout).init();
+    logging::init();
 
     if let Err(e) = Twin::run().await {
         error!("application error: {e:#}");
