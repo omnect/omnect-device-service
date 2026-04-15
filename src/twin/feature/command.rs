@@ -7,8 +7,10 @@ use azure_iot_sdk::client::DirectMethod;
 use futures::{Stream, StreamExt, stream};
 use log::{debug, error, info, warn};
 use std::{any::TypeId, future::Future, path::PathBuf, pin::Pin, time::Duration};
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::Interval;
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::Interval,
+};
 use tokio_util::sync::CancellationToken;
 
 /// Trailing-edge silence window used by every event source that coalesces
@@ -25,13 +27,17 @@ pub enum Command {
     FleetId(system_info::FleetIdCommand),
     FsEvent(FsEventCommand),
     GetSshPubKey(ssh_tunnel::GetSshPubKeyCommand),
-    Interval(IntervalCommand),
     LoadFirmwareUpdate(firmware_update::LoadUpdateCommand),
     OpenSshTunnel(ssh_tunnel::OpenSshTunnelCommand),
     Reboot,
     ReloadNetwork,
     RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
+    /// "Refresh yourself" signal routed by `TypeId`. Emitted by periodic
+    /// timers (`interval_stream`) and by debounced event sources
+    /// (`debounced_command_stream`, e.g. networkd D-Bus signals). Carries no
+    /// payload beyond the target feature.
+    Tick(TickCommand),
     ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
 }
@@ -57,13 +63,13 @@ impl Command {
             FleetId(_) => TypeId::of::<system_info::SystemInfo>(),
             FsEvent(cmd) => cmd.feature_id,
             GetSshPubKey(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
-            Interval(cmd) => cmd.feature_id,
             LoadFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             OpenSshTunnel(_) => TypeId::of::<ssh_tunnel::SshTunnel>(),
             Reboot => TypeId::of::<reboot::Reboot>(),
             ReloadNetwork => TypeId::of::<network::Network>(),
             RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
+            Tick(cmd) => cmd.feature_id,
             ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
         }
@@ -176,7 +182,7 @@ pub struct FsEventCommand {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct IntervalCommand {
+pub struct TickCommand {
     pub feature_id: TypeId,
 }
 
@@ -186,7 +192,7 @@ where
 {
     tokio_stream::wrappers::IntervalStream::new(interval)
         .map(|_| CommandRequest {
-            command: Command::Interval(IntervalCommand {
+            command: Command::Tick(TickCommand {
                 feature_id: TypeId::of::<T>(),
             }),
             reply: None,
@@ -199,7 +205,7 @@ where
 /// `source_fut` is resolved inside the spawned task, so this works from sync
 /// call sites (e.g. `command_request_stream()`). After the future resolves,
 /// each item from the resulting stream resets a silence timer. When `silence`
-/// elapses without new items, a single `Command::Interval` is emitted.
+/// elapses without new items, a single `Command::Tick` is emitted.
 ///
 /// The spawned task exits when `cancel` is triggered or the source stream ends.
 pub fn debounced_command_stream<F, S, I, T>(
@@ -257,7 +263,7 @@ where
                     deadline = None;
                     debug!("debounced_command_stream: silence elapsed, emitting");
                     let req = CommandRequest {
-                        command: Command::Interval(IntervalCommand {
+                        command: Command::Tick(TickCommand {
                             feature_id: TypeId::of::<T>(),
                         }),
                         reply: None,
@@ -741,7 +747,7 @@ mod tests {
             .await
             .expect("timeout waiting for debounced event")
             .expect("stream ended");
-        assert!(matches!(req.command, Command::Interval(_)));
+        assert!(matches!(req.command, Command::Tick(_)));
 
         cancel.cancel();
     }
@@ -772,7 +778,7 @@ mod tests {
             .await
             .expect("timeout")
             .expect("stream ended");
-        assert!(matches!(req.command, Command::Interval(_)));
+        assert!(matches!(req.command, Command::Tick(_)));
 
         // No second event should arrive
         let second = tokio::time::timeout(Duration::from_millis(400), stream.next()).await;
@@ -846,10 +852,10 @@ mod tests {
             consent_id
         );
 
-        // Interval routes to the feature_id embedded in the command
+        // Tick routes to the feature_id embedded in the command
         let network_id = TypeId::of::<Network>();
         assert_eq!(
-            Command::Interval(IntervalCommand {
+            Command::Tick(TickCommand {
                 feature_id: network_id,
             })
             .feature_id(),

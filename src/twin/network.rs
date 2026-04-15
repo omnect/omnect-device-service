@@ -107,7 +107,7 @@ impl Feature for Network {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::Interval(_) => self.report(false).await?,
+            Command::Tick(_) => self.report(false).await?,
             Command::ReloadNetwork => {
                 unit::unit_action(
                     NETWORK_SERVICE,

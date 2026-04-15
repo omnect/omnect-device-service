@@ -156,7 +156,7 @@ impl Feature for ProvisioningConfig {
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
-        let Command::Interval(_) = cmd else {
+        let Command::Tick(_) = cmd else {
             bail!("unexpected event: {cmd:?}")
         };
 
@@ -338,7 +338,7 @@ mod tests {
         crate::common::set_env_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .command(&Command::Interval(IntervalCommand {
+            .command(&Command::Tick(TickCommand {
                 feature_id: TypeId::of::<ProvisioningConfig>(),
             }))
             .await

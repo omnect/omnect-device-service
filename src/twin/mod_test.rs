@@ -688,6 +688,58 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn fs_watcher_exit_on_panic_bails_and_shuts_down_test() {
+        // Companion to the Ok(()) test above: a panicked FsWatcher task yields
+        // a real `JoinError`. Both paths must bail with the same restart
+        // message so the systemd unit treats them identically.
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+            mock.expect_shutdown().times(1).returning(|_| ());
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
+            let (_tx_out, mut rx_out) = mpsc::channel(100);
+
+            // `JoinError` has no public constructor — obtain a real one by
+            // awaiting a deliberately panicking task.
+            let join_err = block_on(async {
+                tokio::spawn(async {
+                    panic!("intentional panic for test");
+                })
+                .await
+                .expect_err("spawned task should panic")
+            });
+
+            let err = block_on(async {
+                test_attr
+                    .twin
+                    .handle_fs_watcher_exit(Err(join_err), &mut rx_rep, &mut rx_out)
+                    .await
+            })
+            .expect_err("handle_fs_watcher_exit must return Err on panic");
+
+            assert!(
+                err.to_string().contains("FsWatcher task ended"),
+                "unexpected error message on panic path: {err:#}"
+            );
+            assert!(
+                test_attr.twin.client.is_none(),
+                "shutdown must drop the iot hub client on panic path"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",

@@ -379,7 +379,7 @@ impl Feature for ModemInfo {
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
-        let Command::Interval(_) = cmd else {
+        let Command::Tick(_) = cmd else {
             bail!("unexpected event: {cmd:?}")
         };
 

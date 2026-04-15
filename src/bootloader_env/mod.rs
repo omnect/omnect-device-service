@@ -20,8 +20,7 @@ use uboot::{
 
 #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
 mod mock_store {
-    use std::collections::BTreeMap;
-    use std::sync::Mutex;
+    use std::{collections::BTreeMap, sync::Mutex};
 
     pub static STORE: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
 

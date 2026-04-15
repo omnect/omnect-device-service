@@ -3,12 +3,11 @@ use crate::twin::feature::{
 };
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use inotify::WatchMask;
+use inotify::{WatchDescriptor, WatchMask};
 use log::{debug, error, warn};
 use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
-    ffi::c_int,
     path::{Path, PathBuf},
 };
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -27,7 +26,10 @@ struct WatchInfo {
 pub struct FsWatcher {
     inotify: Option<inotify::Inotify>,
     watches: Option<inotify::Watches>,
-    watch_info: HashMap<c_int, (inotify::WatchDescriptor, Vec<WatchInfo>)>,
+    // `WatchDescriptor` implements `Eq`/`Hash`; using it as the key rather than
+    // the raw `c_int` id documents the invariant that all descriptors come
+    // from the same `Inotify` and removes the redundant `(wd, …)` value tuple.
+    watch_info: HashMap<WatchDescriptor, Vec<WatchInfo>>,
 }
 
 impl FsWatcher {
@@ -109,9 +111,8 @@ impl FsWatcher {
             .add(watch_path, mask)
             .with_context(|| format!("insert_watch: failed to watch {watch_path:?}"))?;
 
-        let wd_id = wd.get_watch_descriptor_id();
         debug!(
-            "insert_watch: {wd_id:?} on {watch_path:?} (target: {target_path:?}, oneshot: {oneshot})"
+            "insert_watch: {wd:?} on {watch_path:?} (target: {target_path:?}, oneshot: {oneshot})"
         );
 
         let info = WatchInfo {
@@ -121,30 +122,23 @@ impl FsWatcher {
             oneshot,
         };
 
-        match self.watch_info.entry(wd_id) {
-            std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert((wd, vec![info]));
-            }
-            std::collections::hash_map::Entry::Occupied(mut e) => {
-                e.get_mut().1.push(info);
-            }
-        }
+        self.watch_info.entry(wd).or_default().push(info);
 
         Ok(())
     }
 
-    /// Drop the kernel watch for `wd_id` if its user-space entry list is empty.
+    /// Drop the kernel watch for `wd` if its user-space entry list is empty.
     /// No-op when the entry is missing, still populated, or the inotify backend
     /// is the noop variant.
-    fn remove_kernel_watch_if_empty(&mut self, wd_id: c_int) {
+    fn remove_kernel_watch_if_empty(&mut self, wd: &WatchDescriptor) {
         let is_empty = self
             .watch_info
-            .get(&wd_id)
-            .is_some_and(|(_, infos)| infos.is_empty());
+            .get(wd)
+            .is_some_and(|infos| infos.is_empty());
         if !is_empty {
             return;
         }
-        let Some((wd, _)) = self.watch_info.remove(&wd_id) else {
+        let Some((wd, _)) = self.watch_info.remove_entry(wd) else {
             return;
         };
         let Some(watches) = self.watches.as_mut() else {
@@ -180,7 +174,7 @@ impl FsWatcher {
             // removed in a single pass, avoiding a second try_exists call that
             // could itself race with deletion.
             let mut dispatched: HashSet<PathBuf> = HashSet::new();
-            for (_, infos) in self.watch_info.values() {
+            for infos in self.watch_info.values() {
                 for info in infos {
                     if info.kind != FsEventKind::FileCreated {
                         continue;
@@ -216,12 +210,12 @@ impl FsWatcher {
             }
 
             // Remove dispatched oneshot entries and clean up empty kernel watches
-            for (_, infos) in self.watch_info.values_mut() {
+            for infos in self.watch_info.values_mut() {
                 infos.retain(|info| !(info.oneshot && dispatched.contains(&info.path)));
             }
-            let wd_ids: Vec<c_int> = self.watch_info.keys().copied().collect();
-            for wd_id in wd_ids {
-                self.remove_kernel_watch_if_empty(wd_id);
+            let wds: Vec<WatchDescriptor> = self.watch_info.keys().cloned().collect();
+            for wd in &wds {
+                self.remove_kernel_watch_if_empty(wd);
             }
             let mut buffer = [0; INOTIFY_EVENT_BUF_LEN];
             let mut stream = match inotify.into_event_stream(&mut buffer) {
@@ -232,10 +226,12 @@ impl FsWatcher {
                 }
             };
 
-            // Debounce is keyed by wd_id, not by individual WatchInfo entry.
-            // Multiple non-oneshot watches sharing the same inotify descriptor
-            // (e.g. two features watching the same path) share a single deadline.
-            let mut debounce_deadlines: HashMap<c_int, tokio::time::Instant> = HashMap::new();
+            // Debounce is keyed by `WatchDescriptor`, not by individual
+            // `WatchInfo` entry. Multiple non-oneshot watches sharing the same
+            // inotify descriptor (e.g. two features watching the same path)
+            // share a single deadline.
+            let mut debounce_deadlines: HashMap<WatchDescriptor, tokio::time::Instant> =
+                HashMap::new();
             let mut consecutive_inotify_errors: u32 = 0;
 
             loop {
@@ -260,63 +256,85 @@ impl FsWatcher {
                                     "FsWatcher: inotify error ({consecutive_inotify_errors}/{MAX_CONSECUTIVE_INOTIFY_ERRORS}): {e:#}"
                                 );
                                 if consecutive_inotify_errors >= MAX_CONSECUTIVE_INOTIFY_ERRORS {
-                                    error!("FsWatcher: too many consecutive errors, stopping");
+                                    error!(
+                                        "FsWatcher: {MAX_CONSECUTIVE_INOTIFY_ERRORS} consecutive inotify errors, exiting task; \
+                                         service will terminate and be restarted by systemd"
+                                    );
                                     return;
                                 }
                                 continue;
                             }
                         };
 
-                        let wd_id = event.wd.get_watch_descriptor_id();
-                        let Some((_, infos)) = self.watch_info.get(&wd_id) else {
-                            debug!("FsWatcher: unknown wd {wd_id}");
+                        let wd = event.wd.clone();
+                        let Some(infos) = self.watch_info.get(&wd) else {
+                            debug!("FsWatcher: unknown wd {wd:?}");
                             continue;
                         };
 
-                        // Find the matching entry index by kind-specific criteria
-                        let matched_idx = infos.iter().position(|info| {
-                            if info.kind == FsEventKind::FileCreated {
-                                let expected = info.path.file_name();
-                                let actual = event.name.as_deref();
-                                expected.is_some() && actual == expected
+                        // Collect all matching entries. For `FileCreated` we
+                        // filter by filename; for others every entry for this
+                        // wd applies. Multiple features registering the same
+                        // target all receive notifications.
+                        let matched: Vec<(usize, TypeId, PathBuf, FsEventKind, bool)> = infos
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, info)| {
+                                if info.kind == FsEventKind::FileCreated {
+                                    info.path
+                                        .file_name()
+                                        .is_some_and(|expected| event.name.as_deref() == Some(expected))
+                                } else {
+                                    true
+                                }
+                            })
+                            .map(|(i, info)| {
+                                (i, info.feature_id, info.path.clone(), info.kind, info.oneshot)
+                            })
+                            .collect();
+
+                        if matched.is_empty() {
+                            continue;
+                        }
+
+                        let mut oneshot_indices: Vec<usize> = Vec::new();
+                        let mut has_non_oneshot = false;
+
+                        for (idx, feature_id, path, kind, oneshot) in matched {
+                            debug!("FsWatcher: event for {path:?} ({kind:?})");
+                            if oneshot {
+                                if tx.send(CommandRequest {
+                                    command: Command::FsEvent(FsEventCommand {
+                                        kind,
+                                        feature_id,
+                                        path,
+                                    }),
+                                    reply: None,
+                                }).await.is_err() {
+                                    warn!("FsWatcher: receiver dropped, stopping");
+                                    return;
+                                }
+                                oneshot_indices.push(idx);
                             } else {
-                                true
+                                has_non_oneshot = true;
                             }
-                        });
+                        }
 
-                        let Some(idx) = matched_idx else {
-                            continue;
-                        };
-
-                        let kind = infos[idx].kind;
-                        let feature_id = infos[idx].feature_id;
-                        let path = infos[idx].path.clone();
-                        let oneshot = infos[idx].oneshot;
-
-                        debug!("FsWatcher: event for {path:?} ({kind:?})");
-
-                        if oneshot {
-                            if tx.send(CommandRequest {
-                                command: Command::FsEvent(FsEventCommand {
-                                    kind,
-                                    feature_id,
-                                    path,
-                                }),
-                                reply: None,
-                            }).await.is_err() {
-                                warn!("FsWatcher: receiver dropped, stopping");
-                                return;
+                        if !oneshot_indices.is_empty() {
+                            if let Some(infos) = self.watch_info.get_mut(&wd) {
+                                // Descending order keeps earlier indices valid
+                                // as later ones are removed.
+                                oneshot_indices.sort_unstable();
+                                for idx in oneshot_indices.into_iter().rev() {
+                                    infos.remove(idx);
+                                }
                             }
+                            self.remove_kernel_watch_if_empty(&wd);
+                        }
 
-                            let Some((_, infos)) = self.watch_info.get_mut(&wd_id) else {
-                                error!("FsWatcher: wd {wd_id} disappeared unexpectedly");
-                                continue;
-                            };
-                            infos.remove(idx);
-                            self.remove_kernel_watch_if_empty(wd_id);
-                        } else {
+                        if has_non_oneshot {
                             debounce_deadlines.insert(
-                                wd_id,
+                                wd,
                                 tokio::time::Instant::now() + COMMAND_EVENT_DEBOUNCE,
                             );
                         }
@@ -331,15 +349,15 @@ impl FsWatcher {
                         }
                     } => {
                         let now = tokio::time::Instant::now();
-                        let expired: Vec<c_int> = debounce_deadlines
+                        let expired: Vec<WatchDescriptor> = debounce_deadlines
                             .iter()
                             .filter(|(_, deadline)| **deadline <= now)
-                            .map(|(wd_id, _)| *wd_id)
+                            .map(|(wd, _)| wd.clone())
                             .collect();
 
-                        for wd_id in expired {
-                            debounce_deadlines.remove(&wd_id);
-                            if let Some((_, infos)) = self.watch_info.get(&wd_id) {
+                        for wd in expired {
+                            debounce_deadlines.remove(&wd);
+                            if let Some(infos) = self.watch_info.get(&wd) {
                                 for info in infos {
                                     debug!("FsWatcher: debounce elapsed for {:?}", info.path);
                                     if tx.send(CommandRequest {
@@ -799,6 +817,58 @@ mod tests {
             rx.recv().await.is_none(),
             "channel should close after cancellation"
         );
+    }
+
+    #[tokio::test]
+    async fn file_created_oneshot_fanout_to_all_registrants() {
+        // Regression: when two features register the same file-created target
+        // (same parent dir, same filename), both must be notified — not just
+        // the first one matched by `position()`.
+        struct FeatureA;
+        struct FeatureB;
+
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("shared.txt");
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_created_oneshot::<FeatureA>(&target)
+            .expect("watch A");
+        watcher
+            .watch_file_created_oneshot::<FeatureB>(&target)
+            .expect("watch B");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        std::fs::write(&target, "shared").expect("create target");
+
+        let mut feature_ids = Vec::new();
+        for _ in 0..2 {
+            let req = timeout(Duration::from_secs(4), rx.recv())
+                .await
+                .expect("timeout waiting for fan-out event")
+                .expect("channel closed");
+            match req.command {
+                Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileCreated,
+                    feature_id,
+                    ..
+                }) => feature_ids.push(feature_id),
+                other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+            }
+        }
+
+        feature_ids.sort();
+        let mut expected = vec![TypeId::of::<FeatureA>(), TypeId::of::<FeatureB>()];
+        expected.sort();
+        assert_eq!(feature_ids, expected);
+
+        // No third event — both oneshot entries were consumed.
+        let third = timeout(Duration::from_secs(1), rx.recv()).await;
+        assert!(third.is_err(), "expected no third event");
     }
 
     #[tokio::test]

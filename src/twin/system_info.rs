@@ -156,7 +156,7 @@ impl Feature for SystemInfo {
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::Interval(_) => {
+            Command::Tick(_) => {
                 self.metrics().await?;
             }
             Command::FsEvent(FsEventCommand {
