@@ -23,6 +23,15 @@ struct WatchInfo {
     oneshot: bool,
 }
 
+/// Centralized inotify-based file watcher.
+///
+/// Invariant: a given filesystem path must be registered with only one
+/// `FsEventKind`. `insert_watch` uses `WatchMask::MASK_ADD`, so the kernel
+/// mask is unioned across calls targeting the same path; mixing kinds (e.g.
+/// `DirModified` + `FileCreated` on the same directory) would cause the
+/// non-`FileCreated` entry — which doesn't filter by filename — to dispatch
+/// for events another kind subscribed to. Enforced by `debug_assert!` in
+/// `insert_watch`.
 pub struct FsWatcher {
     inotify: Option<inotify::Inotify>,
     watches: Option<inotify::Watches>,
@@ -113,6 +122,18 @@ impl FsWatcher {
 
         debug!(
             "insert_watch: {wd:?} on {watch_path:?} (target: {target_path:?}, oneshot: {oneshot})"
+        );
+
+        // See the `FsWatcher` doc-comment for the rationale behind this
+        // invariant. `MASK_ADD` unions kernel masks for repeated calls on the
+        // same path, so crossing kinds corrupts event routing in release
+        // builds too — the assert exists to flag the misuse loudly in debug
+        // builds and tests.
+        debug_assert!(
+            self.watch_info
+                .get(&wd)
+                .is_none_or(|infos| infos.iter().all(|i| i.kind == kind)),
+            "FsWatcher: {watch_path:?} already registered with a different FsEventKind"
         );
 
         let info = WatchInfo {
