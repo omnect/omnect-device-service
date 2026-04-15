@@ -62,7 +62,11 @@ impl<L: log::Log> log::Log for FilteredLog<L> {
 pub fn init() -> Result<()> {
     use systemd_journal_logger::JournalLog;
 
-    let filter = env_filter::Builder::new().parse(default_filter()).build();
+    let filter_spec = std::env::var("RUST_LOG")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| default_filter().to_string());
+    let filter = env_filter::Builder::new().parse(&filter_spec).build();
     let max_level = filter.filter();
 
     let journal = JournalLog::new().context("create JournalLog")?;
