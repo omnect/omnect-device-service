@@ -49,7 +49,16 @@ impl<L: log::Log> log::Log for FilteredLog<L> {
         self.filter.enabled(m)
     }
     fn log(&self, record: &log::Record<'_>) {
-        if self.filter.matches(record) {
+        if !self.filter.matches(record) {
+            return;
+        }
+        if record.level() >= log::Level::Debug {
+            // Prepend target for debug/trace so interactive `journalctl -p debug`
+            // shows module origin without requiring -o verbose or jq.
+            let msg = format!("{}: {}", record.target(), record.args());
+            self.inner
+                .log(&record.to_builder().args(format_args!("{msg}")).build());
+        } else {
             self.inner.log(record);
         }
     }
