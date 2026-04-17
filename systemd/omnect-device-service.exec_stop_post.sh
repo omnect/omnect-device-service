@@ -9,7 +9,7 @@ echo SERVICE_RESULT=${SERVICE_RESULT}, EXIT_CODE=${EXIT_CODE}, EXIT_STATUS=${EXI
 
 function reboot() {
   echo "reboot triggered by ${script}: ${1}"
-  /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
+  sudo /usr/sbin/omnect_reboot_reason.sh log swupdate-validation-failed "${1}"
   systemctl start reboot.target
 }
 
