@@ -33,13 +33,9 @@ pub enum Command {
     ReloadNetwork,
     RunFirmwareUpdate(firmware_update::RunUpdateCommand),
     SetWaitOnlineTimeout(reboot::SetWaitOnlineTimeoutCommand),
-    /// "Refresh yourself" signal routed by `TypeId`. Emitted by periodic
-    /// timers (`interval_stream`) and by debounced event sources
-    /// (`debounced_command_stream`, e.g. networkd D-Bus signals). Carries no
-    /// payload beyond the target feature.
     Tick(TickCommand),
-    ValidateUpdate(bool),
     UserConsent(consent::UserConsentCommand),
+    ValidateUpdate(bool),
 }
 
 fn parse_payload<T: serde::de::DeserializeOwned>(
@@ -70,8 +66,8 @@ impl Command {
             RunFirmwareUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             SetWaitOnlineTimeout(_) => TypeId::of::<reboot::Reboot>(),
             Tick(cmd) => cmd.feature_id,
-            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
             UserConsent(_) => TypeId::of::<consent::DeviceUpdateConsent>(),
+            ValidateUpdate(_) => TypeId::of::<firmware_update::FirmwareUpdate>(),
         }
     }
 
@@ -88,13 +84,14 @@ impl Command {
         let payload = &direct_method.payload;
 
         match direct_method.name.as_str() {
+            "close_ssh_tunnel" => Ok(Command::CloseSshTunnel(parse_payload(
+                payload,
+                "close_ssh_tunnel",
+            )?)),
             "factory_reset" => Ok(Command::FactoryReset(parse_payload(
                 payload,
                 "factory_reset",
             )?)),
-            "user_consent" => Ok(Command::UserConsent(consent::UserConsentCommand {
-                user_consent: parse_payload(payload, "user_consent")?,
-            })),
             "get_ssh_pub_key" => Ok(Command::GetSshPubKey(parse_payload(
                 payload,
                 "get_ssh_pub_key",
@@ -103,15 +100,14 @@ impl Command {
                 payload,
                 "open_ssh_tunnel",
             )?)),
-            "close_ssh_tunnel" => Ok(Command::CloseSshTunnel(parse_payload(
-                payload,
-                "close_ssh_tunnel",
-            )?)),
             "reboot" => Ok(Command::Reboot),
             "set_wait_online_timeout" => Ok(Command::SetWaitOnlineTimeout(parse_payload(
                 payload,
                 "set_wait_online_timeout",
             )?)),
+            "user_consent" => Ok(Command::UserConsent(consent::UserConsentCommand {
+                user_consent: parse_payload(payload, "user_consent")?,
+            })),
             _ => bail!(
                 "cannot parse direct method {} with payload {}",
                 direct_method.name,
@@ -133,8 +129,9 @@ impl Command {
         if let Some(map) = value.as_object() {
             for k in map.keys() {
                 match k.as_str() {
-                    "ssh_tunnel_ca_pub" => match parse_payload(value, "DesiredUpdateDeviceSshCa") {
-                        Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
+                    "$version" => { /*ignore*/ }
+                    "fleet_id" => match parse_payload(value, "FleetIdCommand") {
+                        Ok(c) => cmds.push(Command::FleetId(c)),
                         Err(e) => error!("from_desired_property: {e:#}"),
                     },
                     "general_consent" => {
@@ -143,11 +140,10 @@ impl Command {
                             Err(e) => error!("from_desired_property: {e:#}"),
                         }
                     }
-                    "fleet_id" => match parse_payload(value, "FleetIdCommand") {
-                        Ok(c) => cmds.push(Command::FleetId(c)),
+                    "ssh_tunnel_ca_pub" => match parse_payload(value, "DesiredUpdateDeviceSshCa") {
+                        Ok(c) => cmds.push(Command::DesiredUpdateDeviceSshCa(c)),
                         Err(e) => error!("from_desired_property: {e:#}"),
                     },
-                    "$version" => { /*ignore*/ }
                     _ => warn!("from_desired_property: unhandled desired property {k}"),
                 };
             }
@@ -186,7 +182,7 @@ pub struct TickCommand {
     pub feature_id: TypeId,
 }
 
-pub fn interval_stream<T>(interval: Interval) -> CommandRequestStream
+pub fn tick_stream<T>(interval: Interval) -> CommandRequestStream
 where
     T: 'static,
 {

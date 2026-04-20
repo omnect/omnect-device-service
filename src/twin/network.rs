@@ -99,7 +99,7 @@ impl Feature for Network {
         if !self.is_enabled() || 0 == *REFRESH_NETWORK_STATUS_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(interval_stream::<Network>(interval(
+            Ok(Some(tick_stream::<Network>(interval(
                 Duration::from_secs(*REFRESH_NETWORK_STATUS_INTERVAL_SECS),
             ))))
         }

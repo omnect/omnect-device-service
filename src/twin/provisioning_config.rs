@@ -147,7 +147,7 @@ impl Feature for ProvisioningConfig {
             Ok(None)
         } else {
             match &self.method {
-                Method::X509(cert) if cert.est => Ok(Some(interval_stream::<ProvisioningConfig>(
+                Method::X509(cert) if cert.est => Ok(Some(tick_stream::<ProvisioningConfig>(
                     interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
                 ))),
                 _ => Ok(None),

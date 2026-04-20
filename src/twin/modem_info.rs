@@ -372,7 +372,7 @@ impl Feature for ModemInfo {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(interval_stream::<ModemInfo>(interval(
+            Ok(Some(tick_stream::<ModemInfo>(interval(
                 Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
             ))))
         }
