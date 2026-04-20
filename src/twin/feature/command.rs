@@ -18,6 +18,16 @@ use tokio_util::sync::CancellationToken;
 /// `Network` (networkd D-Bus signals) so both layers debounce identically.
 pub(crate) const COMMAND_EVENT_DEBOUNCE: Duration = Duration::from_secs(2);
 
+/// Await `deadline`, or never resolve if `None`. Used as the idle branch of
+/// `tokio::select!` arms that are only active while a debounce window is
+/// armed — `pending()` avoids periodic wake-ups from a far-future sentinel.
+pub(crate) async fn wait_for_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(d) => tokio::time::sleep_until(d).await,
+        None => std::future::pending().await,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     CloseSshTunnel(ssh_tunnel::CloseSshTunnelCommand),
@@ -248,14 +258,7 @@ where
                     }
                 },
 
-                // When no deadline is armed, `pending()` makes this arm never fire,
-                // avoiding the periodic wake-up of a far-future sentinel sleep.
-                _ = async {
-                    match deadline {
-                        Some(d) => tokio::time::sleep_until(d).await,
-                        None => std::future::pending().await,
-                    }
-                } => {
+                _ = wait_for_deadline(deadline) => {
                     deadline = None;
                     debug!("debounced_command_stream: silence elapsed, emitting");
                     let req = CommandRequest {

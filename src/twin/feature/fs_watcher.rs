@@ -1,44 +1,72 @@
 use crate::twin::feature::{
     COMMAND_EVENT_DEBOUNCE, Command, CommandRequest, FsEventCommand, FsEventKind,
+    command::wait_for_deadline,
 };
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use inotify::{WatchDescriptor, WatchMask};
+use inotify::{EventMask, WatchDescriptor, WatchMask};
 use log::{debug, error, warn};
 use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
+    ffi::OsString,
+    ops::ControlFlow,
     path::{Path, PathBuf},
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 const INOTIFY_EVENT_BUF_LEN: usize = 4096;
-const MAX_CONSECUTIVE_INOTIFY_ERRORS: u32 = 10;
 
-struct WatchInfo {
+/// Persistent (non-oneshot) watch. Every inotify event on the owning
+/// `WatchDescriptor` fires this entry; the kernel mask set at `Watches::add`
+/// is the only filter.
+struct ModifiedWatch {
     feature_id: TypeId,
     path: PathBuf,
     kind: FsEventKind,
-    oneshot: bool,
+}
+
+/// Oneshot `FileCreated` watch. The kernel watch lives on the parent
+/// directory; events are filtered by inotify mask (must intersect
+/// `CREATE | MOVED_TO`) and by event name (must equal the target filename)
+/// before dispatch, then the entry is removed.
+struct CreatedWatch {
+    feature_id: TypeId,
+    target: PathBuf,
+}
+
+/// A `CreatedWatch` that matched the current inotify event and is about to
+/// be dispatched. `idx` refers to the position inside the owning
+/// `Vec<CreatedWatch>` so the entry can be removed after a successful send.
+struct FiringOneshot {
+    idx: usize,
+    feature_id: TypeId,
+    target: PathBuf,
+}
+
+struct Backend {
+    inotify: inotify::Inotify,
+    watches: inotify::Watches,
+    modified: HashMap<WatchDescriptor, Vec<ModifiedWatch>>,
+    created: HashMap<WatchDescriptor, Vec<CreatedWatch>>,
 }
 
 /// Centralized inotify-based file watcher.
 ///
-/// Invariant: a given filesystem path must be registered with only one
-/// `FsEventKind`. `insert_watch` uses `WatchMask::MASK_ADD`, so the kernel
-/// mask is unioned across calls targeting the same path; mixing kinds (e.g.
-/// `DirModified` + `FileCreated` on the same directory) would cause the
-/// non-`FileCreated` entry — which doesn't filter by filename — to dispatch
-/// for events another kind subscribed to. Enforced by `debug_assert!` in
-/// `insert_watch`.
+/// Persistent watches (`ModifiedWatch`) and oneshot watches (`CreatedWatch`)
+/// are stored in separate per-descriptor tables so the same
+/// `WatchDescriptor` can legally hold both (e.g. a `DirModified` on a
+/// directory and a `FileCreated` for a specific file in that same
+/// directory). `MASK_ADD` unions kernel masks when registrations overlap;
+/// the event handler therefore filters `CreatedWatch` dispatch on both the
+/// event mask (`CREATE | MOVED_TO`) and the event name, while
+/// `ModifiedWatch` dispatch relies on the mask set at registration time.
+///
+/// The inotify backend is absent (`backend == None`) in the `noop` variant
+/// used by mock builds and tests.
 pub struct FsWatcher {
-    inotify: Option<inotify::Inotify>,
-    watches: Option<inotify::Watches>,
-    // `WatchDescriptor` implements `Eq`/`Hash`; using it as the key rather than
-    // the raw `c_int` id documents the invariant that all descriptors come
-    // from the same `Inotify` and removes the redundant `(wd, …)` value tuple.
-    watch_info: HashMap<WatchDescriptor, Vec<WatchInfo>>,
+    backend: Option<Backend>,
 }
 
 impl FsWatcher {
@@ -46,362 +74,401 @@ impl FsWatcher {
         let inotify = inotify::Inotify::init().context("FsWatcher: failed to init inotify")?;
         let watches = inotify.watches();
         Ok(Self {
-            inotify: Some(inotify),
-            watches: Some(watches),
-            watch_info: HashMap::new(),
+            backend: Some(Backend {
+                inotify,
+                watches,
+                modified: HashMap::new(),
+                created: HashMap::new(),
+            }),
         })
     }
 
     #[cfg(any(test, feature = "mock"))]
     pub fn noop() -> Self {
-        Self {
-            inotify: None,
-            watches: None,
-            watch_info: HashMap::new(),
-        }
+        Self { backend: None }
     }
 
     /// Watch a file for `CLOSE_WRITE` events (coalesced into one
     /// `FsEventKind::FileModified` command per debounce window).
     pub fn watch_file_modified<T: 'static>(&mut self, path: &Path) -> Result<()> {
-        self.insert_watch::<T>(
-            path,
+        self.register_modified::<T>(
             path,
             WatchMask::CLOSE_WRITE | WatchMask::MASK_ADD,
             FsEventKind::FileModified,
-            false,
         )
     }
 
-    /// Watch a directory for entry additions and deletions (coalesced into one
-    /// `FsEventKind::DirModified` command per debounce window).
+    /// Watch a directory for entry additions and deletions (coalesced into
+    /// one `FsEventKind::DirModified` command per debounce window).
     pub fn watch_dir_modified<T: 'static>(&mut self, path: &Path) -> Result<()> {
-        self.insert_watch::<T>(
-            path,
+        self.register_modified::<T>(
             path,
             WatchMask::CREATE | WatchMask::DELETE | WatchMask::MASK_ADD,
             FsEventKind::DirModified,
-            false,
         )
     }
 
     /// Watch for the appearance of a specific file (including atomic rename
     /// via `MOVED_TO`). Fires once, then the watch is removed.
     ///
-    /// The watch is placed on the parent directory and filtered by filename in
-    /// the event loop — kernel `ONESHOT` cannot be used because it would be
-    /// consumed by any event in the parent dir before our target is seen.
+    /// The kernel watch is placed on the parent directory; filename and
+    /// mask filtering happen in the event loop. Kernel `ONESHOT` cannot be
+    /// used: it would be consumed by any event in the parent dir before
+    /// our target is seen.
     pub fn watch_file_created_oneshot<T: 'static>(&mut self, path: &Path) -> Result<()> {
         let parent = path
             .parent()
-            .context("watch_file_created_oneshot: path has no parent")?;
-        self.insert_watch::<T>(
-            parent,
-            path,
-            WatchMask::CREATE | WatchMask::MOVED_TO | WatchMask::MASK_ADD,
-            FsEventKind::FileCreated,
-            true,
-        )
-    }
-
-    fn insert_watch<T: 'static>(
-        &mut self,
-        watch_path: &Path,
-        target_path: &Path,
-        mask: WatchMask,
-        kind: FsEventKind,
-        oneshot: bool,
-    ) -> Result<()> {
-        let Some(watches) = &mut self.watches else {
+            .with_context(|| format!("watch_file_created_oneshot: {path:?} has no parent"))?;
+        let Some(backend) = self.backend.as_mut() else {
             return Ok(());
         };
-
-        let wd = watches
-            .add(watch_path, mask)
-            .with_context(|| format!("insert_watch: failed to watch {watch_path:?}"))?;
-
-        debug!(
-            "insert_watch: {wd:?} on {watch_path:?} (target: {target_path:?}, oneshot: {oneshot})"
-        );
-
-        // See the `FsWatcher` doc-comment for the rationale behind this
-        // invariant. `MASK_ADD` unions kernel masks for repeated calls on the
-        // same path, so crossing kinds corrupts event routing in release
-        // builds too — the assert exists to flag the misuse loudly in debug
-        // builds and tests.
-        debug_assert!(
-            self.watch_info
-                .get(&wd)
-                .is_none_or(|infos| infos.iter().all(|i| i.kind == kind)),
-            "FsWatcher: {watch_path:?} already registered with a different FsEventKind"
-        );
-
-        let info = WatchInfo {
+        let wd = backend
+            .watches
+            .add(
+                parent,
+                WatchMask::CREATE | WatchMask::MOVED_TO | WatchMask::MASK_ADD,
+            )
+            .with_context(|| format!("watch_file_created_oneshot: failed to watch {parent:?}"))?;
+        debug!("watch_file_created_oneshot: {wd:?} on {parent:?} (target: {path:?})");
+        backend.created.entry(wd).or_default().push(CreatedWatch {
             feature_id: TypeId::of::<T>(),
-            path: target_path.to_path_buf(),
-            kind,
-            oneshot,
-        };
-
-        self.watch_info.entry(wd).or_default().push(info);
-
+            target: path.to_path_buf(),
+        });
         Ok(())
     }
 
-    /// Drop the kernel watch for `wd` if its user-space entry list is empty.
-    /// No-op when the entry is missing, still populated, or the inotify backend
-    /// is the noop variant.
-    fn remove_kernel_watch_if_empty(&mut self, wd: &WatchDescriptor) {
-        let is_empty = self
-            .watch_info
-            .get(wd)
-            .is_some_and(|infos| infos.is_empty());
-        if !is_empty {
-            return;
-        }
-        let Some((wd, _)) = self.watch_info.remove_entry(wd) else {
-            return;
+    fn register_modified<T: 'static>(
+        &mut self,
+        path: &Path,
+        mask: WatchMask,
+        kind: FsEventKind,
+    ) -> Result<()> {
+        let Some(backend) = self.backend.as_mut() else {
+            return Ok(());
         };
-        let Some(watches) = self.watches.as_mut() else {
-            return;
-        };
-        if let Err(e) = watches.remove(wd) {
-            debug!("FsWatcher: failed to remove kernel watch: {e}");
-        }
+        let wd = backend
+            .watches
+            .add(path, mask)
+            .with_context(|| format!("register_modified: failed to watch {path:?}"))?;
+        debug!("register_modified: {wd:?} on {path:?} ({kind:?})");
+        backend.modified.entry(wd).or_default().push(ModifiedWatch {
+            feature_id: TypeId::of::<T>(),
+            path: path.to_path_buf(),
+            kind,
+        });
+        Ok(())
     }
 
+    /// Consume the watcher and spawn its event loop. Returns `Ok(None)` for
+    /// the `noop` variant (no task spawned, `tx` is dropped). Returns
+    /// `Err(...)` when the synchronous event-stream setup fails — this is
+    /// reported before the task is spawned so the caller can surface it
+    /// alongside other initialisation errors, rather than observing a
+    /// silently-exited `JoinHandle`.
     pub fn into_stream(
-        mut self,
+        self,
         tx: mpsc::Sender<CommandRequest>,
         cancel: CancellationToken,
     ) -> Result<Option<JoinHandle<()>>> {
-        let Some(inotify) = self.inotify.take() else {
+        let Some(Backend {
+            inotify,
+            watches,
+            modified,
+            created,
+        }) = self.backend
+        else {
             return Ok(None);
         };
+        let stream = inotify
+            .into_event_stream(vec![0u8; INOTIFY_EVENT_BUF_LEN])
+            .context("FsWatcher: failed to create event stream")?;
+        Ok(Some(tokio::spawn(run_event_loop(
+            stream, watches, modified, created, tx, cancel,
+        ))))
+    }
+}
 
-        let handle = tokio::spawn(async move {
-            // Race-condition handling for FileCreated watches: if the file
-            // already exists at subscription time, send the event immediately
-            // (with guaranteed delivery via .await) rather than relying on a
-            // future inotify event that will never fire.
-            //
-            // Race: between try_exists() returning true and tx.send completing,
-            // the file could be unlinked. In that case the oneshot watch is
-            // still removed below, and a subsequent re-creation would be
-            // missed. Acceptable in practice because the watched paths are
-            // append-only state markers, not scratch files.
-            //
-            // Dispatched paths are tracked so their WatchInfo entries can be
-            // removed in a single pass, avoiding a second try_exists call that
-            // could itself race with deletion.
-            let mut dispatched: HashSet<PathBuf> = HashSet::new();
-            for infos in self.watch_info.values() {
-                for info in infos {
-                    if info.kind != FsEventKind::FileCreated {
-                        continue;
-                    }
-                    match info.path.try_exists() {
-                        Ok(false) => continue,
-                        Err(e) => {
-                            warn!("into_stream: cannot check {:?}: {e}", info.path);
-                            continue;
-                        }
-                        Ok(true) => {}
-                    }
-                    debug!(
-                        "into_stream: file already exists {:?}, sending immediately",
-                        info.path
-                    );
-                    if let Err(e) = tx
-                        .send(CommandRequest {
-                            command: Command::FsEvent(FsEventCommand {
-                                kind: FsEventKind::FileCreated,
-                                feature_id: info.feature_id,
-                                path: info.path.clone(),
-                            }),
-                            reply: None,
-                        })
-                        .await
-                    {
-                        error!("into_stream: receiver dropped during race-condition check: {e}");
-                        return;
-                    }
-                    dispatched.insert(info.path.clone());
-                }
-            }
+async fn run_event_loop(
+    mut stream: inotify::EventStream<Vec<u8>>,
+    mut watches: inotify::Watches,
+    mut modified: HashMap<WatchDescriptor, Vec<ModifiedWatch>>,
+    mut created: HashMap<WatchDescriptor, Vec<CreatedWatch>>,
+    tx: mpsc::Sender<CommandRequest>,
+    cancel: CancellationToken,
+) {
+    if dispatch_race_events(&mut created, &mut watches, &modified, &tx)
+        .await
+        .is_break()
+    {
+        return;
+    }
 
-            // Remove dispatched oneshot entries and clean up empty kernel watches
-            for infos in self.watch_info.values_mut() {
-                infos.retain(|info| !(info.oneshot && dispatched.contains(&info.path)));
-            }
-            let wds: Vec<WatchDescriptor> = self.watch_info.keys().cloned().collect();
-            for wd in &wds {
-                self.remove_kernel_watch_if_empty(wd);
-            }
-            let mut buffer = [0; INOTIFY_EVENT_BUF_LEN];
-            let mut stream = match inotify.into_event_stream(&mut buffer) {
-                Ok(stream) => stream,
-                Err(e) => {
-                    error!("into_stream: failed to create event stream: {e}");
+    // Debounce is keyed by `WatchDescriptor`, not by individual watch entry.
+    // Multiple persistent watches sharing a descriptor (e.g. two features
+    // watching the same path) share a single deadline.
+    let mut debounce_deadlines: HashMap<WatchDescriptor, tokio::time::Instant> = HashMap::new();
+
+    loop {
+        let min_deadline = debounce_deadlines.values().min().copied();
+
+        tokio::select! {
+            biased;
+
+            _ = cancel.cancelled() => return,
+
+            event = stream.next() => {
+                if handle_inotify_event(
+                    event,
+                    &mut modified,
+                    &mut created,
+                    &mut watches,
+                    &tx,
+                    &mut debounce_deadlines,
+                )
+                .await
+                .is_break()
+                {
                     return;
                 }
-            };
+            }
 
-            // Debounce is keyed by `WatchDescriptor`, not by individual
-            // `WatchInfo` entry. Multiple non-oneshot watches sharing the same
-            // inotify descriptor (e.g. two features watching the same path)
-            // share a single deadline.
-            let mut debounce_deadlines: HashMap<WatchDescriptor, tokio::time::Instant> =
-                HashMap::new();
-            let mut consecutive_inotify_errors: u32 = 0;
-
-            loop {
-                tokio::select! {
-                    biased;
-
-                    _ = cancel.cancelled() => return,
-
-                    event = stream.next() => {
-                        let Some(event) = event else {
-                            error!("FsWatcher: inotify stream ended, all file watches are now inactive");
-                            return;
-                        };
-                        let event = match event {
-                            Ok(e) => {
-                                consecutive_inotify_errors = 0;
-                                e
-                            }
-                            Err(e) => {
-                                consecutive_inotify_errors += 1;
-                                error!(
-                                    "FsWatcher: inotify error ({consecutive_inotify_errors}/{MAX_CONSECUTIVE_INOTIFY_ERRORS}): {e:#}"
-                                );
-                                if consecutive_inotify_errors >= MAX_CONSECUTIVE_INOTIFY_ERRORS {
-                                    error!(
-                                        "FsWatcher: {MAX_CONSECUTIVE_INOTIFY_ERRORS} consecutive inotify errors, exiting task; \
-                                         service will terminate and be restarted by systemd"
-                                    );
-                                    return;
-                                }
-                                continue;
-                            }
-                        };
-
-                        let wd = event.wd.clone();
-                        let Some(infos) = self.watch_info.get(&wd) else {
-                            debug!("FsWatcher: unknown wd {wd:?}");
-                            continue;
-                        };
-
-                        // Collect all matching entries. For `FileCreated` we
-                        // filter by filename; for others every entry for this
-                        // wd applies. Multiple features registering the same
-                        // target all receive notifications.
-                        let matched: Vec<(usize, TypeId, PathBuf, FsEventKind, bool)> = infos
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, info)| {
-                                if info.kind == FsEventKind::FileCreated {
-                                    info.path
-                                        .file_name()
-                                        .is_some_and(|expected| event.name.as_deref() == Some(expected))
-                                } else {
-                                    true
-                                }
-                            })
-                            .map(|(i, info)| {
-                                (i, info.feature_id, info.path.clone(), info.kind, info.oneshot)
-                            })
-                            .collect();
-
-                        if matched.is_empty() {
-                            continue;
-                        }
-
-                        let mut oneshot_indices: Vec<usize> = Vec::new();
-                        let mut has_non_oneshot = false;
-
-                        for (idx, feature_id, path, kind, oneshot) in matched {
-                            debug!("FsWatcher: event for {path:?} ({kind:?})");
-                            if oneshot {
-                                if tx.send(CommandRequest {
-                                    command: Command::FsEvent(FsEventCommand {
-                                        kind,
-                                        feature_id,
-                                        path,
-                                    }),
-                                    reply: None,
-                                }).await.is_err() {
-                                    warn!("FsWatcher: receiver dropped, stopping");
-                                    return;
-                                }
-                                oneshot_indices.push(idx);
-                            } else {
-                                has_non_oneshot = true;
-                            }
-                        }
-
-                        if !oneshot_indices.is_empty() {
-                            if let Some(infos) = self.watch_info.get_mut(&wd) {
-                                // Descending order keeps earlier indices valid
-                                // as later ones are removed.
-                                oneshot_indices.sort_unstable();
-                                for idx in oneshot_indices.into_iter().rev() {
-                                    infos.remove(idx);
-                                }
-                            }
-                            self.remove_kernel_watch_if_empty(&wd);
-                        }
-
-                        if has_non_oneshot {
-                            debounce_deadlines.insert(
-                                wd,
-                                tokio::time::Instant::now() + COMMAND_EVENT_DEBOUNCE,
-                            );
-                        }
-                    }
-
-                    // When no deadline is armed, `pending()` makes this arm never fire,
-                    // avoiding the periodic wake-up of a far-future sentinel sleep.
-                    _ = async {
-                        match debounce_deadlines.values().min().copied() {
-                            Some(d) => tokio::time::sleep_until(d).await,
-                            None => std::future::pending().await,
-                        }
-                    } => {
-                        let now = tokio::time::Instant::now();
-                        let expired: Vec<WatchDescriptor> = debounce_deadlines
-                            .iter()
-                            .filter(|(_, deadline)| **deadline <= now)
-                            .map(|(wd, _)| wd.clone())
-                            .collect();
-
-                        for wd in expired {
-                            debounce_deadlines.remove(&wd);
-                            if let Some(infos) = self.watch_info.get(&wd) {
-                                for info in infos {
-                                    debug!("FsWatcher: debounce elapsed for {:?}", info.path);
-                                    if tx.send(CommandRequest {
-                                        command: Command::FsEvent(FsEventCommand {
-                                            kind: info.kind,
-                                            feature_id: info.feature_id,
-                                            path: info.path.clone(),
-                                        }),
-                                        reply: None,
-                                    }).await.is_err() {
-                                        warn!("FsWatcher: receiver dropped, stopping");
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                    }
+            _ = wait_for_deadline(min_deadline) => {
+                if flush_expired_debounces(&modified, &mut debounce_deadlines, &tx)
+                    .await
+                    .is_break()
+                {
+                    return;
                 }
             }
-        });
-
-        Ok(Some(handle))
+        }
     }
+}
+
+/// Dispatch `FileCreated` events for any oneshot targets that already exist
+/// when the event loop starts. Prevents a lost event when the file appears
+/// between `Feature::new` and the event loop consuming the first inotify
+/// batch.
+///
+/// Between `try_exists() -> Ok(true)` and `tx.send` completing, the file
+/// could be unlinked; the oneshot is still consumed. Acceptable because
+/// watched paths are append-only state markers, not scratch files.
+async fn dispatch_race_events(
+    created: &mut HashMap<WatchDescriptor, Vec<CreatedWatch>>,
+    watches: &mut inotify::Watches,
+    modified: &HashMap<WatchDescriptor, Vec<ModifiedWatch>>,
+    tx: &mpsc::Sender<CommandRequest>,
+) -> ControlFlow<()> {
+    let mut dispatched: HashSet<PathBuf> = HashSet::new();
+    for list in created.values() {
+        for w in list {
+            match w.target.try_exists() {
+                Ok(false) => continue,
+                Err(e) => {
+                    warn!("dispatch_race_events: cannot check {:?}: {e}", w.target);
+                    continue;
+                }
+                Ok(true) => {}
+            }
+            debug!(
+                "dispatch_race_events: {:?} exists, sending immediately",
+                w.target
+            );
+            let req = CommandRequest {
+                command: Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileCreated,
+                    feature_id: w.feature_id,
+                    path: w.target.clone(),
+                }),
+                reply: None,
+            };
+            if tx.send(req).await.is_err() {
+                error!("dispatch_race_events: receiver dropped");
+                return ControlFlow::Break(());
+            }
+            dispatched.insert(w.target.clone());
+        }
+    }
+
+    // Prune consumed oneshots; reclaim kernel watches whose descriptor has
+    // no remaining user-space entries across both tables.
+    let wds_to_reclaim: Vec<WatchDescriptor> = created
+        .iter_mut()
+        .filter_map(|(wd, list)| {
+            list.retain(|w| !dispatched.contains(&w.target));
+            list.is_empty().then(|| wd.clone())
+        })
+        .collect();
+    for wd in wds_to_reclaim {
+        created.remove(&wd);
+        if modified.get(&wd).is_none_or(|l| l.is_empty())
+            && let Err(e) = watches.remove(wd.clone())
+        {
+            debug!("FsWatcher: failed to remove kernel watch: {e}");
+        }
+    }
+    ControlFlow::Continue(())
+}
+
+async fn handle_inotify_event(
+    event: Option<Result<inotify::Event<OsString>, std::io::Error>>,
+    modified: &mut HashMap<WatchDescriptor, Vec<ModifiedWatch>>,
+    created: &mut HashMap<WatchDescriptor, Vec<CreatedWatch>>,
+    watches: &mut inotify::Watches,
+    tx: &mpsc::Sender<CommandRequest>,
+    debounce_deadlines: &mut HashMap<WatchDescriptor, tokio::time::Instant>,
+) -> ControlFlow<()> {
+    let Some(event) = event else {
+        error!("FsWatcher: inotify stream ended, all file watches are now inactive");
+        return ControlFlow::Break(());
+    };
+    let event = match event {
+        Ok(e) => e,
+        // inotify-rs auto-retries EINTR/EAGAIN internally; any Err that
+        // surfaces here (EBADF, EINVAL, …) is terminal. Exit immediately so
+        // systemd restarts with a fresh inotify instance rather than
+        // looping on a broken fd.
+        Err(e) => {
+            error!("FsWatcher: terminal inotify error: {e:#}");
+            return ControlFlow::Break(());
+        }
+    };
+
+    // Q_OVERFLOW: the kernel dropped events we cannot reconstruct. Bail out
+    // so systemd restarts and rebuilds a consistent view rather than
+    // silently missing file-state transitions.
+    if event.mask.contains(EventMask::Q_OVERFLOW) {
+        error!("FsWatcher: inotify queue overflow, exiting to let systemd restart");
+        return ControlFlow::Break(());
+    }
+
+    let wd = event.wd.clone();
+    let has_modified = modified.get(&wd).is_some_and(|l| !l.is_empty());
+    let is_create_or_move = event
+        .mask
+        .intersects(EventMask::CREATE | EventMask::MOVED_TO);
+
+    if has_modified {
+        debug!("FsWatcher: event on {wd:?}, arming debounce");
+        debounce_deadlines.insert(
+            wd.clone(),
+            tokio::time::Instant::now() + COMMAND_EVENT_DEBOUNCE,
+        );
+    }
+
+    let mut created_changed = false;
+    if is_create_or_move && let Some(list) = created.get_mut(&wd) {
+        // Collect matches first so the `list` borrow is free across the
+        // `.await` in the send loop below.
+        let to_fire: Vec<FiringOneshot> = list
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| {
+                w.target
+                    .file_name()
+                    .is_some_and(|expected| event.name.as_deref() == Some(expected))
+            })
+            .map(|(i, w)| FiringOneshot {
+                idx: i,
+                feature_id: w.feature_id,
+                target: w.target.clone(),
+            })
+            .collect();
+
+        let mut fired_indices: Vec<usize> = Vec::with_capacity(to_fire.len());
+        for firing in to_fire {
+            debug!("FsWatcher: oneshot match for {:?}", firing.target);
+            let req = CommandRequest {
+                command: Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileCreated,
+                    feature_id: firing.feature_id,
+                    path: firing.target,
+                }),
+                reply: None,
+            };
+            if tx.send(req).await.is_err() {
+                warn!("FsWatcher: receiver dropped, stopping");
+                return ControlFlow::Break(());
+            }
+            fired_indices.push(firing.idx);
+        }
+
+        if !fired_indices.is_empty() {
+            // Descending removal keeps earlier indices valid as later ones
+            // are removed.
+            for idx in fired_indices.into_iter().rev() {
+                list.remove(idx);
+            }
+            created_changed = true;
+        }
+    }
+
+    if created_changed {
+        reclaim_if_unused(modified, created, watches, &wd);
+    }
+
+    ControlFlow::Continue(())
+}
+
+async fn flush_expired_debounces(
+    modified: &HashMap<WatchDescriptor, Vec<ModifiedWatch>>,
+    debounce_deadlines: &mut HashMap<WatchDescriptor, tokio::time::Instant>,
+    tx: &mpsc::Sender<CommandRequest>,
+) -> ControlFlow<()> {
+    let now = tokio::time::Instant::now();
+    let expired: Vec<WatchDescriptor> = debounce_deadlines
+        .iter()
+        .filter(|(_, d)| **d <= now)
+        .map(|(wd, _)| wd.clone())
+        .collect();
+
+    for wd in expired {
+        debounce_deadlines.remove(&wd);
+        let Some(list) = modified.get(&wd) else {
+            continue;
+        };
+        for w in list {
+            debug!(
+                "FsWatcher: debounce elapsed for {:?} ({:?})",
+                w.path, w.kind
+            );
+            let req = CommandRequest {
+                command: Command::FsEvent(FsEventCommand {
+                    kind: w.kind,
+                    feature_id: w.feature_id,
+                    path: w.path.clone(),
+                }),
+                reply: None,
+            };
+            if tx.send(req).await.is_err() {
+                warn!("FsWatcher: receiver dropped, stopping");
+                return ControlFlow::Break(());
+            }
+        }
+    }
+    ControlFlow::Continue(())
+}
+
+/// Remove the kernel watch for `wd` when both user-space tables are empty
+/// for that descriptor. The kernel remove is attempted before user-space
+/// cleanup; if it fails (typically because the kernel auto-removed the
+/// descriptor, e.g. the watched dir was deleted) the user-space entries
+/// are still cleaned up — the `wd` is gone either way.
+fn reclaim_if_unused(
+    modified: &mut HashMap<WatchDescriptor, Vec<ModifiedWatch>>,
+    created: &mut HashMap<WatchDescriptor, Vec<CreatedWatch>>,
+    watches: &mut inotify::Watches,
+    wd: &WatchDescriptor,
+) {
+    let modified_empty = modified.get(wd).is_none_or(|l| l.is_empty());
+    let created_empty = created.get(wd).is_none_or(|l| l.is_empty());
+    if !(modified_empty && created_empty) {
+        return;
+    }
+    if let Err(e) = watches.remove(wd.clone()) {
+        debug!("FsWatcher: failed to remove kernel watch: {e}");
+    }
+    modified.remove(wd);
+    created.remove(wd);
 }
 
 #[cfg(test)]
@@ -409,6 +476,12 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tokio::time::{Duration, timeout};
+
+    const STREAM_STARTUP_DELAY: Duration = Duration::from_millis(50);
+    // `COMMAND_EVENT_DEBOUNCE` plus a CI-safe margin.
+    const DEBOUNCED_EVENT_TIMEOUT: Duration = Duration::from_secs(4);
+    const IMMEDIATE_EVENT_TIMEOUT: Duration = Duration::from_millis(500);
+    const NEGATIVE_WAIT: Duration = Duration::from_secs(1);
 
     struct TestFeature;
 
@@ -441,6 +514,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn watch_file_created_oneshot_rejects_path_without_parent() {
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        let err = watcher
+            .watch_file_created_oneshot::<TestFeature>(Path::new("/"))
+            .expect_err("root path must be rejected");
+        assert!(
+            format!("{err:#}").contains("no parent"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[tokio::test]
     async fn into_stream_file_modified() {
         let mut tmp = tempfile::NamedTempFile::new().expect("create temp file");
         let path = tmp.path().to_path_buf();
@@ -454,16 +539,13 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        // Allow event loop to start
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
-        // Trigger CLOSE_WRITE
         writeln!(tmp, "hello").expect("write");
         tmp.flush().expect("flush");
         drop(tmp);
 
-        // Wait for debounced event (2s debounce + margin)
-        let req = timeout(Duration::from_secs(4), rx.recv())
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout waiting for event")
             .expect("channel closed");
@@ -491,11 +573,11 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
         std::fs::write(dir_path.join("new-file.txt"), "content").expect("create file");
 
-        let req = timeout(Duration::from_secs(4), rx.recv())
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout waiting for event")
             .expect("channel closed");
@@ -523,11 +605,11 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
         std::fs::write(&target, "created").expect("create file");
 
-        let req = timeout(Duration::from_secs(4), rx.recv())
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout waiting for event")
             .expect("channel closed");
@@ -552,7 +634,6 @@ mod tests {
             .watch_file_created_oneshot::<TestFeature>(&target)
             .expect("watch_file_created_oneshot");
 
-        // Create file BEFORE into_stream — race condition path
         std::fs::write(&target, "pre-existing").expect("create file");
 
         let (tx, mut rx) = mpsc::channel(16);
@@ -560,10 +641,9 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        // Should receive the event immediately (no debounce for race-detected oneshot)
-        let req = timeout(Duration::from_millis(500), rx.recv())
+        let req = timeout(IMMEDIATE_EVENT_TIMEOUT, rx.recv())
             .await
-            .expect("timeout: race condition event should arrive immediately")
+            .expect("timeout: race-condition event should arrive immediately")
             .expect("channel closed");
 
         match req.command {
@@ -590,16 +670,14 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
-        // Write 3 times in quick succession (each open+write+close triggers CLOSE_WRITE)
         for i in 0..3 {
             std::fs::write(&path, format!("write {i}")).expect("write");
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // First event should arrive after debounce (~2s after last write)
-        let req = timeout(Duration::from_secs(4), rx.recv())
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout waiting for debounced event")
             .expect("channel closed");
@@ -612,7 +690,6 @@ mod tests {
             other => panic!("expected FsEvent(FileModified), got {other:?}"),
         }
 
-        // No second event should arrive (debounce coalesced all three writes)
         let second = timeout(Duration::from_secs(3), rx.recv()).await;
         assert!(
             second.is_err(),
@@ -622,9 +699,6 @@ mod tests {
 
     #[tokio::test]
     async fn file_created_oneshot_ignores_unrelated_files() {
-        // Regression: kernel ONESHOT on the parent dir would be consumed by any
-        // CREATE event, not just the target filename. With user-space oneshot,
-        // unrelated files must not prevent the target from being detected.
         let tmp = tempfile::tempdir().expect("create temp dir");
         let target = tmp.path().join("target.txt");
         let (tx, mut rx) = mpsc::channel(16);
@@ -637,16 +711,14 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
-        // Create an unrelated file first — must NOT consume the watch
         std::fs::write(tmp.path().join("unrelated.txt"), "noise").expect("create unrelated");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Now create the target file
         std::fs::write(&target, "found").expect("create target");
 
-        let req = timeout(Duration::from_secs(4), rx.recv())
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout: target event should arrive despite unrelated file")
             .expect("channel closed");
@@ -663,9 +735,6 @@ mod tests {
 
     #[tokio::test]
     async fn file_created_race_no_duplicate() {
-        // Regression: after into_stream dispatches an immediate event for a
-        // pre-existing file, the watch_info must be cleaned up so the inotify
-        // watch (still active on parent dir) doesn't produce a duplicate event.
         let tmp = tempfile::tempdir().expect("create temp dir");
         let target = tmp.path().join("exists.txt");
 
@@ -674,7 +743,6 @@ mod tests {
             .watch_file_created_oneshot::<TestFeature>(&target)
             .expect("watch_file_created_oneshot");
 
-        // File exists before into_stream
         std::fs::write(&target, "pre-existing").expect("create file");
 
         let (tx, mut rx) = mpsc::channel(16);
@@ -682,8 +750,7 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        // First event: immediate dispatch from race-condition handling
-        let req = timeout(Duration::from_millis(500), rx.recv())
+        let req = timeout(IMMEDIATE_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout: immediate event expected")
             .expect("channel closed");
@@ -696,8 +763,7 @@ mod tests {
             other => panic!("expected FsEvent(FileCreated), got {other:?}"),
         }
 
-        // No duplicate event should arrive (watch_info was cleaned up)
-        let second = timeout(Duration::from_secs(1), rx.recv()).await;
+        let second = timeout(NEGATIVE_WAIT, rx.recv()).await;
         assert!(
             second.is_err(),
             "expected no duplicate event after race-condition dispatch"
@@ -722,14 +788,14 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
         std::fs::write(&target_a, "a").expect("create a");
         std::fs::write(&target_b, "b").expect("create b");
 
         let mut paths = Vec::new();
         for _ in 0..2 {
-            let req = timeout(Duration::from_secs(4), rx.recv())
+            let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
                 .await
                 .expect("timeout")
                 .expect("channel closed");
@@ -750,10 +816,6 @@ mod tests {
 
     #[tokio::test]
     async fn file_created_race_cleans_up_kernel_watch() {
-        // Regression: after race-path dispatch for a pre-existing file, the
-        // kernel watch on the parent dir must be removed. Otherwise, creating
-        // new files in the same dir generates inotify events for a stale wd
-        // with no watch_info entries.
         let tmp = tempfile::tempdir().expect("create temp dir");
         let target = tmp.path().join("pre-existing.txt");
 
@@ -762,7 +824,6 @@ mod tests {
             .watch_file_created_oneshot::<TestFeature>(&target)
             .expect("watch_file_created_oneshot");
 
-        // File exists before into_stream
         std::fs::write(&target, "already here").expect("create file");
 
         let (tx, mut rx) = mpsc::channel(16);
@@ -770,18 +831,14 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        // Consume the immediate race-path event
-        let _ = timeout(Duration::from_millis(500), rx.recv())
+        let _ = timeout(IMMEDIATE_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout: immediate event expected")
             .expect("channel closed");
 
-        // Create another file in the same parent dir — if the kernel watch
-        // was not cleaned up, this would trigger an inotify event for the
-        // stale wd. With proper cleanup, no event should arrive.
         std::fs::write(tmp.path().join("other.txt"), "noise").expect("create other file");
 
-        let spurious = timeout(Duration::from_secs(1), rx.recv()).await;
+        let spurious = timeout(NEGATIVE_WAIT, rx.recv()).await;
         assert!(
             spurious.is_err(),
             "expected no event after kernel watch cleanup, but got one"
@@ -802,7 +859,6 @@ mod tests {
 
         assert!(handle.is_none(), "noop should not spawn a task");
 
-        // tx is consumed and dropped (no task spawned), so rx.recv() returns None
         assert!(
             rx.recv().await.is_none(),
             "noop watcher should produce no events"
@@ -825,15 +881,13 @@ mod tests {
             .expect("into_stream")
             .expect("should spawn a task");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
         cancel.cancel();
 
-        // The spawned task should exit, completing the JoinHandle
-        let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
+        let result = timeout(Duration::from_secs(2), handle).await;
         assert!(result.is_ok(), "task should exit after cancellation");
 
-        // Channel should close (tx dropped by the exiting task)
         assert!(
             rx.recv().await.is_none(),
             "channel should close after cancellation"
@@ -842,9 +896,6 @@ mod tests {
 
     #[tokio::test]
     async fn file_created_oneshot_fanout_to_all_registrants() {
-        // Regression: when two features register the same file-created target
-        // (same parent dir, same filename), both must be notified — not just
-        // the first one matched by `position()`.
         struct FeatureA;
         struct FeatureB;
 
@@ -863,12 +914,12 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
         std::fs::write(&target, "shared").expect("create target");
 
         let mut feature_ids = Vec::new();
         for _ in 0..2 {
-            let req = timeout(Duration::from_secs(4), rx.recv())
+            let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
                 .await
                 .expect("timeout waiting for fan-out event")
                 .expect("channel closed");
@@ -887,9 +938,58 @@ mod tests {
         expected.sort();
         assert_eq!(feature_ids, expected);
 
-        // No third event — both oneshot entries were consumed.
-        let third = timeout(Duration::from_secs(1), rx.recv()).await;
+        let third = timeout(NEGATIVE_WAIT, rx.recv()).await;
         assert!(third.is_err(), "expected no third event");
+    }
+
+    #[tokio::test]
+    async fn file_created_race_fanout_to_all_registrants() {
+        // Regression: when two features register the same pre-existing
+        // target, the race-path dispatch at startup must deliver to both —
+        // not only the first one enumerated.
+        struct FeatureA;
+        struct FeatureB;
+
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("pre-existing.txt");
+        std::fs::write(&target, "pre").expect("create target");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_created_oneshot::<FeatureA>(&target)
+            .expect("watch A");
+        watcher
+            .watch_file_created_oneshot::<FeatureB>(&target)
+            .expect("watch B");
+
+        let (tx, mut rx) = mpsc::channel(16);
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+
+        let mut feature_ids = Vec::new();
+        for _ in 0..2 {
+            let req = timeout(IMMEDIATE_EVENT_TIMEOUT, rx.recv())
+                .await
+                .expect("timeout: race-path fan-out event")
+                .expect("channel closed");
+            match req.command {
+                Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileCreated,
+                    feature_id,
+                    ..
+                }) => feature_ids.push(feature_id),
+                other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+            }
+        }
+
+        feature_ids.sort();
+        let mut expected = vec![TypeId::of::<FeatureA>(), TypeId::of::<FeatureB>()];
+        expected.sort();
+        assert_eq!(feature_ids, expected);
+
+        let third = timeout(NEGATIVE_WAIT, rx.recv()).await;
+        assert!(third.is_err(), "expected no third event after race fan-out");
     }
 
     #[tokio::test]
@@ -906,14 +1006,13 @@ mod tests {
             .into_stream(tx, CancellationToken::new())
             .expect("into_stream");
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
 
-        // Create via atomic rename (tempfile + rename), which produces MOVED_TO
         let staging = tmp.path().join(".staging.tmp");
         std::fs::write(&staging, "atomic content").expect("write staging");
         std::fs::rename(&staging, &target).expect("rename");
 
-        let req = timeout(Duration::from_secs(4), rx.recv())
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
             .await
             .expect("timeout: MOVED_TO event should be detected")
             .expect("channel closed");
@@ -926,5 +1025,345 @@ mod tests {
             }) => assert_eq!(path, &target),
             other => panic!("expected FsEvent(FileCreated), got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn dir_modified_and_file_created_coexist_on_same_parent() {
+        // Kind-split tables allow a persistent DirModified and a oneshot
+        // FileCreated to share the same parent-directory descriptor. A
+        // CREATE event must fire both: FileCreated immediately (oneshot
+        // consumed), DirModified after the debounce.
+        struct DirFeature;
+        struct FileFeature;
+
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("target.txt");
+        let (tx, mut rx) = mpsc::channel(16);
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_dir_modified::<DirFeature>(tmp.path())
+            .expect("watch dir");
+        watcher
+            .watch_file_created_oneshot::<FileFeature>(&target)
+            .expect("watch file");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
+        std::fs::write(&target, "x").expect("create target");
+
+        let first = timeout(IMMEDIATE_EVENT_TIMEOUT, rx.recv())
+            .await
+            .expect("timeout: FileCreated event")
+            .expect("channel closed");
+        let first_id = match first.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                feature_id,
+                ..
+            }) => feature_id,
+            other => panic!("expected FsEvent(FileCreated), got {other:?}"),
+        };
+        assert_eq!(first_id, TypeId::of::<FileFeature>());
+
+        let second = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
+            .await
+            .expect("timeout: DirModified event")
+            .expect("channel closed");
+        let second_id = match second.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::DirModified,
+                feature_id,
+                ..
+            }) => feature_id,
+            other => panic!("expected FsEvent(DirModified), got {other:?}"),
+        };
+        assert_eq!(second_id, TypeId::of::<DirFeature>());
+    }
+
+    #[tokio::test]
+    async fn delete_event_does_not_fire_created_oneshot() {
+        // Regression: MASK_ADD on a parent directory with both
+        // watch_file_created_oneshot (CREATE|MOVED_TO) and a prior DELETE
+        // from another registration (e.g. none here; we simulate by
+        // pre-creating then removing the target before into_stream).
+        // Without the event-mask filter, the queued DELETE event for the
+        // target filename would erroneously fire the still-armed oneshot.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, "pre").expect("create target");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        // Register DirModified first so the kernel mask gains DELETE on
+        // the parent dir, which is the scenario that produces a queued
+        // DELETE event for the target filename.
+        watcher
+            .watch_dir_modified::<TestFeature>(tmp.path())
+            .expect("watch dir");
+        watcher
+            .watch_file_created_oneshot::<TestFeature>(&target)
+            .expect("watch oneshot");
+
+        // Remove target before into_stream. `try_exists` in dispatch_race
+        // will see false, so the oneshot is NOT race-fired. The inotify
+        // queue holds a DELETE event with name="target.txt".
+        std::fs::remove_file(&target).expect("remove target");
+
+        let (tx, mut rx) = mpsc::channel(16);
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+
+        // Give the event loop time to read the queued DELETE.
+        tokio::time::sleep(IMMEDIATE_EVENT_TIMEOUT).await;
+
+        // The only event we expect is the DirModified, debounced. A
+        // FileCreated would indicate the mask filter failed.
+        let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
+            .await
+            .expect("timeout: DirModified should still fire")
+            .expect("channel closed");
+        match req.command {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::DirModified,
+                ..
+            }) => {}
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ..
+            }) => panic!("DELETE event erroneously fired FileCreated oneshot"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let extra = timeout(NEGATIVE_WAIT, rx.recv()).await;
+        assert!(extra.is_err(), "expected only DirModified, got extra event");
+    }
+
+    #[tokio::test]
+    async fn debounce_handles_multiple_wds_independently() {
+        let tmp1 = tempfile::NamedTempFile::new().expect("tmp1");
+        let tmp2 = tempfile::NamedTempFile::new().expect("tmp2");
+        let p1 = tmp1.path().to_path_buf();
+        let p2 = tmp2.path().to_path_buf();
+
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_modified::<TestFeature>(&p1)
+            .expect("watch p1");
+        watcher
+            .watch_file_modified::<TestFeature>(&p2)
+            .expect("watch p2");
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
+
+        std::fs::write(&p1, "a").expect("write p1");
+        std::fs::write(&p2, "b").expect("write p2");
+
+        let mut paths = Vec::new();
+        for _ in 0..2 {
+            let req = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
+                .await
+                .expect("timeout waiting for debounced event")
+                .expect("channel closed");
+            match req.command {
+                Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileModified,
+                    path,
+                    ..
+                }) => paths.push(path),
+                other => panic!("expected FileModified, got {other:?}"),
+            }
+        }
+        paths.sort();
+        let mut expected = vec![p1, p2];
+        expected.sort();
+        assert_eq!(paths, expected);
+    }
+
+    #[tokio::test]
+    async fn receiver_drop_stops_event_loop_during_race_dispatch() {
+        // The race-path dispatch runs before the inotify event loop; a
+        // receiver already gone at spawn time must terminate the task.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("pre-existing.txt");
+        std::fs::write(&target, "pre").expect("create file");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_created_oneshot::<TestFeature>(&target)
+            .expect("watch_file_created_oneshot");
+
+        let (tx, rx) = mpsc::channel(1);
+        drop(rx);
+
+        let handle = watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream")
+            .expect("should spawn");
+
+        let result = timeout(Duration::from_secs(2), handle).await;
+        assert!(
+            result.is_ok(),
+            "task should exit when receiver is gone before race dispatch"
+        );
+    }
+
+    #[tokio::test]
+    async fn receiver_drop_stops_event_loop_during_oneshot_dispatch() {
+        // The inotify-driven oneshot dispatch sends per-match; a receiver
+        // dropped after the event loop is alive must terminate the task on
+        // the first send attempt.
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("target.txt");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_created_oneshot::<TestFeature>(&target)
+            .expect("watch_file_created_oneshot");
+
+        let (tx, rx) = mpsc::channel(16);
+        let handle = watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream")
+            .expect("should spawn");
+
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
+        drop(rx);
+
+        std::fs::write(&target, "now").expect("create target");
+
+        let result = timeout(Duration::from_secs(2), handle).await;
+        assert!(
+            result.is_ok(),
+            "task should exit when oneshot dispatch fails to send"
+        );
+    }
+
+    #[tokio::test]
+    async fn receiver_drop_stops_event_loop_during_debounce_flush() {
+        let tmp = tempfile::NamedTempFile::new().expect("tmp");
+        let path = tmp.path().to_path_buf();
+        let (tx, rx) = mpsc::channel(16);
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_modified::<TestFeature>(&path)
+            .expect("watch");
+        let handle = watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream")
+            .expect("should spawn");
+
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
+
+        drop(rx);
+
+        std::fs::write(&path, "x").expect("write");
+
+        let result = timeout(Duration::from_secs(5), handle).await;
+        assert!(
+            result.is_ok(),
+            "task should exit after receiver drop during debounce flush"
+        );
+    }
+
+    /// Get a live `WatchDescriptor` to use when fabricating synthetic
+    /// `inotify::Event` values for the unit tests below. `WatchDescriptor`
+    /// fields are `pub(crate)` in the `inotify` crate, so we cannot build
+    /// one directly.
+    fn live_watch_descriptor(
+        watches: &mut inotify::Watches,
+        path: &Path,
+    ) -> WatchDescriptor {
+        watches
+            .add(path, WatchMask::CREATE)
+            .expect("add live watch")
+    }
+
+    #[tokio::test]
+    async fn handle_event_q_overflow_breaks_loop() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let inotify = inotify::Inotify::init().expect("inotify init");
+        let mut watches = inotify.watches();
+        let wd = live_watch_descriptor(&mut watches, tmp.path());
+
+        let mut modified: HashMap<WatchDescriptor, Vec<ModifiedWatch>> = HashMap::new();
+        let mut created: HashMap<WatchDescriptor, Vec<CreatedWatch>> = HashMap::new();
+        let mut deadlines: HashMap<WatchDescriptor, tokio::time::Instant> = HashMap::new();
+        let (tx, _rx) = mpsc::channel(1);
+
+        let synthetic: inotify::Event<OsString> = inotify::Event {
+            wd: wd.clone(),
+            mask: EventMask::Q_OVERFLOW,
+            cookie: 0,
+            name: None,
+        };
+
+        let flow = handle_inotify_event(
+            Some(Ok(synthetic)),
+            &mut modified,
+            &mut created,
+            &mut watches,
+            &tx,
+            &mut deadlines,
+        )
+        .await;
+
+        assert!(flow.is_break(), "Q_OVERFLOW must break the event loop");
+        assert!(
+            deadlines.is_empty(),
+            "Q_OVERFLOW must not arm a debounce deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_event_terminal_error_breaks_loop() {
+        let inotify = inotify::Inotify::init().expect("inotify init");
+        let mut watches = inotify.watches();
+
+        let mut modified: HashMap<WatchDescriptor, Vec<ModifiedWatch>> = HashMap::new();
+        let mut created: HashMap<WatchDescriptor, Vec<CreatedWatch>> = HashMap::new();
+        let mut deadlines: HashMap<WatchDescriptor, tokio::time::Instant> = HashMap::new();
+        let (tx, _rx) = mpsc::channel(1);
+
+        let err = std::io::Error::other("synthetic terminal error");
+        let flow = handle_inotify_event(
+            Some(Err(err)),
+            &mut modified,
+            &mut created,
+            &mut watches,
+            &tx,
+            &mut deadlines,
+        )
+        .await;
+
+        assert!(flow.is_break(), "terminal inotify error must break the loop");
+    }
+
+    #[tokio::test]
+    async fn handle_event_stream_end_breaks_loop() {
+        let inotify = inotify::Inotify::init().expect("inotify init");
+        let mut watches = inotify.watches();
+
+        let mut modified: HashMap<WatchDescriptor, Vec<ModifiedWatch>> = HashMap::new();
+        let mut created: HashMap<WatchDescriptor, Vec<CreatedWatch>> = HashMap::new();
+        let mut deadlines: HashMap<WatchDescriptor, tokio::time::Instant> = HashMap::new();
+        let (tx, _rx) = mpsc::channel(1);
+
+        let flow = handle_inotify_event(
+            None,
+            &mut modified,
+            &mut created,
+            &mut watches,
+            &tx,
+            &mut deadlines,
+        )
+        .await;
+
+        assert!(flow.is_break(), "stream end must break the loop");
     }
 }
