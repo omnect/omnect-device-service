@@ -16,6 +16,10 @@ use std::{
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
+/// inotify event header is 16 bytes plus a NUL-terminated name. 4096 bytes
+/// hold ~64 short-name events per read; the `EventStream` loops to drain
+/// the fd, so this is a per-syscall batch size, not a queue cap. Increase
+/// only if strace shows frequent short reads on a bursty workload.
 const INOTIFY_EVENT_BUF_LEN: usize = 4096;
 
 /// Persistent (non-oneshot) watch. Every inotify event on the owning
@@ -1275,10 +1279,7 @@ mod tests {
     /// `inotify::Event` values for the unit tests below. `WatchDescriptor`
     /// fields are `pub(crate)` in the `inotify` crate, so we cannot build
     /// one directly.
-    fn live_watch_descriptor(
-        watches: &mut inotify::Watches,
-        path: &Path,
-    ) -> WatchDescriptor {
+    fn live_watch_descriptor(watches: &mut inotify::Watches, path: &Path) -> WatchDescriptor {
         watches
             .add(path, WatchMask::CREATE)
             .expect("add live watch")
@@ -1341,7 +1342,10 @@ mod tests {
         )
         .await;
 
-        assert!(flow.is_break(), "terminal inotify error must break the loop");
+        assert!(
+            flow.is_break(),
+            "terminal inotify error must break the loop"
+        );
     }
 
     #[tokio::test]

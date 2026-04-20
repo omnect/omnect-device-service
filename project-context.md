@@ -73,9 +73,9 @@
 - **Build (non-mock):** `cargo build --features bootloader_grub`
 - **Build (mock/test):** `cargo build --features mock`
 - **Run Tests:** `cargo test --features mock`
-- **Lint:** `cargo clippy --features bootloader_grub`
+- **Lint:** `cargo clippy --features bootloader_grub -- -D warnings`
 - **Format:** `cargo fmt`
-- **Pre-commit check:** `cargo fmt && cargo clippy --features bootloader_grub` (must pass before committing)
+- **Pre-commit check:** `cargo fmt && cargo clippy --features bootloader_grub -- -D warnings` (must pass before committing)
 
 ## 6. Global Rule Overrides
 

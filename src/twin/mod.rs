@@ -311,13 +311,19 @@ impl Twin {
 
     // Without FsWatcher, feature commands triggered by file changes are lost
     // silently. Shut down and surface an error so main exits non-zero and
-    // systemd restarts the service with a fresh watcher.
+    // systemd restarts the service with a fresh watcher. If the task exited
+    // because we cancelled it (normal shutdown), return Ok — the watcher
+    // ending was expected and another branch owns the exit code.
     async fn handle_fs_watcher_exit(
         &mut self,
         result: Result<(), tokio::task::JoinError>,
         rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
         rx_outgoing_message: &mut mpsc::Receiver<IotMessage>,
     ) -> Result<()> {
+        if self.cancel.is_cancelled() {
+            info!("FsWatcher task exited after cancellation");
+            return Ok(());
+        }
         match result {
             Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
             Err(e) => error!("FsWatcher task panicked: {e}"),
