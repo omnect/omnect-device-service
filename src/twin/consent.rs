@@ -5,7 +5,6 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use azure_iot_sdk::client::IotMessage;
 use log::{info, warn};
-use notify_debouncer_full::{Debouncer, NoCache, notify::*};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::HashMap, env, path::Path};
@@ -53,9 +52,7 @@ pub struct ConsentConfig {
     reset_consent_on_fail: bool,
 }
 
-#[derive(Default)]
 pub struct DeviceUpdateConsent {
-    file_observer: Option<Debouncer<INotifyWatcher, NoCache>>,
     tx_reported_properties: Option<Sender<serde_json::Value>>,
 }
 
@@ -87,20 +84,14 @@ impl Feature for DeviceUpdateConsent {
             .await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
-        let (file_observer, stream) = file_modified_stream::<DeviceUpdateConsent>(vec![
-            request_consent_path!().as_path(),
-            history_consent_path!().as_path(),
-        ])
-        .context("command_request_stream: cannot create file_modified_stream")?;
-        self.file_observer = Some(file_observer);
-        Ok(Some(stream))
-    }
-
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::FileModified(file) => {
-                self.report_consent(from_json_file(&file.path)?).await?;
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
+                path,
+                ..
+            }) => {
+                self.report_consent(from_json_file(path)?).await?;
             }
             Command::DesiredGeneralConsent(cmd) => {
                 self.update_general_consent(cmd).await?;
@@ -118,6 +109,16 @@ impl Feature for DeviceUpdateConsent {
 impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
+
+    pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
+        for path in [request_consent_path!(), history_consent_path!()] {
+            fs_watcher.watch_file_modified::<DeviceUpdateConsent>(&path)?;
+        }
+
+        Ok(Self {
+            tx_reported_properties: None,
+        })
+    }
 
     fn user_consent(&self, cmd: &UserConsentCommand) -> CommandResult {
         info!("user consent requested: {cmd:?}");
@@ -192,13 +193,13 @@ mod tests {
     async fn consent_files_changed_test() {
         let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut consent = DeviceUpdateConsent {
-            file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
         };
 
         assert!(
             consent
-                .command(&Command::FileModified(PathCommand {
+                .command(&Command::FsEvent(FsEventCommand {
+                    kind: FsEventKind::FileModified,
                     feature_id: TypeId::of::<DeviceUpdateConsent>(),
                     path: Path::new("my-path").to_path_buf(),
                 }))
@@ -209,7 +210,8 @@ mod tests {
         );
 
         consent
-            .command(&Command::FileModified(PathCommand {
+            .command(&Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileModified,
                 feature_id: TypeId::of::<DeviceUpdateConsent>(),
                 path: Path::new("testfiles/positive/test_component/user_consent.json")
                     .to_path_buf(),
@@ -227,7 +229,6 @@ mod tests {
     async fn desired_consent_test() {
         let (tx_reported_properties, mut rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut consent = DeviceUpdateConsent {
-            file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
         };
 
@@ -318,7 +319,6 @@ mod tests {
     async fn user_consent_test() {
         let (tx_reported_properties, _rx_reported_properties) = tokio::sync::mpsc::channel(100);
         let mut consent = DeviceUpdateConsent {
-            file_observer: None,
             tx_reported_properties: Some(tx_reported_properties),
         };
 

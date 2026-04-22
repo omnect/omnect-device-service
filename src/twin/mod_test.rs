@@ -10,13 +10,14 @@ pub mod mod_test {
     use futures_executor::block_on;
     use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
-    use rand::{
-        distr::Alphanumeric,
-        {Rng, rng},
-    };
+    use rand::{Rng, distr::Alphanumeric, rng};
     use serde_json::json;
-    use std::fs::{copy, create_dir_all, remove_dir_all};
-    use std::{env, fs::OpenOptions, path::PathBuf, time::Duration};
+    use std::{
+        env,
+        fs::{OpenOptions, copy, create_dir_all, remove_dir_all},
+        path::PathBuf,
+        time::Duration,
+    };
 
     lazy_static! {
         static ref LOG: () = if cfg!(debug_assertions) {
@@ -591,6 +592,154 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn disabled_feature_drops_fs_event_silently_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+        let env_vars = vec![("SUPPRESS_FACTORY_RESET", "true")];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
+
+            // FsEvent targeting a disabled feature (no reply channel) should be dropped silently
+            let result = block_on(async {
+                test_attr
+                    .twin
+                    .handle_request(CommandRequest {
+                        command: Command::FsEvent(FsEventCommand {
+                            kind: feature::FsEventKind::DirModified,
+                            feature_id: TypeId::of::<factory_reset::FactoryReset>(),
+                            path: PathBuf::from("/unused"),
+                        }),
+                        reply: None,
+                    })
+                    .await
+            });
+            assert!(result.is_ok(), "FsEvent for disabled feature should be Ok");
+
+            // Direct method targeting a disabled feature (with reply channel) should fail
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            let result = block_on(async {
+                test_attr
+                    .twin
+                    .handle_request(CommandRequest {
+                        command: Command::FactoryReset(factory_reset::FactoryResetCommand {
+                            mode: factory_reset::FactoryResetMode::Mode1,
+                            preserve: vec![],
+                        }),
+                        reply: Some(tx),
+                    })
+                    .await
+            });
+            assert!(
+                result.is_err(),
+                "command with reply for disabled feature should fail"
+            );
+        };
+
+        TestCase::run(test_files, vec![], env_vars, expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fs_watcher_exit_bails_and_shuts_down_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+            mock.expect_shutdown().times(1).returning(|_| ());
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
+            let (_tx_out, mut rx_out) = mpsc::channel(100);
+
+            // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
+            let err = block_on(async {
+                test_attr
+                    .twin
+                    .handle_fs_watcher_exit(Ok(()), &mut rx_rep, &mut rx_out)
+                    .await
+            })
+            .expect_err("handle_fs_watcher_exit must return Err");
+
+            assert!(
+                err.to_string().contains("FsWatcher task ended"),
+                "unexpected error message: {err:#}"
+            );
+            assert!(
+                test_attr.twin.client.is_none(),
+                "shutdown must drop the iot hub client"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fs_watcher_exit_on_panic_bails_and_shuts_down_test() {
+        // Companion to the Ok(()) test above: a panicked FsWatcher task yields
+        // a real `JoinError`. Both paths must bail with the same restart
+        // message so the systemd unit treats them identically.
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+            mock.expect_shutdown().times(1).returning(|_| ());
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
+            let (_tx_out, mut rx_out) = mpsc::channel(100);
+
+            // `JoinError` has no public constructor — obtain a real one by
+            // awaiting a deliberately panicking task.
+            let join_err = block_on(async {
+                tokio::spawn(async {
+                    panic!("intentional panic for test");
+                })
+                .await
+                .expect_err("spawned task should panic")
+            });
+
+            let err = block_on(async {
+                test_attr
+                    .twin
+                    .handle_fs_watcher_exit(Err(join_err), &mut rx_rep, &mut rx_out)
+                    .await
+            })
+            .expect_err("handle_fs_watcher_exit must return Err on panic");
+
+            assert!(
+                err.to_string().contains("FsWatcher task ended"),
+                "unexpected error message on panic path: {err:#}"
+            );
+            assert!(
+                test_attr.twin.client.is_none(),
+                "shutdown must drop the iot hub client on panic path"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
@@ -653,21 +802,14 @@ pub mod mod_test {
         let test = |test_attr: &mut TestConfig| {
             assert!(block_on(async { test_attr.twin.connect_twin().await }).is_ok());
 
-            let mut ev_stream = test_attr
-                .twin
-                .features
-                .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
-                .unwrap()
-                .command_request_stream()
-                .unwrap()
-                .unwrap();
+            let history_path = test_attr.dir.join("history_consent.json");
 
             serde_json::to_writer_pretty(
                 OpenOptions::new()
                     .write(true)
                     .truncate(true)
-                    .open(&test_attr.dir.join("history_consent.json"))
-                    .unwrap(),
+                    .open(&history_path)
+                    .expect("open history_consent.json for write"),
                 &json!({
                     "user_consent_history": {
                         "swupdate": [
@@ -676,24 +818,25 @@ pub mod mod_test {
                     }
                 }),
             )
-            .unwrap();
+            .expect("serialize history_consent.json");
 
-            let cmd = block_on(async { ev_stream.next().await }).unwrap();
-
+            // FsWatcher is a no-op in mock builds; dispatch the FsEvent directly
             assert!(
                 block_on(async {
                     test_attr
                         .twin
                         .features
                         .get_mut(&TypeId::of::<consent::DeviceUpdateConsent>())
-                        .unwrap()
-                        .command(&cmd.command)
+                        .expect("consent feature present")
+                        .command(&Command::FsEvent(FsEventCommand {
+                            kind: FsEventKind::FileModified,
+                            feature_id: TypeId::of::<consent::DeviceUpdateConsent>(),
+                            path: history_path,
+                        }))
                         .await
                 })
                 .is_ok()
             );
-
-            std::thread::sleep(Duration::from_secs(2));
         };
 
         TestCase::run(test_files, vec![], vec![], expect, test);

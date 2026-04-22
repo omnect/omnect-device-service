@@ -8,6 +8,7 @@ use serde_json::json;
 use std::{env, path::Path, time::Duration};
 use time::format_description::well_known::Rfc3339;
 use tokio::{sync::mpsc::Sender, time::interval};
+use tokio_util::sync::CancellationToken;
 
 lazy_static! {
     static ref REFRESH_EST_EXPIRY_INTERVAL_SECS: u64 = {
@@ -141,12 +142,12 @@ impl Feature for ProvisioningConfig {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+    fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_EST_EXPIRY_INTERVAL_SECS {
             Ok(None)
         } else {
             match &self.method {
-                Method::X509(cert) if cert.est => Ok(Some(interval_stream::<ProvisioningConfig>(
+                Method::X509(cert) if cert.est => Ok(Some(tick_stream::<ProvisioningConfig>(
                     interval(Duration::from_secs(*REFRESH_EST_EXPIRY_INTERVAL_SECS)),
                 ))),
                 _ => Ok(None),
@@ -155,7 +156,7 @@ impl Feature for ProvisioningConfig {
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
-        let Command::Interval(_) = cmd else {
+        let Command::Tick(_) = cmd else {
             bail!("unexpected event: {cmd:?}")
         };
 
@@ -262,7 +263,6 @@ impl ProvisioningConfig {
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
-    use tokio::time::Instant;
 
     use super::*;
 
@@ -338,9 +338,8 @@ mod tests {
         crate::common::set_env_var("EST_CERT_FILE_PATH", "testfiles/positive/deviceid2-*.cer");
 
         config
-            .command(&Command::Interval(IntervalCommand {
+            .command(&Command::Tick(TickCommand {
                 feature_id: TypeId::of::<ProvisioningConfig>(),
-                instant: Instant::now(),
             }))
             .await
             .unwrap();

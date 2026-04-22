@@ -6,7 +6,6 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::{IotHubClient, IotMessage};
-use futures::StreamExt;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
@@ -16,9 +15,9 @@ use sysinfo;
 use time::format_description::well_known::Rfc3339;
 use tokio::{
     sync::mpsc,
-    task::JoinHandle,
     time::{Duration, interval},
 };
+use tokio_util::sync::CancellationToken;
 
 static BOOTLOADER_UPDATED_FILE: &str = "/run/omnect-device-service/omnect_bootloader_updated";
 
@@ -118,8 +117,6 @@ pub struct SystemInfo {
     reboot_reason: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fleet_id: Option<String>,
-    #[serde(skip_serializing)]
-    handle: Option<JoinHandle<()>>,
 }
 impl Feature for SystemInfo {
     fn name(&self) -> String {
@@ -148,29 +145,24 @@ impl Feature for SystemInfo {
         self.report().await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+    fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         Ok(match *REFRESH_SYSTEM_INFO_INTERVAL_SECS {
-            0 if self.software_info.boot_time.is_none() => Some(self.file_created_stream()?),
-            0 if self.software_info.boot_time.is_some() => None,
-            _ => {
-                let interval_stream = interval_stream::<SystemInfo>(interval(Duration::from_secs(
-                    *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
-                )));
-                Some(if self.software_info.boot_time.is_none() {
-                    futures::stream::select(interval_stream, self.file_created_stream()?).boxed()
-                } else {
-                    interval_stream
-                })
-            }
+            0 => None,
+            _ => Some(tick_stream::<SystemInfo>(interval(Duration::from_secs(
+                *REFRESH_SYSTEM_INFO_INTERVAL_SECS,
+            )))),
         })
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
         match cmd {
-            Command::Interval(_) => {
+            Command::Tick(_) => {
                 self.metrics().await?;
             }
-            Command::FileCreated(_) => {
+            Command::FsEvent(FsEventCommand {
+                kind: FsEventKind::FileCreated,
+                ..
+            }) => {
                 self.software_info.boot_time = Some(Self::boot_time()?);
                 self.report().await?;
             }
@@ -193,7 +185,7 @@ impl SystemInfo {
     const SYSTEM_INFO_VERSION: u8 = 1;
     const ID: &'static str = "system_info";
 
-    pub fn new() -> Result<Self> {
+    pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
         let azure_sdk_version = IotHubClient::sdk_version_string();
         let omnect_device_service_version = env!("CARGO_PKG_VERSION").to_string();
 
@@ -215,6 +207,7 @@ impl SystemInfo {
             Some(Self::boot_time()?)
         } else {
             debug!("new: start timesync watcher since not synced yet");
+            fs_watcher.watch_file_created_oneshot::<SystemInfo>(&TIMESYNC_FILE)?;
             None
         };
 
@@ -239,14 +232,7 @@ impl SystemInfo {
             hostname: Self::hostname()?,
             reboot_reason: reboot_reason::current_reboot_reason(),
             fleet_id: None,
-            handle: None,
         })
-    }
-
-    fn file_created_stream(&mut self) -> Result<CommandRequestStream> {
-        let (handle, stream) = file_created_stream::<SystemInfo>(vec![&TIMESYNC_FILE])?;
-        self.handle = Some(handle);
-        Ok(stream)
     }
 
     async fn report(&self) -> Result<()> {
