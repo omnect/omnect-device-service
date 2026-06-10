@@ -65,7 +65,10 @@ tokio-stream = { version = "0.1", default-features = false, features = [
   "time",
 ] }
 tokio-util = { version = "0.7", default-features = false }
-toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
+toml = { version = "1.1", default-features = false, features = [
+  "parse",
+  "serde",
+] }
 uuid = { version = "1.18", default-features = false }
 x509-parser = { version = "0.18", default-features = false }
 zbus = { version = "5.11", default-features = false, features = ["tokio"] }

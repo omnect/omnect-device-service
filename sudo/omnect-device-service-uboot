@@ -9,6 +9,7 @@ omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv_no_script.sh facto
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_extra_bootargs
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_update_part
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_extra_bootargs
+omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv_no_script.sh omnect_bootloader_updated 1
 # warning: using a wildcard here - the value is not static
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv_no_script.sh omnect_extra_bootargs *
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv_no_script.sh omnect_os_bootpart [2-3]

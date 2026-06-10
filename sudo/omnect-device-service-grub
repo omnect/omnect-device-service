@@ -3,6 +3,7 @@
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set factory-reset=*
 
 # firmware update + update validation finalization
+omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set omnect_bootloader_updated=1
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set omnect_extra_bootargs=*
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/grub-editenv /boot/EFI/BOOT/grubenv set omnect_os_bootpart=[2-3]
 # warning: using a wildcard here - the value is not static
