@@ -10,7 +10,7 @@ pub mod mod_test {
     use futures_executor::block_on;
     use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
-    use rand::{Rng, distr::Alphanumeric, rng};
+    use rand::{RngExt, distr::Alphanumeric, rng};
     use serde_json::json;
     use std::{
         env,
