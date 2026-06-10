@@ -552,14 +552,24 @@ mod tests {
             })
         );
 
+        // Regression: the parse-error context must name the actual command.
+        // A prior copy-paste bug reported "CloseSshTunnel" for a malformed
+        // set_wait_online_timeout payload.
         let (responder, _rx) = oneshot::channel::<CommandResult>();
+        let err = Command::from_direct_method(&DirectMethod {
+            name: "set_wait_online_timeout".to_string(),
+            payload: json!({"timeout_secs": "1"}),
+            responder,
+        })
+        .expect_err("malformed set_wait_online_timeout payload must error");
+        let msg = format!("{err:#}");
         assert!(
-            Command::from_direct_method(&DirectMethod {
-                name: "set_wait_online_timeout".to_string(),
-                payload: json!({"timeout_secs": "1"}),
-                responder,
-            })
-            .is_err()
+            msg.contains("set_wait_online_timeout"),
+            "error must name the failing command, got: {msg}"
+        );
+        assert!(
+            !msg.contains("CloseSshTunnel"),
+            "error must not carry the copy-pasted command name, got: {msg}"
         );
     }
 

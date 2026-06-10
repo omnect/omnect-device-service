@@ -624,8 +624,11 @@ pub mod mod_test {
             });
             assert!(result.is_ok(), "FsEvent for disabled feature should be Ok");
 
-            // Direct method targeting a disabled feature (with reply channel) should fail
-            let (tx, _rx) = tokio::sync::oneshot::channel();
+            // Direct method targeting a disabled feature carries a reply channel.
+            // handle_request must stay Ok (the run loop survives) and deliver the
+            // "feature is disabled" error to the caller via that channel — not
+            // drop the responder, which would surface as a generic transport error.
+            let (tx, rx) = tokio::sync::oneshot::channel();
             let result = block_on(async {
                 test_attr
                     .twin
@@ -639,8 +642,14 @@ pub mod mod_test {
                     .await
             });
             assert!(
-                result.is_err(),
-                "command with reply for disabled feature should fail"
+                result.is_ok(),
+                "handle_request must not abort the run loop for a disabled feature"
+            );
+            let reply = block_on(rx).expect("reply channel must not be dropped");
+            let err = reply.expect_err("disabled feature must return an error to the caller");
+            assert!(
+                format!("{err:#}").contains("feature is disabled"),
+                "caller must receive the disabled reason, got: {err:#}"
             );
         };
 

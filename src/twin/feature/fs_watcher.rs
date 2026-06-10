@@ -849,6 +849,43 @@ mod tests {
         );
     }
 
+    // Regression: the live oneshot path (target appears after the stream
+    // starts) reclaims the kernel watch via `reclaim_if_unused` — a different
+    // code path than the startup-race reclaim above. A later unrelated file in
+    // the same dir must not produce a spurious event.
+    #[tokio::test]
+    async fn file_created_oneshot_cleans_up_kernel_watch() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let target = tmp.path().join("will-appear.txt");
+
+        let mut watcher = FsWatcher::new().expect("FsWatcher::new");
+        watcher
+            .watch_file_created_oneshot::<TestFeature>(&target)
+            .expect("watch_file_created_oneshot");
+
+        let (tx, mut rx) = mpsc::channel(16);
+        watcher
+            .into_stream(tx, CancellationToken::new())
+            .expect("into_stream");
+
+        tokio::time::sleep(STREAM_STARTUP_DELAY).await;
+
+        std::fs::write(&target, "created").expect("create file");
+
+        let _ = timeout(DEBOUNCED_EVENT_TIMEOUT, rx.recv())
+            .await
+            .expect("timeout waiting for oneshot event")
+            .expect("channel closed");
+
+        std::fs::write(tmp.path().join("other.txt"), "noise").expect("create other file");
+
+        let spurious = timeout(NEGATIVE_WAIT, rx.recv()).await;
+        assert!(
+            spurious.is_err(),
+            "expected no event after oneshot fired and kernel watch was cleaned up"
+        );
+    }
+
     #[tokio::test]
     async fn noop_does_nothing() {
         let (tx, mut rx) = mpsc::channel(16);
