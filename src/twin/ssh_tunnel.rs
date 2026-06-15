@@ -643,8 +643,7 @@ async fn notify_tunnel_termination(
 mod tests {
     use super::*;
     use regex::Regex;
-    use std::fs::File;
-    use std::str::FromStr;
+    use std::{fs::File, str::FromStr};
     use tempfile::tempdir;
 
     #[test]

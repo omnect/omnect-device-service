@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use regex_lite::Regex;
-use std::fmt::Display;
-use std::{cmp::Ordering, env, fmt, fs};
+use std::{cmp::Ordering, env, fmt, fmt::Display, fs};
 
 macro_rules! sw_versions_path {
     () => {

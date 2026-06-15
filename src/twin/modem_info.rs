@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use serde_json::json;
 use std::{env, time::Duration};
 use tokio::{sync::mpsc::Sender, time::interval};
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "modem_info")]
 mod inner {
@@ -12,8 +13,10 @@ mod inner {
 
     use futures::future::join_all;
     use log::{debug, info, warn};
-    use modemmanager::dbus::{bearer, modem, modem3gpp, sim};
-    use modemmanager::types::ModemCapability;
+    use modemmanager::{
+        dbus::{bearer, modem, modem3gpp, sim},
+        types::ModemCapability,
+    };
     use serde::Serialize;
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
@@ -365,18 +368,18 @@ impl Feature for ModemInfo {
         self.report(true).await
     }
 
-    fn command_request_stream(&mut self) -> CommandRequestStreamResult {
+    fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         if !self.is_enabled() || 0 == *REFRESH_MODEM_INFO_INTERVAL_SECS {
             Ok(None)
         } else {
-            Ok(Some(interval_stream::<ModemInfo>(interval(
+            Ok(Some(tick_stream::<ModemInfo>(interval(
                 Duration::from_secs(*REFRESH_MODEM_INFO_INTERVAL_SECS),
             ))))
         }
     }
 
     async fn command(&mut self, cmd: &Command) -> CommandResult {
-        let Command::Interval(_) = cmd else {
+        let Command::Tick(_) = cmd else {
             bail!("unexpected event: {cmd:?}")
         };
 

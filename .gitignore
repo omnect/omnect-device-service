@@ -1,3 +1,4 @@
+docs
 /target
 build_env.sh
 temp.data
@@ -11,3 +12,4 @@ GEMINI.md
 setup-ai.sh
 .github/copilot-instructions.md
 .user-context.md
+rustfmt.toml

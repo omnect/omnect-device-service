@@ -23,12 +23,12 @@ use {
 use azure_iot_sdk::client::{IotHubClient, IotHubClientBuilder};
 
 use crate::{systemd, twin::feature::*, web_service};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, anyhow, bail};
 use azure_iot_sdk::client::*;
 use dotenvy;
-use futures::stream;
+use futures::future::OptionFuture;
 use futures_util::StreamExt;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -39,8 +39,9 @@ use std::{
     path::Path,
     time::{self, Duration},
 };
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
+use tokio_util::sync::CancellationToken;
 
 #[derive(PartialEq)]
 enum TwinState {
@@ -58,6 +59,8 @@ pub struct Twin {
     state: TwinState,
     features: HashMap<TypeId, Box<DynFeature<'static>>>,
     waiting_for_reboot: bool,
+    cancel: CancellationToken,
+    fs_watcher_handle: Option<JoinHandle<()>>,
 }
 
 impl Twin {
@@ -71,18 +74,22 @@ impl Twin {
             - init features first
             - start with SystemInfo in order to log useful infos asap
         */
+        #[cfg(not(feature = "mock"))]
+        let mut fs_watcher = FsWatcher::new()?;
+        #[cfg(feature = "mock")]
+        let mut fs_watcher = FsWatcher::noop();
         let features = HashMap::from([
             (
                 TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::new_box(system_info::SystemInfo::new()?),
+                DynFeature::new_box(system_info::SystemInfo::new(&mut fs_watcher)?),
             ),
             (
                 TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::new_box(consent::DeviceUpdateConsent::default()),
+                DynFeature::new_box(consent::DeviceUpdateConsent::new(&mut fs_watcher)?),
             ),
             (
                 TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::new_box(factory_reset::FactoryReset::new()?),
+                DynFeature::new_box(factory_reset::FactoryReset::new(&mut fs_watcher)?),
             ),
             (
                 TypeId::of::<firmware_update::FirmwareUpdate>(),
@@ -114,6 +121,10 @@ impl Twin {
             ),
         ]);
 
+        let cancel = CancellationToken::new();
+        let fs_watcher_handle =
+            fs_watcher.into_stream(tx_command_request.clone(), cancel.child_token())?;
+
         let twin = Twin {
             client: None,
             web_service,
@@ -123,6 +134,8 @@ impl Twin {
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
+            cancel,
+            fs_watcher_handle,
         };
 
         twin.connect_web_service().await?;
@@ -257,11 +270,29 @@ impl Twin {
             .get_mut(&cmd.feature_id())
             .context("handle_request: failed to get feature mutable")?;
 
-        ensure!(
-            feature.is_enabled(),
-            "handle_request: feature is disabled {}",
-            feature.name()
-        );
+        if !feature.is_enabled() {
+            // FsEvents and intervals have no reply channel — drop them for
+            // disabled features. Direct methods and web service requests carry a
+            // reply channel and must receive the disabled reason; bailing here
+            // instead would drop the responder (surfacing to the caller as a
+            // generic transport error) and abort the run loop, restarting the
+            // whole service over a single request to a suppressed feature.
+            let msg = format!("handle_request: feature is disabled {}", feature.name());
+            if let Some(reply) = reply {
+                // An explicit caller (direct method / web service) is waiting:
+                // log at info and deliver the disabled reason.
+                info!("{msg}");
+                if reply.send(Err(anyhow!("{msg}"))).is_err() {
+                    error!("handle_request: {cmd_string} receiver dropped");
+                }
+            } else {
+                // No-reply path (FsEvent/Tick) can fire on every file change or
+                // interval; keep it at debug to avoid log spam when a feature is
+                // suppressed via `SUPPRESS_*`.
+                debug!("{msg}");
+            }
+            return Ok(());
+        }
 
         info!("handle_request: {}({cmd_string})", feature.name());
 
@@ -288,12 +319,38 @@ impl Twin {
         Ok(())
     }
 
+    // Without FsWatcher, feature commands triggered by file changes are lost
+    // silently. Shut down and surface an error so main exits non-zero and
+    // systemd restarts the service with a fresh watcher. If the task exited
+    // because we cancelled it (normal shutdown), return Ok — the watcher
+    // ending was expected and another branch owns the exit code.
+    async fn handle_fs_watcher_exit(
+        &mut self,
+        result: Result<(), tokio::task::JoinError>,
+        rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
+        rx_outgoing_message: &mut mpsc::Receiver<IotMessage>,
+    ) -> Result<()> {
+        if self.cancel.is_cancelled() {
+            info!("FsWatcher task exited after cancellation");
+            return Ok(());
+        }
+        match result {
+            Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
+            Err(e) => error!("FsWatcher task panicked: {e}"),
+        }
+        self.shutdown(rx_reported_properties, rx_outgoing_message)
+            .await;
+        bail!("FsWatcher task ended; exiting to let systemd restart the service")
+    }
+
     async fn shutdown(
         &mut self,
         rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
         rx_outgoing_message: &mut mpsc::Receiver<IotMessage>,
     ) {
         info!("shutdown");
+
+        self.cancel.cancel();
 
         if let Some(client) = self.client.as_mut() {
             // report remaining properties
@@ -337,10 +394,24 @@ impl Twin {
         self.features
             .values_mut()
             .filter_map(|f| {
-                if f.is_enabled() {
-                    f.command_request_stream().unwrap()
-                } else {
-                    None
+                if !f.is_enabled() {
+                    return None;
+                }
+                match f.command_request_stream(self.cancel.child_token()) {
+                    Ok(stream) => stream,
+                    // A feature whose stream fails to build is logged and
+                    // skipped rather than treated as fatal: setup errors that
+                    // must abort the service (e.g. inotify init) are surfaced
+                    // earlier via `FsWatcher` in `Twin::new()`. A failure here
+                    // means only this one feature produces no events, instead of
+                    // taking down the whole run loop.
+                    Err(e) => {
+                        error!(
+                            "feature_command_request_streams: {} failed: {e:#}",
+                            f.name()
+                        );
+                        None
+                    }
                 }
             })
             .collect()
@@ -387,9 +458,11 @@ impl Twin {
         systemd::sd_notify_ready();
 
         let mut command_requests = twin.feature_command_request_streams();
-        command_requests.push(Self::direct_method_stream(rx_direct_method));
-        command_requests.push(Self::desired_properties_stream(rx_twin_desired));
+        command_requests.push(direct_method_stream(rx_direct_method));
+        command_requests.push(desired_properties_stream(rx_twin_desired));
         command_requests.push(ReceiverStream::new(rx_command_request).boxed());
+
+        let mut fs_watcher_handle = twin.fs_watcher_handle.take();
 
         tokio::pin! {
             let client_created = Self::connect_iothub_client(&client_builder);
@@ -413,6 +486,16 @@ impl Twin {
                     twin.shutdown(&mut rx_reported_properties, &mut rx_outgoing_message).await;
                     signals.handle().close();
                     return Ok(())
+                },
+                Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
+                    signals.handle().close();
+                    return twin
+                        .handle_fs_watcher_exit(
+                            result,
+                            &mut rx_reported_properties,
+                            &mut rx_outgoing_message,
+                        )
+                        .await;
                 },
                 result = &mut client_created, if twin.client.is_none() => {
                     match result {
@@ -471,44 +554,5 @@ impl Twin {
         builder.build_module_client(
             &env::var("CONNECTION_STRING").context("connection string missing")?,
         )
-    }
-
-    fn direct_method_stream(rx: mpsc::Receiver<DirectMethod>) -> CommandRequestStream {
-        ReceiverStream::new(rx)
-            .filter_map(|dm| async move {
-                match Command::from_direct_method(&dm) {
-                    Ok(command) => Some(CommandRequest {
-                        command,
-                        reply: Some(dm.responder),
-                    }),
-                    Err(e) => {
-                        error!(
-                            "parsing direct method: {} with payload: {} failed with error: {e:#}",
-                            dm.name, dm.payload
-                        );
-                        if dm.responder.send(Err(e)).is_err() {
-                            error!("direct method response receiver dropped")
-                        }
-                        None
-                    }
-                }
-            })
-            .boxed()
-    }
-
-    fn desired_properties_stream(rx: mpsc::Receiver<TwinUpdate>) -> CommandRequestStream {
-        ReceiverStream::new(rx)
-            .filter_map(|twin| async move {
-                let c: Vec<CommandRequest> = Command::from_desired_property(twin)
-                    .iter()
-                    .map(|cmd| CommandRequest {
-                        command: cmd.clone(),
-                        reply: None,
-                    })
-                    .collect();
-                (!c.is_empty()).then_some(c)
-            })
-            .flat_map(stream::iter)
-            .boxed()
     }
 }
