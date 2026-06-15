@@ -102,12 +102,19 @@ impl FsWatcher {
         )
     }
 
-    /// Watch a directory for entry additions and deletions (coalesced into
-    /// one `FsEventKind::DirModified` command per debounce window).
+    /// Watch a directory for entry additions, deletions and renames
+    /// (coalesced into one `FsEventKind::DirModified` command per debounce
+    /// window). `MOVED_TO`/`MOVED_FROM` are included so config files written
+    /// via atomic rename-swap (`mv`, `swupdate`, many config tools) are not
+    /// silently missed.
     pub fn watch_dir_modified<T: 'static>(&mut self, path: &Path) -> Result<()> {
         self.register_modified::<T>(
             path,
-            WatchMask::CREATE | WatchMask::DELETE | WatchMask::MASK_ADD,
+            WatchMask::CREATE
+                | WatchMask::DELETE
+                | WatchMask::MOVED_TO
+                | WatchMask::MOVED_FROM
+                | WatchMask::MASK_ADD,
             FsEventKind::DirModified,
         )
     }

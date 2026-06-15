@@ -207,6 +207,14 @@ impl SystemInfo {
             Some(Self::boot_time()?)
         } else {
             debug!("new: start timesync watcher since not synced yet");
+            // The watch is placed on the parent dir `/run/systemd/timesync/`,
+            // which systemd-timesyncd creates via `RuntimeDirectory=` only once
+            // it starts. ods deliberately does not order `After=time-sync.target`
+            // (see the service unit), so on a fast boot the parent dir may not
+            // exist yet and `add_watch` fails. Propagating the error aborts
+            // startup; systemd's restart policy then brings ods back up, by
+            // which point the dir exists. This self-healing restart is the
+            // intended recovery path, not a bug.
             fs_watcher.watch_file_created_oneshot::<SystemInfo>(&TIMESYNC_FILE)?;
             None
         };

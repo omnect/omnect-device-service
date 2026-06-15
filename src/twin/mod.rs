@@ -28,7 +28,7 @@ use azure_iot_sdk::client::*;
 use dotenvy;
 use futures::future::OptionFuture;
 use futures_util::StreamExt;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
@@ -278,11 +278,18 @@ impl Twin {
             // generic transport error) and abort the run loop, restarting the
             // whole service over a single request to a suppressed feature.
             let msg = format!("handle_request: feature is disabled {}", feature.name());
-            info!("{msg}");
-            if let Some(reply) = reply
-                && reply.send(Err(anyhow!("{msg}"))).is_err()
-            {
-                error!("handle_request: {cmd_string} receiver dropped");
+            if let Some(reply) = reply {
+                // An explicit caller (direct method / web service) is waiting:
+                // log at info and deliver the disabled reason.
+                info!("{msg}");
+                if reply.send(Err(anyhow!("{msg}"))).is_err() {
+                    error!("handle_request: {cmd_string} receiver dropped");
+                }
+            } else {
+                // No-reply path (FsEvent/Tick) can fire on every file change or
+                // interval; keep it at debug to avoid log spam when a feature is
+                // suppressed via `SUPPRESS_*`.
+                debug!("{msg}");
             }
             return Ok(());
         }
@@ -392,6 +399,12 @@ impl Twin {
                 }
                 match f.command_request_stream(self.cancel.child_token()) {
                     Ok(stream) => stream,
+                    // A feature whose stream fails to build is logged and
+                    // skipped rather than treated as fatal: setup errors that
+                    // must abort the service (e.g. inotify init) are surfaced
+                    // earlier via `FsWatcher` in `Twin::new()`. A failure here
+                    // means only this one feature produces no events, instead of
+                    // taking down the whole run loop.
                     Err(e) => {
                         error!(
                             "feature_command_request_streams: {} failed: {e:#}",

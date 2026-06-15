@@ -225,8 +225,10 @@ where
     I: Send,
     T: 'static,
 {
-    // Capacity 1: debounce guarantees at most one pending request
-    // (next emission only after the previous silence window expires).
+    // Capacity 1 is backpressure, not an ordering guarantee: at most one
+    // emitted request can be queued. A slow consumer makes `tx.send(req).await`
+    // block, and while it is awaited the `cancel.cancelled()` arm below cannot
+    // be polled, so shutdown can lag by up to one channel-drain cycle.
     let (tx, rx) = tokio::sync::mpsc::channel::<CommandRequest>(1);
 
     tokio::spawn(async move {
@@ -838,6 +840,33 @@ mod tests {
         assert!(
             matches!(result, Ok(None)),
             "stream should end when source init fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn debounced_command_stream_source_ends_after_events_test() {
+        // Covers the `None` branch: a source stream that delivered events and
+        // then ends (e.g. the Network D-Bus signal stream dying) must terminate
+        // the task and close the output stream rather than stalling.
+        let cancel = CancellationToken::new();
+        let (source_tx, source_rx) = mpsc::channel::<()>(16);
+        const SILENCE: Duration = Duration::from_millis(200);
+
+        let mut stream = debounced_command_stream::<_, _, _, network::Network>(
+            async { Ok(tokio_stream::wrappers::ReceiverStream::new(source_rx)) },
+            SILENCE,
+            cancel,
+        );
+
+        source_tx.send(()).await.expect("send");
+        // Drop the sender so the source stream ends before the silence elapses.
+        drop(source_tx);
+
+        use futures::StreamExt;
+        let result = tokio::time::timeout(Duration::from_millis(500), stream.next()).await;
+        assert!(
+            matches!(result, Ok(None)),
+            "stream should end when source stream ends after events"
         );
     }
 
