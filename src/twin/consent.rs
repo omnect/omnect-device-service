@@ -66,7 +66,7 @@ impl Feature for DeviceUpdateConsent {
     }
 
     fn is_enabled(&self) -> bool {
-        env::var("SUPPRESS_DEVICE_UPDATE_USER_CONSENT") != Ok("true".to_string())
+        !Self::is_suppressed()
     }
 
     async fn connect_twin(
@@ -109,10 +109,21 @@ impl Feature for DeviceUpdateConsent {
 impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
     const ID: &'static str = "device_update_consent";
+    const SUPPRESS_ENV: &'static str = "SUPPRESS_DEVICE_UPDATE_USER_CONSENT";
+
+    fn is_suppressed() -> bool {
+        env::var(Self::SUPPRESS_ENV).as_deref() == Ok("true")
+    }
 
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
-        for path in [request_consent_path!(), history_consent_path!()] {
-            fs_watcher.watch_file_modified::<DeviceUpdateConsent>(&path)?;
+        // Registering the watch requires the target file to exist
+        // (`inotify_add_watch` fails with ENOENT otherwise). A suppressed
+        // feature never serves these events, so skip registration to avoid
+        // aborting startup on images that ship without the consent files.
+        if !Self::is_suppressed() {
+            for path in [request_consent_path!(), history_consent_path!()] {
+                fs_watcher.watch_file_modified::<DeviceUpdateConsent>(&path)?;
+            }
         }
 
         Ok(Self {
