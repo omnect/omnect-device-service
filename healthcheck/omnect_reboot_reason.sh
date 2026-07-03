@@ -311,7 +311,12 @@ function analyze() {
 
 	    if [ "${last_reason}" = "reboot" ]; then
 		case "${next_to_last_reason}" in
-		    swupdate | swupdate-validation-failed | factory-reset | portal-reboot | ods-reboot)
+                    # NOTE:
+                    #   we permit also the unspecific reason "reboot" as
+                    #   second-to-last reason to allow arbitrary extra
+                    #   informtion to be set, e.g. during CI/CD or also for
+                    #   customers
+		    reboot | swupdate | swupdate-validation-failed | factory-reset | portal-reboot | ods-reboot)
 			r_reason="${next_to_last_reason}"
 			r_extra_info="${next_to_last_extra_info}"
 			if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
