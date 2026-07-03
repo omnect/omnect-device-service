@@ -958,6 +958,8 @@ if [ "${is_enabled}" = "true" ]; then
 	    reboot_reason_get
 	    ;;
         get_valid_reasons)
+            # simply print a space separated list in one line
+            # (for easy word-wise regexp matching by a caller)
             echo "${VALID_REBOOT_REASONS[*]}"
             ;;
 	boottag_set)
