@@ -87,7 +87,18 @@
 #
 # deduced reboot reasons are:
 #  - reboot
-#    -> plain reboot without further information about who or why
+#    two possibilities exist here:
+#    1. last reason is "reboot" and either no next-to-last reason exists or
+#       is is an unrecognized reboot reason
+#       -> plain reboot without further information about who or why
+#    2. last and also next-to-last reason is "reboot"
+#       -> an intentional reboot with extra information given in next-to-last
+#          logged reboot event
+#       NOTE:
+#         any of the reasons below (but for unrecognized, of course) will
+#         void such an entry unless measures are taken that such a reboot
+#         reason is really logged as next-to-last one (systemd being regularly
+#         the last one logged)
 #  - shutdown
 #    -> shutdown; unlikely to be seen unless an external reset mechanism
 #       exists which leaves pstore intact
@@ -131,6 +142,9 @@ REASON_DFLT_DIR=/var/lib/omnect/reboot-reason
 : ${REASON_DIR:=${REASON_DFLT_DIR}}
 REASON_ANALYSIS_FILE=reboot-reason.json
 PSTORE_DFLT_DIR=/sys/fs/pstore
+
+# define supported reboot reasons
+VALID_REBOOT_REASONS=(reboot swupdate swupdate-validation-failed factory-reset portal-reboot ods-reboot)
 
 # variable below is to hold a time stamp which can be calculated once (by
 # function get_timestamp()) and used from then on to have one unique timestamp
@@ -310,20 +324,14 @@ function analyze() {
 	    next_to_last_extra_info=$(jq -rs  '[ .[] | .extra_info ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
 
 	    if [ "${last_reason}" = "reboot" ]; then
-		case "${next_to_last_reason}" in
-                    # NOTE:
-                    #   we permit also the unspecific reason "reboot" as
-                    #   second-to-last reason to allow arbitrary extra
-                    #   informtion to be set, e.g. during CI/CD or also for
-                    #   customers
-		    reboot | swupdate | swupdate-validation-failed | factory-reset | portal-reboot | ods-reboot)
-			r_reason="${next_to_last_reason}"
-			r_extra_info="${next_to_last_extra_info}"
-			if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
-			    r_extra_info="reboot after ${next_to_last_reason}"
-			fi
+                if [[ " ${VALID_REBOOT_REASONS[*]} " =~ " ${next_to_last_reason} " ]]; then
+		    r_reason="${next_to_last_reason}"
+		    r_extra_info="${next_to_last_extra_info}"
+		    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
+			r_extra_info="reboot after ${next_to_last_reason}"
+		    fi
 			;;
-		esac
+                fi
 		if [ "$r_reason" ]; then
 		    # now that we determined a reboot reason, gather all other info
 		    # from last entry
@@ -949,6 +957,9 @@ if [ "${is_enabled}" = "true" ]; then
 	get)
 	    reboot_reason_get
 	    ;;
+        get_valid_reasons)
+            echo "${VALID_REBOOT_REASONS[*]}"
+            ;;
 	boottag_set)
 	    reboot_reason_boottag set "${@:2}"
 	    ;;
