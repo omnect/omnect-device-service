@@ -330,7 +330,7 @@ function analyze() {
 		    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
 			r_extra_info="reboot after ${next_to_last_reason}"
 		    fi
-                fi
+		fi
 		if [ "$r_reason" ]; then
 		    # now that we determined a reboot reason, gather all other info
 		    # from last entry
