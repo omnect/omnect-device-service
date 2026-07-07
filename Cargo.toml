@@ -62,7 +62,7 @@ systemd-journal-logger = { version = "2.2", default-features = false, optional =
 systemd-zbus = { version = "5.3", default-features = false }
 tar = { version = "0.4", default-features = false }
 time = { version = "0.3", default-features = false, features = ["formatting"] }
-tokio = { version = "1", default-features = false }
+tokio = { version = "1", default-features = false, features = ["io-util", "net"] }
 tokio-stream = { version = "0.1", default-features = false, features = [
   "time",
 ] }
@@ -92,3 +92,4 @@ bootloader_uboot = ["dep:systemd-journal-logger"]
 bootloader_grub = ["dep:systemd-journal-logger"]
 mock = ["dep:env_logger"]
 modem_info = ["modemmanager"]
+wifi_commissioning = []
