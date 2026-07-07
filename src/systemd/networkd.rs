@@ -78,7 +78,11 @@ pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
         bail!("service file missing: {service_file_path}");
     };
 
-    let Some(exec_start_entry) = entry.section("Service").attr("ExecStart") else {
+    let Some(service_section) = entry.section("Service") else {
+        bail!("Service section missing");
+    };
+
+    let Some(exec_start_entry) = service_section.attr("ExecStart").first() else {
         bail!("ExecStart entry missing");
     };
 
@@ -87,7 +91,7 @@ pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
         "unexpected timeout config in ExecStart: {exec_start_entry}"
     );
 
-    let Some(env_file_entry) = entry.section("Service").attr("EnvironmentFile") else {
+    let Some(env_file_entry) = service_section.attr("EnvironmentFile").first() else {
         bail!("EnvironmentFile entry missing");
     };
 
