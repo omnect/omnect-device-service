@@ -324,7 +324,7 @@ function analyze() {
 	    next_to_last_extra_info=$(jq -rs  '[ .[] | .extra_info ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
 
 	    if [ "${last_reason}" = "reboot" ]; then
-                if [[ " ${VALID_REBOOT_REASONS[*]} " =~ " ${next_to_last_reason} " ]]; then
+		if [[ " ${VALID_REBOOT_REASONS[*]} " =~ " ${next_to_last_reason} " ]]; then
 		    r_reason="${next_to_last_reason}"
 		    r_extra_info="${next_to_last_extra_info}"
 		    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
