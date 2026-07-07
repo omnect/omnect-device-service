@@ -20,17 +20,17 @@ struct WifiCommissioningReport {
     interface: Option<String>,
 }
 
-#[cfg(any(all(feature = "wifi_commissioning", not(feature = "mock")), test))]
+#[cfg(any(not(feature = "mock"), test))]
 const UNIT_NAME_PREFIX: &str = "wifi-commissioning-service@";
 
-#[cfg(any(all(feature = "wifi_commissioning", not(feature = "mock")), test))]
+#[cfg(any(not(feature = "mock"), test))]
 fn iface_from_unit_name(unit: &str) -> Option<String> {
     unit.strip_prefix(UNIT_NAME_PREFIX)?
         .strip_suffix(".service")
         .map(str::to_string)
 }
 
-#[cfg(any(all(feature = "wifi_commissioning", not(feature = "mock")), test))]
+#[cfg(any(not(feature = "mock"), test))]
 fn parse_ble_enabled(response: &str) -> Result<bool> {
     #[derive(serde::Deserialize)]
     struct ServiceInfo {
@@ -96,9 +96,9 @@ pub struct WifiCommissioning {
 
 impl WifiCommissioning {
     async fn report(&mut self, force: bool) -> Result<()> {
-        #[cfg(all(feature = "wifi_commissioning", not(feature = "mock")))]
+        #[cfg(not(feature = "mock"))]
         let state = live::observe().await?;
-        #[cfg(not(all(feature = "wifi_commissioning", not(feature = "mock"))))]
+        #[cfg(feature = "mock")]
         let state: Option<(String, bool)> = None;
 
         send_report(
@@ -136,7 +136,7 @@ impl Feature for WifiCommissioning {
         self.report(true).await
     }
 
-    #[cfg(all(feature = "wifi_commissioning", not(feature = "mock")))]
+    #[cfg(not(feature = "mock"))]
     fn command_request_stream(&mut self, cancel: CancellationToken) -> CommandRequestStreamResult {
         Ok(Some(
             debounced_command_stream::<_, _, _, WifiCommissioning>(
@@ -147,7 +147,7 @@ impl Feature for WifiCommissioning {
         ))
     }
 
-    #[cfg(not(all(feature = "wifi_commissioning", not(feature = "mock"))))]
+    #[cfg(feature = "mock")]
     fn command_request_stream(&mut self, _cancel: CancellationToken) -> CommandRequestStreamResult {
         Ok(None)
     }
@@ -161,7 +161,7 @@ impl Feature for WifiCommissioning {
     }
 }
 
-#[cfg(all(feature = "wifi_commissioning", not(feature = "mock")))]
+#[cfg(not(feature = "mock"))]
 mod live {
     use super::*;
     use crate::systemd::unit;
