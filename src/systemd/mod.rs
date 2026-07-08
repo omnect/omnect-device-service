@@ -17,6 +17,12 @@ pub fn sd_notify_ready() {
     });
 }
 
+async fn system_connection() -> Result<zbus::Connection> {
+    zbus::Connection::system()
+        .await
+        .context("failed to connect to system bus")
+}
+
 #[cfg(not(feature = "mock"))]
 pub async fn reboot(reason: &str, extra_info: &str) -> Result<()> {
     use crate::reboot_reason;
@@ -62,9 +68,7 @@ pub async fn reboot(reason: &str, extra_info: &str) -> Result<()> {
 }
 
 pub async fn wait_for_system_running() -> Result<()> {
-    let connection = zbus::Connection::system()
-        .await
-        .context("wait_for_system_running: failed to create connection")?;
+    let connection = system_connection().await?;
     // here we use manager which explicitly doesn't cache the system state
     let manager = ManagerProxy::builder(&connection)
         .uncached_properties(&["SystemState"])

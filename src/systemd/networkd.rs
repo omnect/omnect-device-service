@@ -21,9 +21,8 @@ macro_rules! env_file_path {
 pub async fn networkd_interfaces() -> Result<serde_json::Value> {
     use log::debug;
 
-    let result = zbus::Connection::system()
-        .await
-        .context("networkd_interfaces: zbus::Connection::system() failed")?
+    let result = crate::systemd::system_connection()
+        .await?
         .call_method(
             Some("org.freedesktop.network1"),
             "/org/freedesktop/network1",
@@ -51,9 +50,7 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
 
 #[cfg(not(feature = "mock"))]
 pub async fn networkd_signal_stream() -> Result<zbus::MessageStream> {
-    let conn = zbus::Connection::system()
-        .await
-        .context("networkd_signal_stream: zbus::Connection::system() failed")?;
+    let conn = crate::systemd::system_connection().await?;
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender("org.freedesktop.network1")

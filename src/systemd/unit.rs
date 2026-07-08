@@ -14,9 +14,7 @@ async fn system_manager() -> Result<systemd_zbus::ManagerProxy<'static>> {
     use anyhow::Context;
     use systemd_zbus::ManagerProxy;
 
-    let connection = zbus::Connection::system()
-        .await
-        .context("failed to connect to system bus")?;
+    let connection = crate::systemd::system_connection().await?;
     ManagerProxy::new(&connection)
         .await
         .context("failed to create systemd manager proxy")
