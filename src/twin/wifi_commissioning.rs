@@ -201,7 +201,15 @@ mod live {
     const UNIT_PATTERN: &str = "wifi-commissioning-service@*.service";
     const SERVICE_INFO_REQUEST: &str =
         "GET /api/v1/service-info HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-    const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
+    const SERVICE_INFO_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(1);
+    const SERVICE_INFO_RETRY_INTERVAL: Duration = Duration::from_millis(250);
+    // wifi-commissioning-service is not ordered before ods (it is pulled by
+    // wpa_supplicant when a wlan interface appears), and systemd can report its
+    // unit active before its api.sock is bound. Briefly retry to bridge that
+    // startup gap. `observe()` runs inline in the run loop, so the total budget
+    // stays well under the service `WatchdogSec`; the periodic reconciliation
+    // tick recovers anything still unreachable after it.
+    const SERVICE_INFO_RETRY_BUDGET: Duration = Duration::from_secs(5);
 
     // No active instance → `None`. An active instance whose service-info API is
     // unreachable → `Some((iface, None))`: still reported as running, with BLE
@@ -211,13 +219,33 @@ mod live {
             return Ok(None);
         };
 
-        match query_ble_enabled(&iface).await {
+        match query_ble_enabled_retrying(&iface).await {
             Ok(ble_enabled) => Ok(Some((iface, Some(ble_enabled)))),
             Err(e) => {
                 error!("wifi_commissioning: {iface} active but service-info query failed: {e:#}");
                 Ok(Some((iface, None)))
             }
         }
+    }
+
+    async fn query_ble_enabled_retrying(iface: &str) -> Result<bool> {
+        tokio::time::timeout(SERVICE_INFO_RETRY_BUDGET, async {
+            loop {
+                match query_ble_enabled(iface).await {
+                    Ok(ble_enabled) => break ble_enabled,
+                    Err(e) => {
+                        debug!(
+                            "wifi_commissioning: {iface} service-info not ready, retrying: {e:#}"
+                        );
+                        tokio::time::sleep(SERVICE_INFO_RETRY_INTERVAL).await;
+                    }
+                }
+            }
+        })
+        .await
+        .with_context(|| {
+            format!("service-info for {iface} unreachable within {SERVICE_INFO_RETRY_BUDGET:?}")
+        })
     }
 
     async fn active_iface() -> Result<Option<String>> {
@@ -234,7 +262,7 @@ mod live {
     async fn query_ble_enabled(iface: &str) -> Result<bool> {
         let path = format!("/run/wifi-commissioning-service/{iface}/api.sock");
 
-        let raw = tokio::time::timeout(QUERY_TIMEOUT, async {
+        let raw = tokio::time::timeout(SERVICE_INFO_ATTEMPT_TIMEOUT, async {
             let mut stream = UnixStream::connect(&path)
                 .await
                 .with_context(|| format!("connect {path}"))?;
