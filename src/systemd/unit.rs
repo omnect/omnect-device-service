@@ -97,8 +97,8 @@ pub async fn active_units_by_patterns(patterns: &[&str]) -> Result<Vec<String>> 
 pub async fn job_removed_units() -> Result<impl futures::Stream<Item = String> + Send> {
     use anyhow::Context;
     use futures::StreamExt;
+    use log::warn;
 
-    // bounded backlog kept while a consumer drains
     const SIGNAL_QUEUE_CAPACITY: usize = 64;
 
     let manager = system_manager().await?;
@@ -127,10 +127,22 @@ pub async fn job_removed_units() -> Result<impl futures::Stream<Item = String> +
 
     // JobRemoved is (id: u32, job: objpath, unit: string, result: string).
     Ok(stream.filter_map(|msg| async move {
-        msg.ok()?
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                warn!("job_removed_units: message stream error: {e:#}");
+                return None;
+            }
+        };
+        match msg
             .body()
             .deserialize::<(u32, zbus::zvariant::OwnedObjectPath, String, String)>()
-            .ok()
-            .map(|(_, _, unit, _)| unit)
+        {
+            Ok((_, _, unit, _)) => Some(unit),
+            Err(e) => {
+                warn!("job_removed_units: JobRemoved deserialize failed: {e:#}");
+                None
+            }
+        }
     }))
 }

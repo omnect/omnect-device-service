@@ -11,6 +11,20 @@ use tokio_util::sync::CancellationToken;
 const ID: &str = "wifi_commissioning";
 const WIFI_COMMISSIONING_VERSION: u8 = 1;
 
+#[cfg(not(feature = "mock"))]
+lazy_static::lazy_static! {
+    // Periodic reconciliation: BLE state can toggle without a systemd job
+    // event, and a transient service-info failure must self-heal. `0` disables
+    // the timer, leaving only job-completion signals as the trigger.
+    static ref REFRESH_STATUS_INTERVAL_SECS: u64 = {
+        const DEFAULT: &str = "60";
+        env::var("REFRESH_WIFI_COMMISSIONING_STATUS_INTERVAL_SECS")
+            .unwrap_or(DEFAULT.to_string())
+            .parse::<u64>()
+            .expect("cannot parse REFRESH_WIFI_COMMISSIONING_STATUS_INTERVAL_SECS env var")
+    };
+}
+
 #[derive(Debug, PartialEq, Serialize)]
 struct WifiCommissioningReport {
     running: bool,
@@ -44,13 +58,11 @@ fn parse_ble_enabled(response: &str) -> Result<bool> {
         .ble_enabled)
 }
 
-// `None` means the service is not available: either no active instance, or an
-// active instance whose service-info API could not be reached.
-fn build_report(state: Option<(String, bool)>) -> WifiCommissioningReport {
+fn build_report(state: Option<(String, Option<bool>)>) -> WifiCommissioningReport {
     match state {
         Some((interface, ble_enabled)) => WifiCommissioningReport {
             running: true,
-            ble_enabled: Some(ble_enabled),
+            ble_enabled,
             interface: Some(interface),
         },
         None => WifiCommissioningReport {
@@ -61,7 +73,6 @@ fn build_report(state: Option<(String, bool)>) -> WifiCommissioningReport {
     }
 }
 
-// only report on change
 async fn send_report(
     tx: &Option<Sender<serde_json::Value>>,
     last: &mut Option<WifiCommissioningReport>,
@@ -76,7 +87,6 @@ async fn send_report(
     let value = json!({
         "wifi_commissioning": serde_json::to_value(&report).context("serialize report")?
     });
-    *last = Some(report);
 
     let Some(tx) = tx else {
         warn!("wifi_commissioning: skip report, tx_reported_properties is None");
@@ -85,7 +95,11 @@ async fn send_report(
 
     tx.send(value)
         .await
-        .context("send wifi_commissioning report")
+        .context("send wifi_commissioning report")?;
+    // Record only after a confirmed send, so a skipped/failed send does not
+    // mark the state as reported.
+    *last = Some(report);
+    Ok(())
 }
 
 #[derive(Default)]
@@ -99,7 +113,7 @@ impl WifiCommissioning {
         #[cfg(not(feature = "mock"))]
         let state = live::observe().await?;
         #[cfg(feature = "mock")]
-        let state: Option<(String, bool)> = None;
+        let state: Option<(String, Option<bool>)> = None;
 
         send_report(
             &self.tx_reported_properties,
@@ -121,10 +135,8 @@ impl Feature for WifiCommissioning {
     }
 
     fn is_enabled(&self) -> bool {
-        match env::var("DISTRO_FEATURES") {
-            Ok(features) => features.split_whitespace().any(|feature| feature == "wifi"),
-            _ => false,
-        }
+        env::var("DISTRO_FEATURES")
+            .is_ok_and(|features| features.split_whitespace().any(|feature| feature == "wifi"))
     }
 
     async fn connect_twin(
@@ -138,13 +150,28 @@ impl Feature for WifiCommissioning {
 
     #[cfg(not(feature = "mock"))]
     fn command_request_stream(&mut self, cancel: CancellationToken) -> CommandRequestStreamResult {
-        Ok(Some(
-            debounced_command_stream::<_, _, _, WifiCommissioning>(
-                live::signal_stream(),
-                COMMAND_EVENT_DEBOUNCE,
-                cancel,
-            ),
-        ))
+        use futures::StreamExt;
+        use std::time::Duration;
+        use tokio::time::interval;
+
+        if !self.is_enabled() {
+            return Ok(None);
+        }
+
+        let signals = debounced_command_stream::<_, _, _, WifiCommissioning>(
+            live::signal_stream(),
+            COMMAND_EVENT_DEBOUNCE,
+            cancel,
+        );
+
+        if 0 == *REFRESH_STATUS_INTERVAL_SECS {
+            return Ok(Some(signals));
+        }
+
+        let ticks = tick_stream::<WifiCommissioning>(interval(Duration::from_secs(
+            *REFRESH_STATUS_INTERVAL_SECS,
+        )));
+        Ok(Some(futures::stream::select(signals, ticks).boxed()))
     }
 
     #[cfg(feature = "mock")]
@@ -176,19 +203,19 @@ mod live {
         "GET /api/v1/service-info HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     const QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 
-    // `None` → not available. An active unit whose service-info API cannot be
-    // reached is treated as not available and logged as an error, since its BLE
-    // state is unknown.
-    pub(super) async fn observe() -> Result<Option<(String, bool)>> {
+    // No active instance → `None`. An active instance whose service-info API is
+    // unreachable → `Some((iface, None))`: still reported as running, with BLE
+    // state unknown, rather than masked as not running.
+    pub(super) async fn observe() -> Result<Option<(String, Option<bool>)>> {
         let Some(iface) = active_iface().await? else {
             return Ok(None);
         };
 
         match query_ble_enabled(&iface).await {
-            Ok(ble_enabled) => Ok(Some((iface, ble_enabled))),
+            Ok(ble_enabled) => Ok(Some((iface, Some(ble_enabled)))),
             Err(e) => {
                 error!("wifi_commissioning: {iface} active but service-info query failed: {e:#}");
-                Ok(None)
+                Ok(Some((iface, None)))
             }
         }
     }
@@ -229,7 +256,6 @@ mod live {
         parse_ble_enabled(&text)
     }
 
-    // Re-evaluate only when a wifi-commissioning-service job completes.
     pub(super) async fn signal_stream() -> Result<impl futures::Stream<Item = ()> + Send> {
         Ok(unit::job_removed_units()
             .await?
@@ -272,6 +298,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_ble_enabled_errors_on_bad_body() {
+        // missing field, wrong type, and non-json bodies all fail rather than
+        // silently defaulting.
+        assert!(parse_ble_enabled("HTTP/1.1 200 OK\r\n\r\n{\"status\":\"ok\"}").is_err());
+        assert!(parse_ble_enabled("HTTP/1.1 200 OK\r\n\r\n{\"ble_enabled\":\"yes\"}").is_err());
+        assert!(parse_ble_enabled("HTTP/1.1 200 OK\r\n\r\nnot json").is_err());
+    }
+
+    #[test]
     fn build_report_not_available() {
         assert_eq!(
             serde_json::to_value(build_report(None)).expect("serialize"),
@@ -282,14 +317,25 @@ mod tests {
     #[test]
     fn build_report_available_reports_ble_and_interface() {
         assert_eq!(
-            serde_json::to_value(build_report(Some(("wlan0".to_string(), true))))
+            serde_json::to_value(build_report(Some(("wlan0".to_string(), Some(true)))))
                 .expect("serialize"),
             json!({ "running": true, "ble_enabled": true, "interface": "wlan0" })
         );
         assert_eq!(
-            serde_json::to_value(build_report(Some(("wlan0".to_string(), false))))
+            serde_json::to_value(build_report(Some(("wlan0".to_string(), Some(false)))))
                 .expect("serialize"),
             json!({ "running": true, "ble_enabled": false, "interface": "wlan0" })
+        );
+    }
+
+    #[test]
+    fn build_report_active_ble_unknown_omits_ble() {
+        // active instance, service-info unreachable: running with no ble_enabled
+        // key, never masked as running:false.
+        assert_eq!(
+            serde_json::to_value(build_report(Some(("wlan0".to_string(), None))))
+                .expect("serialize"),
+            json!({ "running": true, "interface": "wlan0" })
         );
     }
 
@@ -301,7 +347,7 @@ mod tests {
             &Some(tx),
             &mut last,
             true,
-            build_report(Some(("wlan0".to_string(), true))),
+            build_report(Some(("wlan0".to_string(), Some(true)))),
         )
         .await
         .expect("send");
@@ -316,7 +362,7 @@ mod tests {
     async fn send_report_skips_unchanged() {
         let (tx, mut rx) = mpsc::channel(4);
         let mut last = None;
-        let r = || build_report(Some(("wlan0".to_string(), true)));
+        let r = || build_report(Some(("wlan0".to_string(), Some(true))));
         send_report(&Some(tx.clone()), &mut last, true, r())
             .await
             .expect("send1");
@@ -335,7 +381,7 @@ mod tests {
             &Some(tx.clone()),
             &mut last,
             true,
-            build_report(Some(("wlan0".to_string(), false))),
+            build_report(Some(("wlan0".to_string(), Some(false)))),
         )
         .await
         .expect("s1");
@@ -345,7 +391,7 @@ mod tests {
             &Some(tx),
             &mut last,
             false,
-            build_report(Some(("wlan0".to_string(), true))),
+            build_report(Some(("wlan0".to_string(), Some(true)))),
         )
         .await
         .expect("s2");
@@ -353,5 +399,25 @@ mod tests {
             rx.recv().await.expect("r2"),
             json!({ "wifi_commissioning": { "running": true, "ble_enabled": true, "interface": "wlan0" } })
         );
+    }
+
+    // Under mock, `observe()` is stubbed to no active instance, so the enabled
+    // path is exercised end-to-end and yields `running:false`.
+    #[tokio::test]
+    async fn connect_twin_reports_initial_state() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let (tx_msg, _rx_msg) = mpsc::channel(4);
+        let mut feature = WifiCommissioning::default();
+        feature.connect_twin(tx, tx_msg).await.expect("connect");
+        assert_eq!(
+            rx.recv().await.expect("recv"),
+            json!({ "wifi_commissioning": { "running": false } })
+        );
+    }
+
+    #[tokio::test]
+    async fn command_rejects_non_tick() {
+        let mut feature = WifiCommissioning::default();
+        assert!(feature.command(&Command::Reboot).await.is_err());
     }
 }
