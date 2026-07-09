@@ -235,7 +235,10 @@ where
         let stream = match source_fut.await {
             Ok(s) => s,
             Err(e) => {
-                error!("debounced_command_stream: source init failed: {e:#}");
+                error!(
+                    "debounced_command_stream: source init failed for {}: {e:#}",
+                    std::any::type_name::<T>()
+                );
                 return;
             }
         };
@@ -255,7 +258,10 @@ where
                         deadline = Some(tokio::time::Instant::now() + silence);
                     }
                     None => {
-                        error!("debounced_command_stream: source stream ended, feature will no longer receive events");
+                        error!(
+                            "debounced_command_stream: source stream ended for {}, feature will no longer receive events",
+                            std::any::type_name::<T>()
+                        );
                         return;
                     }
                 },

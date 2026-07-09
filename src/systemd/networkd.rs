@@ -21,9 +21,8 @@ macro_rules! env_file_path {
 pub async fn networkd_interfaces() -> Result<serde_json::Value> {
     use log::debug;
 
-    let result = zbus::Connection::system()
-        .await
-        .context("networkd_interfaces: zbus::Connection::system() failed")?
+    let result = crate::systemd::system_connection()
+        .await?
         .call_method(
             Some("org.freedesktop.network1"),
             "/org/freedesktop/network1",
@@ -51,9 +50,7 @@ pub async fn networkd_interfaces() -> Result<serde_json::Value> {
 
 #[cfg(not(feature = "mock"))]
 pub async fn networkd_signal_stream() -> Result<zbus::MessageStream> {
-    let conn = zbus::Connection::system()
-        .await
-        .context("networkd_signal_stream: zbus::Connection::system() failed")?;
+    let conn = crate::systemd::system_connection().await?;
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender("org.freedesktop.network1")
@@ -78,7 +75,11 @@ pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
         bail!("service file missing: {service_file_path}");
     };
 
-    let Some(exec_start_entry) = entry.section("Service").attr("ExecStart") else {
+    let Some(service_section) = entry.section("Service") else {
+        bail!("Service section missing");
+    };
+
+    let Some(exec_start_entry) = service_section.attr("ExecStart").first() else {
         bail!("ExecStart entry missing");
     };
 
@@ -87,7 +88,7 @@ pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
         "unexpected timeout config in ExecStart: {exec_start_entry}"
     );
 
-    let Some(env_file_entry) = entry.section("Service").attr("EnvironmentFile") else {
+    let Some(env_file_entry) = service_section.attr("EnvironmentFile").first() else {
         bail!("EnvironmentFile entry missing");
     };
 

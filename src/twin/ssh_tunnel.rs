@@ -705,7 +705,7 @@ mod tests {
         let tmp_file = tmp_dir.path().join("some-ca-file");
         crate::common::set_env_var("DEVICE_CERT_FILE", &tmp_file);
 
-        let _response = ssh_tunnel.report().await.unwrap();
+        ssh_tunnel.report().await.unwrap();
 
         let reported_properties = rx_reported_properties.try_recv().unwrap();
 
@@ -731,11 +731,11 @@ mod tests {
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
-        crate::common::set_env_var("DEVICE_CERT_FILE", &tmp_file.path());
+        crate::common::set_env_var("DEVICE_CERT_FILE", tmp_file.path());
 
         std::fs::write(&tmp_file, format!("{CERTIFICATE_DATA}\n")).unwrap();
 
-        let _response = ssh_tunnel.report().await.unwrap();
+        ssh_tunnel.report().await.unwrap();
 
         let reported_properties = rx_reported_properties.try_recv().unwrap();
 
@@ -761,7 +761,7 @@ mod tests {
             ssh_tunnel_semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_TUNNELS)),
         };
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
-        crate::common::set_env_var("DEVICE_CERT_FILE", &tmp_file.path());
+        crate::common::set_env_var("DEVICE_CERT_FILE", tmp_file.path());
 
         let _response = ssh_tunnel
             .command(&FeatureCommand::DesiredUpdateDeviceSshCa(
@@ -772,7 +772,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = std::fs::read_to_string(&tmp_file.path()).unwrap();
+        let result = std::fs::read_to_string(tmp_file.path()).unwrap();
 
         assert_eq!(CERTIFICATE_DATA, result);
 
@@ -873,8 +873,7 @@ mod tests {
 
         // test connection limit
         let pipe_names = (1..=5)
-            .into_iter()
-            .map(|pipe_num| tmp_dir.path().join(&format!("named_pipe_{}", pipe_num)))
+            .map(|pipe_num| tmp_dir.path().join(format!("named_pipe_{}", pipe_num)))
             .collect::<Vec<_>>();
 
         for pipe_name in &pipe_names {

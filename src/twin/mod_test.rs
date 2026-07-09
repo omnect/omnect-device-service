@@ -92,7 +92,7 @@ pub mod mod_test {
 
         pub fn copy_directory(&self, dir: &str) -> PathBuf {
             let destdir = String::from(dir);
-            let destdir = destdir.split('/').last().unwrap();
+            let destdir = destdir.split('/').next_back().unwrap();
             let path = PathBuf::from(format!("{}/{}", self.dirpath, destdir));
             CopyOptions::new().copy_tree(dir, &path).unwrap();
             path
@@ -100,7 +100,7 @@ pub mod mod_test {
 
         pub fn mkdir(&self, dir: &str) -> PathBuf {
             let destdir = String::from(dir);
-            let destdir = destdir.split('/').last().unwrap();
+            let destdir = destdir.split('/').next_back().unwrap();
             let path = PathBuf::from(format!("{}/{}", self.dirpath, destdir));
             std::fs::create_dir_all(&path).unwrap();
             path
@@ -108,7 +108,7 @@ pub mod mod_test {
 
         pub fn copy_file(&self, file: &str) -> PathBuf {
             let destfile = String::from(file);
-            let destfile = destfile.split('/').last().unwrap();
+            let destfile = destfile.split('/').next_back().unwrap();
             let path = PathBuf::from(format!("{}/{}", self.dirpath, destfile));
             copy(file, &path).unwrap();
             path
@@ -263,7 +263,7 @@ pub mod mod_test {
             };
 
             // set testcase specific mock expectaions
-            set_mock_expectations(&mut config.twin.client.as_mut().unwrap());
+            set_mock_expectations(config.twin.client.as_mut().unwrap());
 
             // run test
             run_test(&mut config);
