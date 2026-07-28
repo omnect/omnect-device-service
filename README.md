@@ -277,13 +277,12 @@ In all other cases there will be an error status and a meaningful message in the
 #### Report factory reset result
 
 Performing a factory reset also triggers a device restart. The restart duration might depend on the selected factory reset mode. After the device has been restarted, the result is reported in the module twin.
-Details about the result format can be found [here](https://github.com/omnect/meta-omnect#factory-reset).
+The result format is defined by [omnect-os-init](https://github.com/omnect/omnect-os-init).
 
 ```json
 "factory_reset":
 {
   "result": {
-      "error": "0",
       "paths": [
           "/etc/omnect/factory-reset.d/"
       ],
@@ -291,6 +290,8 @@ Details about the result format can be found [here](https://github.com/omnect/me
   }
 }
 ```
+
+`error` and `context` are optional strings; they are only reported when present in the factory reset result. A status code unknown to the service is reported as `4294967295` (unknown).
 
 ### iot-hub-device-update user consent
 
