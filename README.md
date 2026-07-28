@@ -283,6 +283,9 @@ The result format is defined by [omnect-os-init](https://github.com/omnect/omnec
 "factory_reset":
 {
   "result": {
+      "context": null,
+      "data_wiped": true,
+      "error": null,
       "paths": [
           "/etc/omnect/factory-reset.d/"
       ],
@@ -291,7 +294,10 @@ The result format is defined by [omnect-os-init](https://github.com/omnect/omnec
 }
 ```
 
-`error` and `context` are optional strings; they are only reported when present in the factory reset result. A status code unknown to the service is reported as `4294967295` (unknown).
+- `status`: `0` success, `1` invalid request, `2` error, `3` configuration error, `4` warning (reset succeeded, but a partition needed a second format attempt). A status code unknown to the service is reported as `4294967295`.
+- `error` and `context` are `null` unless the reset reported a problem.
+- `paths` lists the preserved paths.
+- `data_wiped` is `true` once the reset started wiping data; on `status` `2` it distinguishes a safe abort from a failure after data was already wiped.
 
 ### iot-hub-device-update user consent
 

@@ -1,10 +1,9 @@
 {
     "factory_reset": {
         "status": 4,
-        "error": "partition needed a second mkfs",
-        "context": "format data partition",
+        "context": "reformat retried for: data",
         "paths": [
-            "/data/foo"
+            "network"
         ],
         "data_wiped": true
     },

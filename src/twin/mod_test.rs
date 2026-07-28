@@ -414,6 +414,9 @@ pub mod mod_test {
                     "factory_reset": {
                         "keys": vec!["certificates", "firewall", "network"],
                         "result": {
+                            "context": null,
+                            "data_wiped": true,
+                            "error": null,
                             "paths": [],
                             "status": 0,
                         },

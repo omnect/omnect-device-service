@@ -1,6 +1,7 @@
 {
     "factory_reset": {
         "status": 300,
+        "error": "error of a future status code",
         "data_wiped": false
     },
     "first_boot": false
