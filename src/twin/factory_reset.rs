@@ -72,7 +72,7 @@ pub enum FactoryResetStatus {
     Error = 2,
     ConfigError = 3,
     Warning = 4,
-    // catch-all so a future status code doesn't fail parsing and ODS startup
+    // a future status code must parse instead of failing ODS startup
     #[serde(other)]
     Unknown = u32::MAX,
 }
