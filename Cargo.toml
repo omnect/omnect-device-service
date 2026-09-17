@@ -76,7 +76,7 @@ x509-parser = { version = "0.18", default-features = false }
 zbus = { version = "5.19", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
-actix-web = "4"
+actix-web = { version = "4", default-features = false, features = ["macros"] }
 assert-json-diff = "2.0"
 cp_r = "0.5"
 futures-executor = "0.3"
