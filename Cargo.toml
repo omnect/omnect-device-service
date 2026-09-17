@@ -8,16 +8,16 @@ license = "MIT OR Apache-2.0"
 name = "omnect-device-service"
 readme = "README.md"
 repository = "https://github.com/omnect/omnect-device-service.git"
-version = "0.45.2"
+version = "0.45.4"
 
 [dependencies]
-actix-server = { version = "2.6", default-features = false }
-actix-web = { version = "4.13", default-features = false }
+actix-server = { version = "2.9", default-features = false }
+actix-web = { version = "4.15", default-features = false }
 anyhow = { version = "1.0", default-features = false }
 azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.14.2", default-features = false, features = [
   "module_client",
 ] }
-base64 = { version = "0.22", default-features = false }
+base64 = { version = "0.23", default-features = false }
 dotenvy = { version = "0.15", default-features = false }
 dynosaur = { version = "0.3", default-features = false }
 env_filter = { version = "2.0", default-features = false }
@@ -43,7 +43,7 @@ sd-notify = { version = "0.5", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }
 serde_repr = { version = "0.1", default-features = false }
-serde_with = { version = "3.21", default-features = false, features = [
+serde_with = { version = "3.23", default-features = false, features = [
   "std",
   "macros",
 ] }
@@ -71,9 +71,9 @@ toml = { version = "1.1", default-features = false, features = [
   "parse",
   "serde",
 ] }
-uuid = { version = "1.23", default-features = false }
+uuid = { version = "1.26", default-features = false }
 x509-parser = { version = "0.18", default-features = false }
-zbus = { version = "5.16", default-features = false, features = ["tokio"] }
+zbus = { version = "5.19", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 actix-web = "4"
