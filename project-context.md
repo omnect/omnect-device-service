@@ -27,7 +27,7 @@
 
 ## 2. Architecture & Tech Stack
 
-- **Language / Runtime:** Rust 1.93.0 (edition 2024), async via Tokio
+- **Language / Runtime:** Rust 1.97.1 (edition 2024), async via Tokio
 - **Key Frameworks:**
   - `azure-iot-sdk` (omnect fork) — IoT Hub module client (twin, direct methods, messages)
   - `actix-web` — local HTTP web service for publish/subscribe of device state
