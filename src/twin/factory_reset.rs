@@ -185,7 +185,7 @@ impl FactoryReset {
 
         let report = FactoryResetReport {
             keys: FactoryReset::factory_reset_keys()?,
-            result: FactoryReset::factory_reset_result()?,
+            result: FactoryReset::factory_reset_result(),
         };
 
         Ok(FactoryReset {
@@ -229,20 +229,33 @@ impl FactoryReset {
         Ok(keys)
     }
 
-    fn factory_reset_result() -> Result<Option<FactoryResetResult>> {
-        let omnect_os_initramfs_json: serde_json::Value = from_json_file(result_path!())?;
+    // degrades to "no result": an unusable status file must not keep the twin from starting
+    fn factory_reset_result() -> Option<FactoryResetResult> {
+        let path = result_path!();
+
+        let omnect_os_initramfs_json: serde_json::Value = match from_json_file(&path) {
+            Ok(json) => json,
+            Err(e) => {
+                warn!("factory reset: cannot read result: {e:#}");
+                return None;
+            }
+        };
 
         if omnect_os_initramfs_json["factory-reset"].is_null() {
             debug!("factory reset: no result");
-            return Ok(None);
+            return None;
         }
 
-        let result = serde_json::from_value(omnect_os_initramfs_json["factory-reset"].clone())
-            .context("failed to parse factory reset result from initramfs")?;
-
-        info!("factory reset result: {result:#?}");
-
-        Ok(Some(result))
+        match serde_json::from_value(omnect_os_initramfs_json["factory-reset"].clone()) {
+            Ok(result) => {
+                info!("factory reset result: {result:#?}");
+                Some(result)
+            }
+            Err(e) => {
+                warn!("factory reset: cannot parse result from '{path}': {e:#}");
+                None
+            }
+        }
     }
 
     async fn reset_to_factory_settings(&self, cmd: &FactoryResetCommand) -> CommandResult {
@@ -379,30 +392,26 @@ mod tests {
     #[test]
     fn factory_reset_status_test() {
         crate::common::set_env_var("FACTORY_RESET_RESULT_FILE_PATH", "");
-        assert!(
-            FactoryReset::factory_reset_result()
-                .unwrap_err()
-                .to_string()
-                .starts_with("failed to open for read")
+        assert!(FactoryReset::factory_reset_result().is_none());
+
+        crate::common::set_env_var(
+            "FACTORY_RESET_RESULT_FILE_PATH",
+            "testfiles/negative/omnect-os-initramfs-truncated.json",
         );
+        assert!(FactoryReset::factory_reset_result().is_none());
 
         crate::common::set_env_var(
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/negative/omnect-os-initramfs-factory-reset-format.json",
         );
-        assert!(
-            FactoryReset::factory_reset_result()
-                .unwrap_err()
-                .to_string()
-                .starts_with("failed to parse factory reset result from initramfs")
-        );
+        assert!(FactoryReset::factory_reset_result().is_none());
 
         crate::common::set_env_var(
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-factory-reset.json",
         );
         assert_eq!(
-            FactoryReset::factory_reset_result().unwrap().unwrap(),
+            FactoryReset::factory_reset_result().unwrap(),
             FactoryResetResult {
                 status: FactoryResetStatus::ModeSupported,
                 error: "-".to_string(),
@@ -415,7 +424,33 @@ mod tests {
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-normal-boot.json",
         );
-        assert!(FactoryReset::factory_reset_result().unwrap().is_none());
+        assert!(FactoryReset::factory_reset_result().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_without_result_file_test() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let config_file_path = temp_dir.path().join("factory-reset.json");
+        let custom_dir_path = temp_dir.path().join("factory-reset.d");
+
+        std::fs::copy(
+            "testfiles/positive/factory-reset.json",
+            config_file_path.as_path(),
+        )
+        .expect("copy config");
+        std::fs::create_dir_all(custom_dir_path.clone()).expect("create custom dir");
+
+        crate::common::set_env_var(
+            "FACTORY_RESET_RESULT_FILE_PATH",
+            temp_dir.path().join("does-not-exist.json"),
+        );
+        crate::common::set_env_var("FACTORY_RESET_CONFIG_FILE_PATH", config_file_path);
+        crate::common::set_env_var("FACTORY_RESET_CUSTOM_CONFIG_DIR_PATH", custom_dir_path);
+
+        let mut fs_watcher = FsWatcher::new().expect("FsWatcher::new");
+        let factory_reset = FactoryReset::new(&mut fs_watcher).expect("FactoryReset::new");
+
+        assert!(factory_reset.report.result.is_none());
     }
 
     #[tokio::test(flavor = "multi_thread")]
