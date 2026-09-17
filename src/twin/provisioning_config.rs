@@ -168,7 +168,7 @@ impl Feature for ProvisioningConfig {
         let x509 = X509::new(true, &self.hostname)?;
 
         if &x509.expires != expires {
-            info!("refresh: est expiration date changed {}", &x509.expires);
+            info!("refresh: est expiration date changed {}", x509.expires);
 
             self.method = Method::X509(x509);
             self.report().await?;

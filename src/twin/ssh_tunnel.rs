@@ -392,7 +392,7 @@ impl SshTunnel {
             // pipe we can block the mock process externally
             .args([
                 "-c",
-                &format!("echo established && cat < {} || true", &bastion_config.host),
+                &format!("echo established && cat < {} || true", bastion_config.host),
             ])
             .spawn()
             .context("start_tunnel_command: failed to spawn command")
