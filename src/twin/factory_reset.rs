@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::IotMessage;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, json};
 use serde_repr::*;
@@ -236,7 +236,7 @@ impl FactoryReset {
         let omnect_os_initramfs_json: serde_json::Value = match from_json_file(&path) {
             Ok(json) => json,
             Err(e) => {
-                warn!("factory reset: cannot read result: {e:#}");
+                error!("factory reset: cannot read result: {e:#}");
                 return None;
             }
         };
@@ -252,7 +252,7 @@ impl FactoryReset {
                 Some(result)
             }
             Err(e) => {
-                warn!("factory reset: cannot parse result from '{path}': {e:#}");
+                error!("factory reset: cannot parse result from '{path}': {e:#}");
                 None
             }
         }
