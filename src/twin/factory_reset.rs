@@ -88,9 +88,17 @@ struct FactoryResetReport {
     result: Option<FactoryResetResult>,
 }
 
+#[derive(Debug, PartialEq)]
+enum FactoryResetResultState {
+    Reported(FactoryResetResult),
+    NoReset,
+    Unusable,
+}
+
 pub struct FactoryReset {
     tx_reported_properties: Option<Sender<serde_json::Value>>,
     report: FactoryResetReport,
+    result_unusable: bool,
 }
 
 impl Feature for FactoryReset {
@@ -123,9 +131,7 @@ impl Feature for FactoryReset {
         _tx_outgoing_message: Sender<IotMessage>,
     ) -> Result<()> {
         tx_reported_properties
-            .send(json!({
-                "factory_reset": &self.report
-            }))
+            .send(json!({ "factory_reset": self.twin_report()? }))
             .await
             .context("connect_twin: send")?;
 
@@ -183,15 +189,35 @@ impl FactoryReset {
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
         fs_watcher.watch_dir_modified::<FactoryReset>(Path::new(&custom_config_dir_path!()))?;
 
+        let state = FactoryReset::factory_reset_result();
+        let result_unusable = matches!(state, FactoryResetResultState::Unusable);
+        let result = match state {
+            FactoryResetResultState::Reported(result) => Some(result),
+            _ => None,
+        };
+
         let report = FactoryResetReport {
             keys: FactoryReset::factory_reset_keys()?,
-            result: FactoryReset::factory_reset_result(),
+            result,
         };
 
         Ok(FactoryReset {
             tx_reported_properties: None,
             report,
+            result_unusable,
         })
+    }
+
+    fn twin_report(&self) -> Result<serde_json::Value> {
+        let mut report =
+            serde_json::to_value(&self.report).context("twin_report: failed to serialize")?;
+
+        if self.result_unusable {
+            // reported properties treat null as delete: drop a result left over from an earlier boot
+            report["result"] = serde_json::Value::Null;
+        }
+
+        Ok(report)
     }
 
     fn factory_reset_keys() -> Result<Vec<String>> {
@@ -229,31 +255,31 @@ impl FactoryReset {
         Ok(keys)
     }
 
-    // degrades to "no result": an unusable status file must not keep the twin from starting
-    fn factory_reset_result() -> Option<FactoryResetResult> {
+    // an unusable status file must not keep the twin from starting
+    fn factory_reset_result() -> FactoryResetResultState {
         let path = result_path!();
 
         let omnect_os_initramfs_json: serde_json::Value = match from_json_file(&path) {
             Ok(json) => json,
             Err(e) => {
                 error!("factory reset: cannot read result: {e:#}");
-                return None;
+                return FactoryResetResultState::Unusable;
             }
         };
 
         if omnect_os_initramfs_json["factory-reset"].is_null() {
             debug!("factory reset: no result");
-            return None;
+            return FactoryResetResultState::NoReset;
         }
 
         match serde_json::from_value(omnect_os_initramfs_json["factory-reset"].clone()) {
             Ok(result) => {
                 info!("factory reset result: {result:#?}");
-                Some(result)
+                FactoryResetResultState::Reported(result)
             }
             Err(e) => {
                 error!("factory reset: cannot parse result from '{path}': {e:#}");
-                None
+                FactoryResetResultState::Unusable
             }
         }
     }
@@ -392,39 +418,82 @@ mod tests {
     #[test]
     fn factory_reset_status_test() {
         crate::common::set_env_var("FACTORY_RESET_RESULT_FILE_PATH", "");
-        assert!(FactoryReset::factory_reset_result().is_none());
+        assert_eq!(
+            FactoryReset::factory_reset_result(),
+            FactoryResetResultState::Unusable
+        );
 
         crate::common::set_env_var(
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/negative/omnect-os-initramfs-truncated.json",
         );
-        assert!(FactoryReset::factory_reset_result().is_none());
+        assert_eq!(
+            FactoryReset::factory_reset_result(),
+            FactoryResetResultState::Unusable
+        );
 
         crate::common::set_env_var(
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/negative/omnect-os-initramfs-factory-reset-format.json",
         );
-        assert!(FactoryReset::factory_reset_result().is_none());
+        assert_eq!(
+            FactoryReset::factory_reset_result(),
+            FactoryResetResultState::Unusable
+        );
 
         crate::common::set_env_var(
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-factory-reset.json",
         );
         assert_eq!(
-            FactoryReset::factory_reset_result().unwrap(),
-            FactoryResetResult {
+            FactoryReset::factory_reset_result(),
+            FactoryResetResultState::Reported(FactoryResetResult {
                 status: FactoryResetStatus::ModeSupported,
                 error: "-".to_string(),
                 paths: vec![],
                 context: None,
-            }
+            })
         );
 
         crate::common::set_env_var(
             "FACTORY_RESET_RESULT_FILE_PATH",
             "testfiles/positive/omnect-os-initramfs-normal-boot.json",
         );
-        assert!(FactoryReset::factory_reset_result().is_none());
+        assert_eq!(
+            FactoryReset::factory_reset_result(),
+            FactoryResetResultState::NoReset
+        );
+    }
+
+    #[test]
+    fn twin_report_test() {
+        let report = || FactoryResetReport {
+            keys: vec![],
+            result: None,
+        };
+
+        let unusable = FactoryReset {
+            tx_reported_properties: None,
+            report: report(),
+            result_unusable: true,
+        };
+        assert_eq!(
+            unusable.twin_report().expect("twin_report")["result"],
+            serde_json::Value::Null
+        );
+
+        let no_reset = FactoryReset {
+            tx_reported_properties: None,
+            report: report(),
+            result_unusable: false,
+        };
+        assert!(
+            no_reset
+                .twin_report()
+                .expect("twin_report")
+                .get("result")
+                .is_none()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -451,6 +520,7 @@ mod tests {
         let factory_reset = FactoryReset::new(&mut fs_watcher).expect("FactoryReset::new");
 
         assert!(factory_reset.report.result.is_none());
+        assert!(factory_reset.result_unusable);
     }
 
     #[tokio::test(flavor = "multi_thread")]
