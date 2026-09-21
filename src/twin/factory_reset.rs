@@ -213,7 +213,7 @@ impl FactoryReset {
             serde_json::to_value(&self.report).context("twin_report: failed to serialize")?;
 
         if self.result_unusable {
-            // reported properties treat null as delete: drop a result left over from an earlier boot
+            // null deletes the property; omitting it would keep an earlier boot's result
             report["result"] = serde_json::Value::Null;
         }
 
@@ -255,7 +255,6 @@ impl FactoryReset {
         Ok(keys)
     }
 
-    // an unusable status file must not keep the twin from starting
     fn factory_reset_result() -> FactoryResetResultState {
         let path = result_path!();
 
