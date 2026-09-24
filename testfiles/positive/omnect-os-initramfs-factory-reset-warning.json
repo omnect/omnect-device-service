@@ -1,0 +1,11 @@
+{
+    "factory_reset": {
+        "status": 4,
+        "context": "reformat retried for: data",
+        "paths": [
+            "network"
+        ],
+        "data_wiped": true
+    },
+    "first_boot": false
+}

@@ -1,8 +1,7 @@
 {
-    "fsck": {},
-    "factory-reset": {
+    "factory_reset": {
         "status": 0,
-        "error": "-",
-        "paths": []
-    }
+        "data_wiped": true
+    },
+    "first_boot": false
 }
