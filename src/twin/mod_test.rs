@@ -751,6 +751,95 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn reset_client_drops_stale_connection_status_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |test_attr: &mut TestConfig| {
+            let (tx, mut rx) = mpsc::channel(100);
+            tx.try_send(AuthenticationStatus::Unauthenticated(
+                UnauthenticatedReason::CommunicationError,
+            ))
+            .expect("send CommunicationError");
+
+            // the old client still reports Authenticated while it shuts down
+            test_attr
+                .twin
+                .client
+                .as_mut()
+                .expect("client present")
+                .expect_shutdown()
+                .times(1)
+                .returning(move |_| {
+                    tx.try_send(AuthenticationStatus::Authenticated)
+                        .expect("send Authenticated");
+                });
+
+            block_on(test_attr.twin.reset_client_with_delay(&mut rx, None));
+
+            let client_dropped = test_attr.twin.client.is_none();
+            test_attr.twin.client = Some(MockMyIotHub::default());
+
+            assert!(client_dropped, "reset must drop the iot hub client");
+            assert!(
+                rx.try_recv().is_err(),
+                "reset must drop connection statuses of the old client"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reset_client_without_client_drops_stale_connection_status_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |test_attr: &mut TestConfig| {
+            let client = test_attr.twin.client.take();
+            let (tx, mut rx) = mpsc::channel(100);
+            tx.try_send(AuthenticationStatus::Authenticated)
+                .expect("send Authenticated");
+
+            block_on(test_attr.twin.reset_client_with_delay(&mut rx, None));
+            test_attr.twin.client = client;
+
+            assert_eq!(
+                rx.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty),
+                "reset must drop queued connection statuses"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn connection_status_without_client_is_ignored_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |test_attr: &mut TestConfig| {
+            let client = test_attr.twin.client.take();
+
+            let result = block_on(
+                test_attr
+                    .twin
+                    .handle_connection_status(AuthenticationStatus::Authenticated),
+            );
+            test_attr.twin.client = client;
+
+            assert!(
+                !result.expect("status without client must not fail"),
+                "status without client must not restart the client"
+            );
+            assert!(
+                test_attr.twin.state != TwinState::Authenticated,
+                "status without client must not change the twin state"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",

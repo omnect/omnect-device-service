@@ -55,7 +55,8 @@ function do_rate() {
 	    [ $overall_rating -ge 2 ] || overall_rating=2
 	    ;;
 	*)
-	    fatal "Unknown rating \"$rating\"${hint:-${ME}}"
+	    fatal "Unknown rating \"$rating\" ${hint:-${ME}} - treated as 2 == RED"
+            overall_rating=2
 	    ;;
     esac
 }

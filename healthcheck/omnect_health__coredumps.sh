@@ -1,7 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 #
 
-. healthchecklib.sh
+. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
 
 function checkit() {
     local up now rating since sinces cores
