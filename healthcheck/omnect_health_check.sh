@@ -74,7 +74,8 @@ function do__cmd() {
         if [ $output_when = 2 -o $output_when = 1 -a $retval != 0 ]; then
             echo "$output"
         fi
-	do_rate $retval
+	[ "$retval" -le 2 ] || print_rating 2 "$type" "${check##*/}"
+	do_rate $retval "${check##*/}"
 
     done
 }
