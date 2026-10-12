@@ -13,10 +13,17 @@
 #
 # Each check script gets called by main script with a run mode of either
 # "check" or "get-infos" and optional extra arguments as defined in the
-# configuration file and must have a return value of ...
+# configuration file. There's file "healthchecklib.sh" next to these scripts
+# which defines various helper functions for uniform output and handling and
+# that has to be sourced in each script at the very beginning like this:
+#
+#   . ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+#
+# The script must have a return value of ...
 #  - 0: "green", meaning everything OK
 #  - 1: "yellow", meaning non fatal issues detected
 #  - 2: "red", meaning serious issues detected
+#  - NOTE: any other return value is treated as 2!
 #
 # The difference between modes "check" and "get-infos" is that the latter
 # may also output additional information on stdout which could help

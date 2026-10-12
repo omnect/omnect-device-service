@@ -1,11 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Purpose of this script is to record service (re-)starts and terminations,
 # regular as well as unintentional ones, in a generic way so that such
 # occurrences can be examined by a health check routine.
 #
 
-. healthchecklib.sh
+HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck
+
+. ${HEALTHCHECK_DIR}/healthchecklib.sh
 
 SERVICE_EXITLOGDIRNAME=omnect_health_log
 SERVICE_EXITLOGDIR=/var/run/${SERVICE_EXITLOGDIRNAME}
@@ -84,7 +86,7 @@ case "$1" in
 	EXPECTED_PARAMS=5
     ;;
     *)
-	error "unrecognized operation \"$1\" given"
+	fatal "unrecognized operation \"$1\" given" && usage 1
     ;;
 esac
 
@@ -116,7 +118,7 @@ case "$1" in
     stop)
 	# FIXME: do we need to take care of log file rotation or removal?
 	output_logentry "$SERVICE_EXITLOGFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
-	omnect_health__services.sh check "$SERVICE" > /dev/null
+	${HEALTHCHECK_DIR}/omnect_health__services.sh check "$SERVICE" > /dev/null
 	output_exitinfo "$SERVICE_EXITINFOFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
 	if [ ! -r "$SERVICE_EXITINFOFILE_1ST" ]; then
 	    cp -a "$SERVICE_EXITINFOFILE" "$SERVICE_EXITINFOFILE_1ST"

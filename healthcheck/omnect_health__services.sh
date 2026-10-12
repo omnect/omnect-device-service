@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Purpose of this script is to analyze service log files and rate their
 # content, and hence the status of the respective service, as running normal,
@@ -11,7 +11,7 @@
 # An additional requirement is to have multiple files with specifications of
 # log entry
 
-. healthchecklib.sh
+. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
 
 : ${CFGDIR:=/etc/omnect/health_check}
 : ${CFGFILE:=omnect_service_log_analysis.json}

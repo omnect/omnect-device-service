@@ -1,6 +1,8 @@
 #!/bin/bash
 
-. healthchecklib.sh
+HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck
+
+. ${HEALTHCHECK_DIR}/healthchecklib.sh
 
 CFGFILE=omnect_health_checks.json
 CFGFILEDIR=/etc/omnect/health_check
@@ -46,28 +48,35 @@ function do__cmd() {
     
     i=0
     while [ $i -lt "$nchecks" ]; do
-	idx=$i
-	i=$((i + 1))
+        idx=$i
+        i=$((i + 1))
 
-	type=$(jq -r "if .[$idx].\"type\" then .[$idx].\"type\" else empty end" "$cfgfile")
-	[ "$type" ] \
-	    || { warn "entry $i in \"$cfgfile\" is missing \"type\" attribute"; continue; }
+        type=$(jq -r "if .[$idx].\"type\" then .[$idx].\"type\" else empty end" "$cfgfile")
+        [ "$type" ] \
+            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; do_rate 2; continue; }
 
-	check="/usr/sbin/omnect_health__${type}.sh"
-	[ -x "$check" ] \
-	    || { warn "check \"$check\" for type \"$type\" (entry $i in \"$cfgfile\") cannot be called"; continue; }
+        check="${HEALTHCHECK_DIR}/omnect_health__${type}.sh"
+        if [ ! -x "$check" ]; then
+            local rate=2
+            error "check \"$check\" for type \"$type\" (entry $i in \"$cfgfile\") cannot be called"
+            print_rating $rate ${type} "${check##*/}"
+            do_rate $rate
+            continue
+        fi
+        name=$(jq -r "if .[$idx].\"name\" then .[$idx].\"name\" else empty end" "$cfgfile")
+        : ${name:=$type}
+        [ -z "$selected_checks" -o "$(echo $selected_checks | grep -w "$name")" -o "$(echo $selected_checks | grep -w "$type")" ] || continue
 
-	name=$(jq -r "if .[$idx].\"name\" then .[$idx].\"name\" else empty end" "$cfgfile")
-	: ${name:=$type}
-	[ -z "$selected_checks" -o "$(echo $selected_checks | grep -w "$name")" -o "$(echo $selected_checks | grep -w "$type")" ] || continue
+        extra_args=$(jq -r "if .[$idx].\"extra-args\" then .[$idx].\"extra-args\" else empty end" "$cfgfile")
+        output=$($check $cmd $extra_args)
+        retval=$?
 
-	extra_args=$(jq -r "if .[$idx].\"extra-args\" then .[$idx].\"extra-args\" else empty end" "$cfgfile")
-	output=$($check $cmd $extra_args)
-	retval=$?
-	do_rate $retval
-	if [ $output_when = 2 -o $output_when = 1 -a $retval != 0 ]; then
-	    echo "$output"
-	fi
+        if [ $output_when = 2 -o $output_when = 1 -a $retval != 0 ]; then
+            echo "$output"
+        fi
+	[ "$retval" -le 2 ] || print_rating 2 "$type" "${check##*/}"
+	do_rate $retval "${check##*/}"
+
     done
 }
 
