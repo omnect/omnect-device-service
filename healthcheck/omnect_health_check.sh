@@ -53,7 +53,7 @@ function do__cmd() {
 
         type=$(jq -r "if .[$idx].\"type\" then .[$idx].\"type\" else empty end" "$cfgfile")
         [ "$type" ] \
-            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; continue; }
+            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; do_rate 2; continue; }
 
         check="${HEALTHCHECK_DIR}/omnect_health__${type}.sh"
         if [ ! -x "$check" ]; then
