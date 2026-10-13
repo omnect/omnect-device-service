@@ -45,19 +45,19 @@ function do_rate() {
     local hint="$2"
 
     case "X$rating" in
-	X0)
-	    : # everything fine here
-	;;
-	X1)
-	    [ $overall_rating -ge 1 ] || overall_rating=1
-	    ;;
-	X2)
-	    [ $overall_rating -ge 2 ] || overall_rating=2
-	    ;;
-	*)
-	    fatal "Unknown rating \"$rating\" ${hint:-${ME}} - treated as 2 == RED"
+        X0)
+            : # everything fine here
+        ;;
+        X1)
+            [ $overall_rating -ge 1 ] || overall_rating=1
+            ;;
+        X2)
+            [ $overall_rating -ge 2 ] || overall_rating=2
+            ;;
+        *)
+            fatal "Unknown rating \"$rating\" ${hint:-${ME}} - treated as 2 == RED"
             overall_rating=2
-	    ;;
+            ;;
     esac
 }
 
@@ -75,16 +75,16 @@ function check_command_arg() {
 
     # first argument must be either "check" or "get-infos"
     case "X$1" in
-	Xcheck | Xget-infos)
-	;;
-	X)
-	    fatal "no command given"
-	    exit 1
-	    ;;
-	*)
-	    fatal "unrecognized command \"$1\""
-	    exit 1
-	    ;;
+        Xcheck | Xget-infos)
+        ;;
+        X)
+            fatal "no command given"
+            exit 1
+            ;;
+        *)
+            fatal "unrecognized command \"$1\""
+            exit 1
+            ;;
     esac
 }
 

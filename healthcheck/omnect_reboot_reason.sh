@@ -196,29 +196,29 @@ function get_new_reason_dir() {
 
     # now find next sequence number for new directory
     if [ -d "${basedir}" ]; then
-	for path_entry in "${basedir}"/*; do
-	    # make it work independently from globbing by conluding that all
-	    # found entries still exist, because nobody else should bother with
-	    # that directory
-	    [ -e "${path_entry}" ] || break
+        for path_entry in "${basedir}"/*; do
+            # make it work independently from globbing by conluding that all
+            # found entries still exist, because nobody else should bother with
+            # that directory
+            [ -e "${path_entry}" ] || break
 
-	    local entry=$(basename "${path_entry}")
-	    # format is something like NNNNNN+YYYY-mm-dd_HH-MM-SS
-	    local no="${entry%%+*}"
+            local entry=$(basename "${path_entry}")
+            # format is something like NNNNNN+YYYY-mm-dd_HH-MM-SS
+            local no="${entry%%+*}"
 
-	    # check format of no now
-	    case "X${no}" in
-		X | X[0-9]*[^0-9][0-9]*) continue;;  # ignored
-	    esac
+            # check format of no now
+            case "X${no}" in
+                X | X[0-9]*[^0-9][0-9]*) continue;;  # ignored
+            esac
 
-	    # now remove leading zeros
-	    no="${no#${no%%[^0]*}}"
-	    : ${no:=0}
-	    [ -z "${seqno}" -o ${no} -gt ${seqno:-0} ] && seqno="${no}"
-	done
+            # now remove leading zeros
+            no="${no#${no%%[^0]*}}"
+            : ${no:=0}
+            [ -z "${seqno}" -o ${no} -gt ${seqno:-0} ] && seqno="${no}"
+        done
 
-	# we need to increment if we found a number!
-	[ "${seqno}" ] && seqno=$((seqno + 1))
+        # we need to increment if we found a number!
+        [ "${seqno}" ] && seqno=$((seqno + 1))
     fi
 
     : ${seqno:=0}
@@ -226,7 +226,7 @@ function get_new_reason_dir() {
     reasondirname=$(printf '%06u+%s' "${seqno}" "${timestamp}")
     reasonpath="${basedir}/${reasondirname}"
     mkdir -p "${reasonpath}" \
-	|| err 1 "Could not create directory (${reasonpath}) for reboot reason data [$retval]"
+        || err 1 "Could not create directory (${reasonpath}) for reboot reason data [$retval]"
     # NOTE:
     #   we make the directory group readable so that it can be modified by
     #   suitably started processes; this allows - together with a group sticky
@@ -271,91 +271,91 @@ function analyze() {
     local r_extra_info
 
     if [ -r "${dmesg_file}" ]; then
-	# highest priority: obviously a panic occured, so report it
-	r_reason="system-crash"
-	# FFS:
-	#   can we obtain some reasonable extra information here?
-	#   maybe from dmesg file itself or from console file (if any)?
-	#   or do we want to investigate on whether we were already about to
-	#   reboot?
+        # highest priority: obviously a panic occured, so report it
+        r_reason="system-crash"
+        # FFS:
+        #   can we obtain some reasonable extra information here?
+        #   maybe from dmesg file itself or from console file (if any)?
+        #   or do we want to investigate on whether we were already about to
+        #   reboot?
 
-	if [ -z "${r_extra_info}" -a -r "${pmsg_file}" ]; then
-	    # gather all recorded reboot reasons for extra info
-	    no_reasons=$(jq -s 'length' < "${pmsg_file}")
-	    all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
-	    r_extra_info="with multiple reasons exist: ${all_reasons} + ${r_reason}"
+        if [ -z "${r_extra_info}" -a -r "${pmsg_file}" ]; then
+            # gather all recorded reboot reasons for extra info
+            no_reasons=$(jq -s 'length' < "${pmsg_file}")
+            all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
+            r_extra_info="with multiple reasons exist: ${all_reasons} + ${r_reason}"
 
-	    # use latest reboot record to fill reason; best approximation available
-	    # and at least boot_id is correct!
-	    r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
-	    r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
-	    r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
-	    r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
-	    r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
-	fi
+            # use latest reboot record to fill reason; best approximation available
+            # and at least boot_id is correct!
+            r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
+            r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
+            r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+            r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
+            r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
+        fi
     elif [ -r "${pmsg_file}" ]; then
-	# we do have an annotated intentional reboot, so gather information
-	#  - how many?
-	no_reasons=$(jq -s 'length' < "${pmsg_file}")
-	retval=$?
-	[ $retval = 0 ] || err 1 "Coudln't determine number of reason logs in pmsg file (corrupted?)"
+        # we do have an annotated intentional reboot, so gather information
+        #  - how many?
+        no_reasons=$(jq -s 'length' < "${pmsg_file}")
+        retval=$?
+        [ $retval = 0 ] || err 1 "Coudln't determine number of reason logs in pmsg file (corrupted?)"
 
-	# now we need to analyze them
-	if [ $no_reasons = 0 ]; then
-	    err 1 "Unrecognized pmsg file contents (no reason elements found)"
-	elif [ $no_reasons = 1 ]; then
-	    # just use PMSG content
-	    r_datetime=$(jq -r '."datetime"' < "${pmsg_file}")
-	    r_timeepoch=$(jq -r '."timeepoch"' < "${pmsg_file}")
-	    r_uptime=$(jq -r '."uptime"' < "${pmsg_file}")
-	    r_boot_id=$(jq -r '."boot_id"' < "${pmsg_file}")
-	    r_os_version=$(jq -r '."os_version"' < "${pmsg_file}")
-	    r_reason=$(jq -r '."reason"' < "${pmsg_file}")
-	    r_extra_info=$(jq -r '."extra_info"' < "${pmsg_file}")
-	else
-	    # that might become tricky: we face several PMSG entries so let's see
-	    # what we could have here ...
+        # now we need to analyze them
+        if [ $no_reasons = 0 ]; then
+            err 1 "Unrecognized pmsg file contents (no reason elements found)"
+        elif [ $no_reasons = 1 ]; then
+            # just use PMSG content
+            r_datetime=$(jq -r '."datetime"' < "${pmsg_file}")
+            r_timeepoch=$(jq -r '."timeepoch"' < "${pmsg_file}")
+            r_uptime=$(jq -r '."uptime"' < "${pmsg_file}")
+            r_boot_id=$(jq -r '."boot_id"' < "${pmsg_file}")
+            r_os_version=$(jq -r '."os_version"' < "${pmsg_file}")
+            r_reason=$(jq -r '."reason"' < "${pmsg_file}")
+            r_extra_info=$(jq -r '."extra_info"' < "${pmsg_file}")
+        else
+            # that might become tricky: we face several PMSG entries so let's see
+            # what we could have here ...
 
-	    # 1. having reboot as last reason
-	    # here we assume the real reason to be contained in the next-to-last
-	    # entry
-	    last_reason=$(jq -rs  '[ .[] | .reason ] | last' < "${pmsg_file}")
-	    next_to_last_reason=$(jq -rs  '[ .[] | .reason ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
-	    next_to_last_extra_info=$(jq -rs  '[ .[] | .extra_info ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
+            # 1. having reboot as last reason
+            # here we assume the real reason to be contained in the next-to-last
+            # entry
+            last_reason=$(jq -rs  '[ .[] | .reason ] | last' < "${pmsg_file}")
+            next_to_last_reason=$(jq -rs  '[ .[] | .reason ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
+            next_to_last_extra_info=$(jq -rs  '[ .[] | .extra_info ] | nth('$((no_reasons - 2))')' < "${pmsg_file}")
 
-	    if [ "${last_reason}" = "reboot" ]; then
-		if [[ " ${VALID_REBOOT_REASONS[*]} " =~ " ${next_to_last_reason} " ]]; then
-		    r_reason="${next_to_last_reason}"
-		    r_extra_info="${next_to_last_extra_info}"
-		    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
-			r_extra_info="reboot after ${next_to_last_reason}"
-		    fi
-		fi
-		if [ "$r_reason" ]; then
-		    # now that we determined a reboot reason, gather all other info
-		    # from last entry
-		    r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
-		    r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
-		    r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
-		    r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
-		    r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
-		fi
-	    fi
+            if [ "${last_reason}" = "reboot" ]; then
+                if [[ " ${VALID_REBOOT_REASONS[*]} " =~ " ${next_to_last_reason} " ]]; then
+                    r_reason="${next_to_last_reason}"
+                    r_extra_info="${next_to_last_extra_info}"
+                    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
+                        r_extra_info="reboot after ${next_to_last_reason}"
+                    fi
+                fi
+                if [ "$r_reason" ]; then
+                    # now that we determined a reboot reason, gather all other info
+                    # from last entry
+                    r_datetime=$(jq -rs '[ .[] | ."datetime" ] | last' < "${pmsg_file}")
+                    r_timeepoch=$(jq -rs '[ .[] | ."timeepoch" ] | last' < "${pmsg_file}")
+                    r_uptime=$(jq -rs '[ .[] | ."uptime" ] | last' < "${pmsg_file}")
+                    r_boot_id=$(jq -rs '[ .[] | ."boot_id" ] | last' < "${pmsg_file}")
+                    r_os_version=$(jq -rs '[ .[] | ."os_version" ] | last' < "${pmsg_file}")
+                fi
+            fi
 
-	    # 2. if resulting reason is still not set do it now and provide more info
-	    if [ -z "${r_reason}" ]; then
-		r_reason="unrecognized"
-	    fi
-	    if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
-		all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
-		r_extra_info="multiple (${no_reasons}) reason entries found in pmsg file: ${all_reasons}"
-	    fi
-	fi
+            # 2. if resulting reason is still not set do it now and provide more info
+            if [ -z "${r_reason}" ]; then
+                r_reason="unrecognized"
+            fi
+            if [ -z "${r_extra_info}" -o "null" = "${r_extra_info}" ]; then
+                all_reasons=$(jq -rs 'map(.reason) | join(", ")' < "${pmsg_file}")
+                r_extra_info="multiple (${no_reasons}) reason entries found in pmsg file: ${all_reasons}"
+            fi
+        fi
     elif [ -r "${console_file}" ]; then
-	r_reason="unrecognized"
-	r_extra_info="console file w/o reboot reason indication file"
+        r_reason="unrecognized"
+        r_extra_info="console file w/o reboot reason indication file"
     else
-	r_reason="power-loss"
+        r_reason="power-loss"
     fi
 
     # - determine current time, uptime and other stuff for the first part of
@@ -368,23 +368,23 @@ function analyze() {
 
     # - at last output reboot reason file with gathered field values
     jq \
-	-n \
-	--arg report_boot_id "${boot_id}" \
-	--arg report_os_version "${os_version}" \
-	--arg report_datetime "${datetime}" \
-	--arg report_uptime "${uptime}" \
-	--arg report_timeepoch "${timeepoch}" \
-	--arg report_console_file "${console_file}" \
-	--arg report_dmesg_file "${dmesg_file}" \
-	--arg report_pmsg_file "${pmsg_file}" \
-	--arg r_datetime "${r_datetime}" \
-	--arg r_timeepoch "${r_timeepoch}" \
-	--arg r_uptime "${r_uptime}" \
-	--arg r_boot_id "${r_boot_id}" \
-	--arg r_os_version "${r_os_version}" \
-	--arg r_reason "${r_reason}" \
-	--arg r_extra_info "${r_extra_info}" \
-	'{
+        -n \
+        --arg report_boot_id "${boot_id}" \
+        --arg report_os_version "${os_version}" \
+        --arg report_datetime "${datetime}" \
+        --arg report_uptime "${uptime}" \
+        --arg report_timeepoch "${timeepoch}" \
+        --arg report_console_file "${console_file}" \
+        --arg report_dmesg_file "${dmesg_file}" \
+        --arg report_pmsg_file "${pmsg_file}" \
+        --arg r_datetime "${r_datetime}" \
+        --arg r_timeepoch "${r_timeepoch}" \
+        --arg r_uptime "${r_uptime}" \
+        --arg r_boot_id "${r_boot_id}" \
+        --arg r_os_version "${r_os_version}" \
+        --arg r_reason "${r_reason}" \
+        --arg r_extra_info "${r_extra_info}" \
+        '{
         "report": {
             "datetime":     $report_datetime,
             "timeepoch":    $report_timeepoch,
@@ -431,9 +431,9 @@ function ramoops_copy_file() {
     #   even though an ECC feature seems orthogonal to using special commands
     #   for copy or remove operations, is only available for ramoops
     if [ "${ecc_quirk}" ]; then
-	sed '$d' "${srcpath}" > "${dstpath}"
+        sed '$d' "${srcpath}" > "${dstpath}"
     else
-	cp "${srcpath}" "${dstpath}"
+        cp "${srcpath}" "${dstpath}"
     fi
     retval=$?
     [ $retval = 0 ] || err 1 "Copying file failed: ${srcpath} -> ${dstpath} [ecc_quirk:${ecc_quirk}]"
@@ -441,13 +441,13 @@ function ramoops_copy_file() {
 
     if [ -z "${dont_compress}" ]; then
 
-	gzip "${dstpath}"
-	retval=$?
-	if [ $retval = 0 ]; then
-	    [ -f "${dstpath}" ] || dstpath="${dstpath}.gz"
-	else
-	    err 1 "Compressing copied file failed: ${srcpath} -> ${dstpath}"
-	fi
+        gzip "${dstpath}"
+        retval=$?
+        if [ $retval = 0 ]; then
+            [ -f "${dstpath}" ] || dstpath="${dstpath}.gz"
+        else
+            err 1 "Compressing copied file failed: ${srcpath} -> ${dstpath}"
+        fi
     fi
 
     [ "${del_after_copy}" ] && rm "${srcpath}"
@@ -461,8 +461,8 @@ function reboot_reason_log_for_ramoops() {
 
     out=$(echo -n "${json}" 2>&1 > ${RAMOOPS_DEV_PMSG}) \
      || {
-	>&2 echo -e "${ME}: logging to ${RAMOOPS_DEV_PMSG} had issues:\n${out}";
-	exit 1
+        >&2 echo -e "${ME}: logging to ${RAMOOPS_DEV_PMSG} had issues:\n${out}";
+        exit 1
     }
 }
 
@@ -474,7 +474,7 @@ function reboot_reason_get_for_ramoops() {
     local ecc_enabled
 
     [ -r /sys/module/ramoops/parameters/ecc ] \
-	&& ecc_enabled="$(</sys/module/ramoops/parameters/ecc)"
+        && ecc_enabled="$(</sys/module/ramoops/parameters/ecc)"
 
     [ "${console_file}" -a -r "${console_file}" ] || console_file=
     [ "${dmesg_file}"   -a -r "${dmesg_file}"   ] || dmesg_file=
@@ -484,11 +484,11 @@ function reboot_reason_get_for_ramoops() {
     # with resulting files
     local del_after_copy=1
     [ "${console_file}" ] \
-	&& console_file=$(ramoops_copy_file "${console_file}" "${reason_dir}" "${del_after_copy}")
+        && console_file=$(ramoops_copy_file "${console_file}" "${reason_dir}" "${del_after_copy}")
     [ "${dmesg_file}"   ] \
-	&& dmesg_file=$(ramoops_copy_file "${dmesg_file}" "${reason_dir}" "${del_after_copy}")
+        && dmesg_file=$(ramoops_copy_file "${dmesg_file}" "${reason_dir}" "${del_after_copy}")
     [ "${pmsg_file}"    ] \
-	&& pmsg_file=$(ramoops_copy_file "${pmsg_file}" "${reason_dir}" "${del_after_copy}" 1 "${ecc_enabled}")
+        && pmsg_file=$(ramoops_copy_file "${pmsg_file}" "${reason_dir}" "${del_after_copy}" 1 "${ecc_enabled}")
 
     analyze "${reason_dir}" "${dmesg_file}" "${console_file}" "${pmsg_file}"
 }
@@ -529,8 +529,8 @@ EFIVAR_DMESG_VARNAME_PREFIX="dmesg-efi-"
 function rm_efivars() {
     local var
     for var; do
-	chattr -i "${var}"
-	rm "${var}"
+        chattr -i "${var}"
+        rm "${var}"
     done
 }
 
@@ -553,14 +553,14 @@ function boottag_get_boot_ids() {
     local cur_boot_id="invalid"
 
     if [ ! -r "${efivar_file}" ]; then
-	>&2 echo "WARNING: no EFI variable \"${efivar_file##*/}\" exists"
-	return
+        >&2 echo "WARNING: no EFI variable \"${efivar_file##*/}\" exists"
+        return
     fi
     [ "${omit_cur_boot_id}" ] \
-	&& cur_boot_id="$(</proc/sys/kernel/random/boot_id)"
+        && cur_boot_id="$(</proc/sys/kernel/random/boot_id)"
 
     read_efivar "${efivar_file}" \
-	| jq -sr --arg omit_id "${cur_boot_id}" 'map(select(.boottag != $omit_id) | .boottag) | join(" ")'
+        | jq -sr --arg omit_id "${cur_boot_id}" 'map(select(.boottag != $omit_id) | .boottag) | join(" ")'
 }
 
 function boottag_write_boot_id() {
@@ -572,10 +572,10 @@ function boottag_write_boot_id() {
 
     # for efivar command write we unfortunately need a file
     tmpfile=$(mktemp -p /tmp boottag.XXXXXXXX 2>&1) \
-	|| {
-	>&2 echo -e "${ME}: creating temporary reboot reason file had issues:\n${tmpfile}";
-	rv=1
-	exit
+        || {
+        >&2 echo -e "${ME}: creating temporary reboot reason file had issues:\n${tmpfile}";
+        rv=1
+        exit
     }
 
     # now write boottag entry(s) to the file
@@ -587,9 +587,9 @@ function boottag_write_boot_id() {
     # finally write contnt to efivar
     out=$(efivar ${append:--w} -f "${tmpfile}" -n "${efivar_var}" 2>&1 > /dev/null)
     if [ $? != 0 -o "${out}" ]; then
-	>&2 echo -e "${ME}: logging to EFI variable ${efivar_var} had issues:\n${out}";
-	rv=1
-	exit
+        >&2 echo -e "${ME}: logging to EFI variable ${efivar_var} had issues:\n${out}";
+        rv=1
+        exit
     fi
     rm -f "${tmpfile}"
 }
@@ -601,15 +601,15 @@ function boottag_rm_bootid() {
     # can we delete the variable or do we need to keep IDs?
     other_ids=$(boottag_get_boot_ids 1)
     if [ "${other_ids}" ]; then
-	# need to keep
-	local multiple=
-	for id in ${other_ids}; do
-	    boottag_write_boot_id "${id}" "${multiple:+append}"
-	    multiple=1
-	done
+        # need to keep
+        local multiple=
+        for id in ${other_ids}; do
+            boottag_write_boot_id "${id}" "${multiple:+append}"
+            multiple=1
+        done
     else
-	# no other IDs contained so we can remove the variable
-	rm_efivars "${EFIVAR_BOOTTAG_FILE}"
+        # no other IDs contained so we can remove the variable
+        rm_efivars "${EFIVAR_BOOTTAG_FILE}"
     fi
 }
 
@@ -621,16 +621,16 @@ function reboot_reason_log_for_efi() {
     # unfortunately we need a temporary file containing log data, because
     # command efivar is not capable to receive these via stdin
     tmpfile=$(mktemp -p /tmp reboot-reason.XXXXXXXX 2>&1) \
-	|| {
-	>&2 echo -e "${ME}: creating temporary reboot reason file had issues:\n${tmpfile}";
-	rv=1
-	exit
+        || {
+        >&2 echo -e "${ME}: creating temporary reboot reason file had issues:\n${tmpfile}";
+        rv=1
+        exit
     }
     out=$(echo -n "$json" 2>&1 > "${tmpfile}") \
-	|| {
-	>&2 echo -e "${ME}: writing JSON data to temporary reboot reason file (${tmpfile}) had issues:\n${out}";
-	rv=1
-	exit
+        || {
+        >&2 echo -e "${ME}: writing JSON data to temporary reboot reason file (${tmpfile}) had issues:\n${out}";
+        rv=1
+        exit
     }
 
     # EFI variable handling with efivar is rather strange compared to kernel
@@ -653,9 +653,9 @@ function reboot_reason_log_for_efi() {
     set +e
     out=$(efivar -a -f "${tmpfile}" -n "${efivar_var}" 2>&1 > /dev/null)
     if [ $? != 0 -o "${out}" ]; then
-	>&2 echo -e "${ME}: logging to ${efivar_file} had issues:\n${out}";
-	rv=1
-	exit
+        >&2 echo -e "${ME}: logging to ${efivar_file} had issues:\n${out}";
+        rv=1
+        exit
     fi
     set -e
 
@@ -667,7 +667,7 @@ function reboot_reason_log_for_efi() {
     #  it is assumed that processing of reboot reason already took place when
     #  getting here!
     if [ "${final_reason}" ]; then
-	boottag_rm_bootid
+        boottag_rm_bootid
     fi
 }
 
@@ -716,65 +716,65 @@ function gather_efi_crashlog() {
 
     cd "${EFIVAR_DMESG_DIR}"
     for f in dmesg-efi-*; do
-	[ -r "$f" ] || break
+        [ -r "$f" ] || break
 
-	# calculate parts of timestamp like last name component
-	tstamp="${f/dmesg-efi-/}"
-	time_epoch="${tstamp:0:-5}"
-	seq="${tstamp/${time_epoch}/}"
-	partno="${seq:0:2}"
-	ipartno="${partno#${partno%%[^0]*}}"
-	seq="${seq:2}"
+        # calculate parts of timestamp like last name component
+        tstamp="${f/dmesg-efi-/}"
+        time_epoch="${tstamp:0:-5}"
+        seq="${tstamp/${time_epoch}/}"
+        partno="${seq:0:2}"
+        ipartno="${partno#${partno%%[^0]*}}"
+        seq="${seq:2}"
 
-	# read that log part right now, we'll need it anyway
-	head_part=$(head -n 1 ${f})
-	# ignore crash unrelated entries for now
-	head_type="${head_part%%#*}"
-	[ "${head_type}" = "Panic" -o "${head_type}" = "Panic" ] \
-	    || continue
+        # read that log part right now, we'll need it anyway
+        head_part=$(head -n 1 ${f})
+        # ignore crash unrelated entries for now
+        head_type="${head_part%%#*}"
+        [ "${head_type}" = "Panic" -o "${head_type}" = "Panic" ] \
+            || continue
 
-	log_part=$(tail -n +2 ${f})
+        log_part=$(tail -n +2 ${f})
 
-	# have we already started gathering parts of a log?
-	if [ "${curpartno}" ]; then
-	    # yes, we are, bit does that part belong to the same crash log?
-	    if [ $((curpartno + 1)) = $((ipartno)) ]; then
-		# yes, this is the next (actual chronologically previous) part
-		# of the log
-		curpartno="$((ipartno))"
-		[ "${head}" ] && head="
+        # have we already started gathering parts of a log?
+        if [ "${curpartno}" ]; then
+            # yes, we are, bit does that part belong to the same crash log?
+            if [ $((curpartno + 1)) = $((ipartno)) ]; then
+                # yes, this is the next (actual chronologically previous) part
+                # of the log
+                curpartno="$((ipartno))"
+                [ "${head}" ] && head="
 ${head}"
-		head="${head_part}${head}"
-		[ "${log}" ] && log="
+                head="${head_part}${head}"
+                [ "${log}" ] && log="
 ${log}"
-		log="${log_part}${log}"
-		continue;
-	    fi
-	    # this is part of a new log, so append previous log to the full
-	    # log possibly consisting of multiple logs which weren't gathered
-	    # yet for whatever reason
-	    [ "${log_full}" ] && log_full="${log_full}
+                log="${log_part}${log}"
+                continue;
+            fi
+            # this is part of a new log, so append previous log to the full
+            # log possibly consisting of multiple logs which weren't gathered
+            # yet for whatever reason
+            [ "${log_full}" ] && log_full="${log_full}
 "
-	    log_full="${log_full}[log from $(date --date @${time_epoch})]
+            log_full="${log_full}[log from $(date --date @${time_epoch})]
 ${head}
 ${log}"
-	fi
+        fi
 
-	# we need to start gathering a new crash log here
-	curpartno="$((ipartno))"
-	[ ${curpartno} = 1 ] \
-	    || err 1 "crash log part (${f}) doesn't start with part no 1 but with ${curpartno}"
-	log="${log_part}"
-	head="${head_part}"
+        # we need to start gathering a new crash log here
+        curpartno="$((ipartno))"
+        [ ${curpartno} = 1 ] \
+            || err 1 "crash log part (${f}) doesn't start with part no 1 but with ${curpartno}"
+        log="${log_part}"
+        head="${head_part}"
     done
 
     # here we need to gather last log which exist if log_part is no empty
     # string
     if [ "${log_part}" ]; then
-	# add log to full log
-	[ "${log_full}" ] && log_full="${log_full}
+        # add log to full log
+        [ "${log_full}" ] && log_full="${log_full}
 "
-	log_full="${log_full}[log from $(date --date @${time_epoch})]
+        log_full="${log_full}[log from $(date --date @${time_epoch})]
 ${head}
 ${log}"
     fi
@@ -787,10 +787,10 @@ ${log}"
     # there was a panic and return the time_epoch of the crash
     cd "${cwd}"
     if [ "${log_full}" ]; then
-	echo "${log_full}" > "${dstfile}"
+        echo "${log_full}" > "${dstfile}"
 
-	# finaly print time epoch as explicit return value
-	echo -n "${time_epoch}"
+        # finaly print time epoch as explicit return value
+        echo -n "${time_epoch}"
     fi
 }
 
@@ -822,56 +822,56 @@ function reboot_reason_get_for_efi() {
 
     # check for dmesg at first; create a temporary file for that
     tmpfile=$(mktemp -p /tmp dmesg-efi.XXXXXXXX 2>&1) \
-	|| {
-	>&2 echo -e "${ME}: creating temporary dmesg file had issues:\n${tmpfile}";
-	rv=1
-	exit
+        || {
+        >&2 echo -e "${ME}: creating temporary dmesg file had issues:\n${tmpfile}";
+        rv=1
+        exit
     }
     time_epoch=$(gather_efi_crashlog "${tmpfile}")
     if [ "${time_epoch}" ]; then
-	dmesg_file="${reason_dir}/dmesg-efi"
-	out=$(cp "${tmpfile}" "${dmesg_file}" 2>&1) \
-	    || {
-	    >&2 echo -e "${ME}: creating dmesg file (${dmesg_file}) had issues:\n${out}";
-	    rv=1
-	    exit
-	}
+        dmesg_file="${reason_dir}/dmesg-efi"
+        out=$(cp "${tmpfile}" "${dmesg_file}" 2>&1) \
+            || {
+            >&2 echo -e "${ME}: creating dmesg file (${dmesg_file}) had issues:\n${out}";
+            rv=1
+            exit
+        }
     fi
 
     # check for boottag(s) in order to detect a power loss
     bootids="$(boottag_get_boot_ids 1)"
     if [ "${bootids}" ]; then
-	# there is at least one boot_id not matching current one meaning that
-	# there was no ordinary reboot/halt during which it would have been
-	# deleted; conclusion is a power loss
-	# FFS: should we pass on leftover IDs like this
-	#   extra_info="${bootids// /, }"
+        # there is at least one boot_id not matching current one meaning that
+        # there was no ordinary reboot/halt during which it would have been
+        # deleted; conclusion is a power loss
+        # FFS: should we pass on leftover IDs like this
+        #   extra_info="${bootids// /, }"
 
-	# replace EFI variable content with only current boot ID now
-	boottag_write_boot_id
+        # replace EFI variable content with only current boot ID now
+        boottag_write_boot_id
     else
-	# at most current boot_id is contained in variable, so we assume a
-	# normal reboot or shutdown & power-on
-	console_file="${reason_dir}/console-efi"
-	out=$(touch "${console_file}" 2>&1) \
-	    || {
-	    >&2 echo -e "${ME}: creating console file (${console_file}) had issues:\n${out}";
-	    rv=1
-	    exit
-	}
+        # at most current boot_id is contained in variable, so we assume a
+        # normal reboot or shutdown & power-on
+        console_file="${reason_dir}/console-efi"
+        out=$(touch "${console_file}" 2>&1) \
+            || {
+            >&2 echo -e "${ME}: creating console file (${console_file}) had issues:\n${out}";
+            rv=1
+            exit
+        }
     fi
 
     # retrieve logged reboot reasons
     reboot_reasons=$(read_efivar "${EFIVAR_PMSG_FILE}")
     if [ "${reboot_reasons}" ]; then
-	pmsg_file="${reason_dir}/pmsg-efi"
-	out=$(echo "${reboot_reasons}" > "${pmsg_file}" 2>&1) \
-	    || {
-	    >&2 echo -e "${ME}: creating pmsg file (${pmsg_file}) had issues:\n${dmesg_file}";
-	    rv=1
-	    exit
-	}
-	rm_efivars "${EFIVAR_PMSG_FILE}"
+        pmsg_file="${reason_dir}/pmsg-efi"
+        out=$(echo "${reboot_reasons}" > "${pmsg_file}" 2>&1) \
+            || {
+            >&2 echo -e "${ME}: creating pmsg file (${pmsg_file}) had issues:\n${dmesg_file}";
+            rv=1
+            exit
+        }
+        rm_efivars "${EFIVAR_PMSG_FILE}"
     fi
 
     analyze "${reason_dir}" "${dmesg_file}" "${console_file}" "${pmsg_file}"
@@ -881,9 +881,9 @@ function reboot_reason_boottag_for_efi() {
     local cmd="$1"
 
     if [ "$cmd" = "get" ]; then
-	boottag_get_boot_ids "${2:+1}"
+        boottag_get_boot_ids "${2:+1}"
     elif [ "$cmd" = "set" ]; then
-	boottag_write_boot_id "$2" "${3:+append}"
+        boottag_write_boot_id "$2" "${3:+append}"
     fi
 }
 
@@ -920,15 +920,15 @@ function reboot_reason_boottag() {
     local cmd="$1"
 
     [ "${REBOOT_REASON_BOOTTAG}" ] \
-	|| return
+        || return
 
     case "$cmd" in
-	get | set)
-	    ${REBOOT_REASON_BOOTTAG} "$@"
-	    ;;
-	*)
-	    err 1 "unrecognized boottag command \"${cmd}\""
-	    ;;
+        get | set)
+            ${REBOOT_REASON_BOOTTAG} "$@"
+            ;;
+        *)
+            err 1 "unrecognized boottag command \"${cmd}\""
+            ;;
     esac
 }
 
@@ -949,35 +949,35 @@ if [ "${is_enabled}" = "true" ]; then
    get_timestamp
 
     case "$cmd" in
-	log)
+        log)
             # usage: omnect_reboot_reason.sh log <reason> <extra-info> ...
-	    reboot_reason_log "${@:2}"
-	    ;;
-	get)
-	    reboot_reason_get
-	    ;;
+            reboot_reason_log "${@:2}"
+            ;;
+        get)
+            reboot_reason_get
+            ;;
         get_valid_reasons)
             # simply print a space separated list in one line
             # (for easy word-wise regexp matching by a caller)
             echo "${VALID_REBOOT_REASONS[*]}"
             ;;
-	boottag_set)
-	    reboot_reason_boottag set "${@:2}"
-	    ;;
-	boottag_get)
-	    reboot_reason_boottag get "${@:2}"
-	    ;;
-	is_enabled)
-	    [ "${is_enabled}" = "true" ] || rv=1
-	    ;;
-	*)
-	    err 1 "unrecognized command \"$cmd\"" \
-		;;
+        boottag_set)
+            reboot_reason_boottag set "${@:2}"
+            ;;
+        boottag_get)
+            reboot_reason_boottag get "${@:2}"
+            ;;
+        is_enabled)
+            [ "${is_enabled}" = "true" ] || rv=1
+            ;;
+        *)
+            err 1 "unrecognized command \"$cmd\"" \
+                ;;
     esac
 else
     # we simply succeed for all commands but "is_enabled" in case reboot reason
     # functionality not given on a device
     if [ "${cmd}" = "is_enabled" ]; then
-	[ "${is_enabled}" = "true" ] || rv=1
+        [ "${is_enabled}" = "true" ] || rv=1
     fi
 fi
