@@ -982,6 +982,73 @@ pub mod mod_test {
         TestCase::run(test_files, test_dirs, vec![], expect, test);
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_reboot_command_keeps_handling_requests_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            // fails since no update was loaded before
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let result = block_on(async {
+                test_attr
+                    .twin
+                    .handle_request(CommandRequest {
+                        command: Command::RunFirmwareUpdate(firmware_update::RunUpdateCommand {
+                            validate_iothub_connection: false,
+                        }),
+                        reply: Some(tx),
+                    })
+                    .await
+            });
+            assert!(result.is_ok(), "run loop must survive a failed command");
+            block_on(rx)
+                .expect("reply channel must not be dropped")
+                .expect_err("run update without loaded update must fail");
+            assert!(
+                !test_attr.twin.waiting_for_reboot,
+                "failed command must not block further requests"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reboot_command_blocks_further_requests_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let result = block_on(async {
+                test_attr
+                    .twin
+                    .handle_request(CommandRequest {
+                        command: Command::Reboot,
+                        reply: Some(tx),
+                    })
+                    .await
+            });
+            assert!(result.is_ok(), "reboot request must succeed");
+            block_on(rx)
+                .expect("reply channel must not be dropped")
+                .expect("reboot must succeed");
+            assert!(
+                test_attr.twin.waiting_for_reboot,
+                "successful reboot must block further requests"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
     #[cfg(test)]
     mod test {
         use regex::Regex;
