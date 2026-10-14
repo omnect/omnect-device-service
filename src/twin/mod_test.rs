@@ -838,6 +838,32 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn only_bad_credential_restarts_client_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |test_attr: &mut TestConfig| {
+            for (reason, expected_restart) in [
+                (UnauthenticatedReason::CommunicationError, false),
+                (UnauthenticatedReason::BadCredential, true),
+            ] {
+                let restart = block_on(
+                    test_attr
+                        .twin
+                        .handle_connection_status(AuthenticationStatus::Unauthenticated(reason)),
+                )
+                .expect("handle connection status");
+
+                assert_eq!(
+                    restart, expected_restart,
+                    "unexpected client restart for {reason:?}"
+                );
+            }
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn update_and_report_general_consent_failed_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
