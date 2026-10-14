@@ -61,13 +61,13 @@ check_command_arg "$command"
 
 case "$command" in
     check)
-	do_check "$@"
-	retval=$?
-	;;
+        do_check "$@"
+        retval=$?
+        ;;
     get-infos)
-	do_get_infos "$@"
-	retval=$?
-	;;
+        do_get_infos "$@"
+        retval=$?
+        ;;
 esac
 
 exit $retval

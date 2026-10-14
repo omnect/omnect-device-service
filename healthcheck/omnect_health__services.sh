@@ -26,48 +26,48 @@ function do_check() {
     nentries=$(jq '.services | length' "$CFGFILEPATH")
     [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
     for ((n=0; n < nentries; n++)); do
-	rating=0
+        rating=0
 
-	service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-	[ "$(echo $check_services | grep -w "$service")" ] || continue
+        service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
+        [ "$(echo $check_services | grep -w "$service")" ] || continue
 
-	servicelog="$LOGDIR/${service}.exit-log"
-	if [ ! -r "$servicelog" ]; then
-	    print_rating $rating "$service" "$ME"
-	    continue
-	fi
+        servicelog="$LOGDIR/${service}.exit-log"
+        if [ ! -r "$servicelog" ]; then
+            print_rating $rating "$service" "$ME"
+            continue
+        fi
 
-	hasratings=$(jq ".services[$n] | has(\".ratings\")" "$CFGFILEPATH")
-	if $hasratings; then
-	    jquery=$(jq '.services[] | if (has("ratings")) then .ratings else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") ' ${CFGFILEPATH})
-	else
-	    jquery=$(jq 'if (has("default-ratings")) then ."default-ratings" else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") | . + " | (.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }"' ${CFGFILEPATH})
-	fi
+        hasratings=$(jq ".services[$n] | has(\".ratings\")" "$CFGFILEPATH")
+        if $hasratings; then
+            jquery=$(jq '.services[] | if (has("ratings")) then .ratings else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") ' ${CFGFILEPATH})
+        else
+            jquery=$(jq 'if (has("default-ratings")) then ."default-ratings" else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") | . + " | (.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }"' ${CFGFILEPATH})
+        fi
 
-	# re-rate in case of ...
-	#   a) new entries, or
-	#   b) newer configuration file which might change the (overall)
-	#      outcome
-	# NOTE:
-	#   (re-)rating will normally happen after generation of new entries
-	#   initiated by omnect_service_log.sh via systemd StopPost hook
-	if [    ! -r "${servicelog}.rated" \
-	     -o "$CFGFILEPATH" -nt "${servicelog}" \
-	     -o "${servicelog}" -nt "${servicelog}.rated" \
-	   ]; then
-	    eval jq $jquery "$servicelog" > "${servicelog}.rated"
-	    mv "${servicelog}.rated" "$servicelog"
-	    # create empty anew to remember when we last rated all entries
-	    : > "${servicelog}.rated"
-	fi
+        # re-rate in case of ...
+        #   a) new entries, or
+        #   b) newer configuration file which might change the (overall)
+        #      outcome
+        # NOTE:
+        #   (re-)rating will normally happen after generation of new entries
+        #   initiated by omnect_service_log.sh via systemd StopPost hook
+        if [    ! -r "${servicelog}.rated" \
+             -o "$CFGFILEPATH" -nt "${servicelog}" \
+             -o "${servicelog}" -nt "${servicelog}.rated" \
+           ]; then
+            eval jq $jquery "$servicelog" > "${servicelog}.rated"
+            mv "${servicelog}.rated" "$servicelog"
+            # create empty anew to remember when we last rated all entries
+            : > "${servicelog}.rated"
+        fi
 
-	if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
-	    rating=2
-	elif [ $rating -lt 1 -a $(jq '.infos | map(select(.rating == "yellow")) | length' "${servicelog}") -gt 0 ]; then
-	    rating=1
-	fi
-	print_rating $rating "$service" "$ME"
-	do_rate "$rating"
+        if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
+            rating=2
+        elif [ $rating -lt 1 -a $(jq '.infos | map(select(.rating == "yellow")) | length' "${servicelog}") -gt 0 ]; then
+            rating=1
+        fi
+        print_rating $rating "$service" "$ME"
+        do_rate "$rating"
     done
     return $overall_rating
 }
@@ -78,27 +78,27 @@ function do_get_infos() {
     nentries=$(jq '.services | length' "$CFGFILEPATH")
     [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
     for ((n=0; n < nentries; n++)); do
-	rating=0
+        rating=0
 
-	service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-	[ "$(echo $check_services | grep -w "$service")" ] || continue
+        service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
+        [ "$(echo $check_services | grep -w "$service")" ] || continue
 
-	servicelog="$LOGDIR/${service}.exit-log"
-	if [ ! -r "$servicelog" ]; then
-	    print_info_header "${ME}(${service})" "$rating"
-	    continue
-	fi
+        servicelog="$LOGDIR/${service}.exit-log"
+        if [ ! -r "$servicelog" ]; then
+            print_info_header "${ME}(${service})" "$rating"
+            continue
+        fi
 
-	if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
-	    rating=2
-	elif [ $rating -lt 1 -a $(jq '.infos | map(select(.rating == "yellow")) | length' "${servicelog}") -gt 0 ]; then
-	    rating=1
-	fi
-	do_rate "$rating"
-	print_info_header "${ME}(${service})" "$rating"
-	if [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ]; then
-		cat /var/run/omnect_health_log/${service}.exit-info
-	fi
+        if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
+            rating=2
+        elif [ $rating -lt 1 -a $(jq '.infos | map(select(.rating == "yellow")) | length' "${servicelog}") -gt 0 ]; then
+            rating=1
+        fi
+        do_rate "$rating"
+        print_info_header "${ME}(${service})" "$rating"
+        if [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ]; then
+                cat /var/run/omnect_health_log/${service}.exit-info
+        fi
     done
     get_overall_rating
 }
@@ -118,13 +118,13 @@ check_services="$*"
 # first argument must be either "check" or "get-infos"
 case "$command" in
     check)
-	do_check "$@"
-	overall_rating=$?
-	;;
+        do_check "$@"
+        overall_rating=$?
+        ;;
     get-infos)
-	do_get_infos "$@"
-	overall_rating=$?
-	;;
+        do_get_infos "$@"
+        overall_rating=$?
+        ;;
 esac
 
 # print_rating "" "omnect_service_log_analyze" "$ME"
