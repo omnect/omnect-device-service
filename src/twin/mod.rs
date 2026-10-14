@@ -313,15 +313,16 @@ impl Twin {
             Err(e) => error!("handle_request: {cmd_string} returned error: {e:#}"),
         }
 
+        // a failed command doesn't reboot, so further requests must be handled
+        #[cfg(any(test, not(feature = "mock")))]
+        if result.is_ok() && cmd.triggers_reboot() {
+            self.waiting_for_reboot = true;
+        }
+
         if let Some(reply) = reply
             && reply.send(result).is_err()
         {
             error!("handle_request: {cmd_string} receiver dropped");
-        }
-
-        #[cfg(not(feature = "mock"))]
-        if cmd.triggers_reboot() {
-            self.waiting_for_reboot = true;
         }
 
         Ok(())
