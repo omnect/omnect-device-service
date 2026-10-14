@@ -4,7 +4,7 @@ use crate::{
     systemd::{self, unit::UnitAction},
     twin::{firmware_update::common::*, web_service},
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -141,12 +141,15 @@ pub struct UpdateValidation {
     tx_cancel_timer: Option<oneshot::Sender<()>>,
     status: Arc<RwLock<UpdateValidationStatus>>,
     local_update: bool,
+    feature_init_failed: bool,
 }
 
 impl UpdateValidation {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(feature_init_failed: bool) -> Result<Self> {
         let new_self = match UpdateValidationStatus::init() {
-            UpdateValidationStatus::ValidatingTrial(trial) => Self::start_validation(trial == 0)?,
+            UpdateValidationStatus::ValidatingTrial(trial) => {
+                Self::start_validation(trial == 0, feature_init_failed)?
+            }
             status => UpdateValidation {
                 status: Arc::new(RwLock::new(status)),
                 ..Default::default()
@@ -157,7 +160,7 @@ impl UpdateValidation {
         Ok(new_self)
     }
 
-    fn start_validation(first_start: bool) -> Result<Self> {
+    fn start_validation(first_start: bool, feature_init_failed: bool) -> Result<Self> {
         let params = if first_start {
             UpdateValidationParams {
                 deadline_timestamp: SystemTime::now()
@@ -193,6 +196,7 @@ impl UpdateValidation {
             ))),
             params: Some(params),
             local_update,
+            feature_init_failed,
             ..Default::default()
         };
 
@@ -312,6 +316,7 @@ impl UpdateValidation {
         let deadline = Instant::now() + remaining_time;
         let status = Arc::clone(&self.status);
         let local_update = self.local_update;
+        let feature_init_failed = self.feature_init_failed;
         let stage = StageTracker::new();
         let observe_stage = stage.clone();
         self.tx_cancel_timer = Some(tx_cancel_timer);
@@ -319,6 +324,9 @@ impl UpdateValidation {
             info!("observe update with timeout: {}s", remaining_time.as_secs());
 
             let observe_update = async move {
+                // the new image may have broken the input of a feature
+                ensure!(!feature_init_failed, "feature init failed");
+
                 // now wait that we get canceled as a result of a successful startup
                 if let Err(e) = rx_cancel_timer.await {
                     warn!("observe update validation: {e:#}. Application stopped from outside?");
@@ -441,6 +449,40 @@ mod tests {
             timeout_message_for(ValidationStage::Finalize).await,
             "timeout finalizing update"
         );
+    }
+
+    const VALIDATION_TIMEOUT: Duration = Duration::from_secs(60);
+
+    // the observe task drops the cancel receiver once it stops waiting for authentication
+    async fn stops_waiting_for_authentication(feature_init_failed: bool) -> bool {
+        let mut update_validation = UpdateValidation {
+            params: Some(UpdateValidationParams {
+                deadline_timestamp: SystemTime::now() + VALIDATION_TIMEOUT,
+                restart_count: 0,
+            }),
+            status: Arc::new(RwLock::new(UpdateValidationStatus::ValidatingTrial(0))),
+            feature_init_failed,
+            ..Default::default()
+        };
+        update_validation.start_timeout().expect("start timeout");
+
+        let mut tx_cancel_timer = update_validation
+            .tx_cancel_timer
+            .take()
+            .expect("cancel timer");
+        timeout(TEST_TIMEOUT, tx_cancel_timer.closed())
+            .await
+            .is_ok()
+    }
+
+    #[tokio::test]
+    async fn failed_feature_init_fails_validation() {
+        assert!(stops_waiting_for_authentication(true).await);
+    }
+
+    #[tokio::test]
+    async fn validation_waits_for_authentication() {
+        assert!(!stops_waiting_for_authentication(false).await);
     }
 
     #[tokio::test]

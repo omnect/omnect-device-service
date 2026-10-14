@@ -184,7 +184,7 @@ impl Feature for FactoryReset {
 
 impl FactoryReset {
     const FACTORY_RESET_VERSION: u8 = 3;
-    const ID: &'static str = "factory_reset";
+    pub(crate) const ID: &'static str = "factory_reset";
 
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
         fs_watcher.watch_dir_modified::<FactoryReset>(Path::new(&custom_config_dir_path!()))?;
