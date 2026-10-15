@@ -226,8 +226,7 @@ impl Twin {
                 }
 
                 match reason {
-                    UnauthenticatedReason::BadCredential
-                    | UnauthenticatedReason::CommunicationError => {
+                    UnauthenticatedReason::BadCredential => {
                         error!(
                             "Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time"
                         );
@@ -242,7 +241,9 @@ impl Twin {
 
                         restart_twin = true;
                     }
-                    UnauthenticatedReason::RetryExpired
+                    // the SDK reconnects by itself after CommunicationError
+                    UnauthenticatedReason::CommunicationError
+                    | UnauthenticatedReason::RetryExpired
                     | UnauthenticatedReason::ExpiredSasToken
                     | UnauthenticatedReason::NoNetwork
                     | UnauthenticatedReason::Unknown => {
