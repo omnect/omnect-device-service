@@ -4,7 +4,7 @@ use crate::twin::{
 };
 use anyhow::{Context, Result, bail};
 use azure_iot_sdk::client::DirectMethod;
-use futures::{Stream, StreamExt, stream};
+use futures::{Stream, StreamExt};
 use log::{debug, error, info, warn};
 use std::{any::TypeId, future::Future, path::PathBuf, pin::Pin, time::Duration};
 use tokio::{
@@ -229,7 +229,7 @@ where
     // emitted request can be queued. A slow consumer makes `tx.send(req).await`
     // block, and while it is awaited the `cancel.cancelled()` arm below cannot
     // be polled, so shutdown can lag by up to one channel-drain cycle.
-    let (tx, rx) = tokio::sync::mpsc::channel::<CommandRequest>(1);
+    let (tx, rx) = mpsc::channel::<CommandRequest>(1);
 
     tokio::spawn(async move {
         let stream = match source_fut.await {
@@ -287,43 +287,33 @@ where
     tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
 }
 
-pub fn direct_method_stream(rx: mpsc::Receiver<DirectMethod>) -> CommandRequestStream {
-    tokio_stream::wrappers::ReceiverStream::new(rx)
-        .filter_map(|dm| async move {
-            match Command::from_direct_method(&dm) {
-                Ok(command) => Some(CommandRequest {
-                    command,
-                    reply: Some(dm.responder),
-                }),
-                Err(e) => {
-                    error!(
-                        "parsing direct method: {} with payload: {} failed with error: {e:#}",
-                        dm.name, dm.payload
-                    );
-                    if dm.responder.send(Err(e)).is_err() {
-                        error!("direct method response receiver dropped")
-                    }
-                    None
-                }
+pub fn direct_method_request(dm: DirectMethod) -> Option<CommandRequest> {
+    match Command::from_direct_method(&dm) {
+        Ok(command) => Some(CommandRequest {
+            command,
+            reply: Some(dm.responder),
+        }),
+        Err(e) => {
+            error!(
+                "parsing direct method: {} with payload: {} failed with error: {e:#}",
+                dm.name, dm.payload
+            );
+            if dm.responder.send(Err(e)).is_err() {
+                error!("direct method response receiver dropped")
             }
-        })
-        .boxed()
+            None
+        }
+    }
 }
 
-pub fn desired_properties_stream(rx: mpsc::Receiver<TwinUpdate>) -> CommandRequestStream {
-    tokio_stream::wrappers::ReceiverStream::new(rx)
-        .filter_map(|twin| async move {
-            let c: Vec<CommandRequest> = Command::from_desired_property(twin)
-                .into_iter()
-                .map(|command| CommandRequest {
-                    command,
-                    reply: None,
-                })
-                .collect();
-            (!c.is_empty()).then_some(c)
+pub fn desired_property_requests(twin: TwinUpdate) -> Vec<CommandRequest> {
+    Command::from_desired_property(twin)
+        .into_iter()
+        .map(|command| CommandRequest {
+            command,
+            reply: None,
         })
-        .flat_map(stream::iter)
-        .boxed()
+        .collect()
 }
 
 #[cfg(test)]
@@ -715,27 +705,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn direct_method_stream_error_reply_test() {
-        let (tx, rx) = mpsc::channel(16);
-        let mut stream = direct_method_stream(rx);
-
+    async fn direct_method_request_error_reply_test() {
         let (responder, reply_rx) = oneshot::channel::<CommandResult>();
-        tx.send(DirectMethod {
+
+        let request = direct_method_request(DirectMethod {
             name: "nonexistent_method".to_string(),
             payload: json!({}),
             responder,
-        })
-        .await
-        .expect("send direct method");
+        });
 
-        // The stream should filter out the failed parse (return None)
-        // and forward the error through the responder
-        drop(tx);
-        use futures::StreamExt;
-        let next = stream.next().await;
-        assert!(next.is_none(), "failed parse should be filtered out");
-
-        // The error must have been forwarded to the responder
+        assert!(request.is_none(), "failed parse should be filtered out");
         let reply = reply_rx
             .await
             .expect("responder should have received error");
