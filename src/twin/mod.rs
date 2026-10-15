@@ -53,6 +53,34 @@ enum TwinState {
     Authenticated,
 }
 
+#[derive(Default)]
+struct Features {
+    map: HashMap<TypeId, Box<DynFeature<'static>>>,
+    any_failed: bool,
+}
+
+impl Features {
+    fn insert<T: Feature + 'static>(&mut self, feature: T) {
+        self.map
+            .insert(TypeId::of::<T>(), DynFeature::new_box(feature));
+    }
+
+    // a broken runtime input of one feature must not stop the others
+    fn insert_or_disable<T: Feature + 'static>(&mut self, name: &'static str, feature: Result<T>) {
+        match feature {
+            Ok(feature) => self.insert(feature),
+            Err(e) => {
+                error!("failed to initialize feature {name}, disable it: {e:#}");
+                self.any_failed = true;
+                self.map.insert(
+                    TypeId::of::<T>(),
+                    DynFeature::new_box(FailedFeature { name }),
+                );
+            }
+        }
+    }
+}
+
 pub struct Twin {
     client: Option<IotHubClient>,
     web_service: Option<web_service::WebService>,
@@ -81,48 +109,33 @@ impl Twin {
         let mut fs_watcher = FsWatcher::new()?;
         #[cfg(feature = "mock")]
         let mut fs_watcher = FsWatcher::noop();
-        let features = HashMap::from([
-            (
-                TypeId::of::<system_info::SystemInfo>(),
-                DynFeature::new_box(system_info::SystemInfo::new(&mut fs_watcher)?),
-            ),
-            (
-                TypeId::of::<consent::DeviceUpdateConsent>(),
-                DynFeature::new_box(consent::DeviceUpdateConsent::new(&mut fs_watcher)?),
-            ),
-            (
-                TypeId::of::<factory_reset::FactoryReset>(),
-                DynFeature::new_box(factory_reset::FactoryReset::new(&mut fs_watcher)?),
-            ),
-            (
-                TypeId::of::<firmware_update::FirmwareUpdate>(),
-                DynFeature::new_box(firmware_update::FirmwareUpdate::new().await?),
-            ),
-            (
-                TypeId::of::<modem_info::ModemInfo>(),
-                DynFeature::new_box(modem_info::ModemInfo::new()),
-            ),
-            (
-                TypeId::of::<network::Network>(),
-                DynFeature::new_box(network::Network::default()),
-            ),
-            (
-                TypeId::of::<provisioning_config::ProvisioningConfig>(),
-                DynFeature::new_box(provisioning_config::ProvisioningConfig::new()?),
-            ),
-            (
-                TypeId::of::<reboot::Reboot>(),
-                DynFeature::new_box(reboot::Reboot::default()),
-            ),
-            (
-                TypeId::of::<ssh_tunnel::SshTunnel>(),
-                DynFeature::new_box(ssh_tunnel::SshTunnel::new()),
-            ),
-            (
-                TypeId::of::<wifi_commissioning::WifiCommissioning>(),
-                DynFeature::new_box(wifi_commissioning::WifiCommissioning::default()),
-            ),
-        ]);
+        let mut features = Features::default();
+        features.insert_or_disable(
+            system_info::SystemInfo::ID,
+            system_info::SystemInfo::new(&mut fs_watcher),
+        );
+        features.insert_or_disable(
+            consent::DeviceUpdateConsent::ID,
+            consent::DeviceUpdateConsent::new(&mut fs_watcher),
+        );
+        features.insert_or_disable(
+            factory_reset::FactoryReset::ID,
+            factory_reset::FactoryReset::new(&mut fs_watcher),
+        );
+        features.insert_or_disable(
+            provisioning_config::ProvisioningConfig::ID,
+            provisioning_config::ProvisioningConfig::new(),
+        );
+        features.insert(modem_info::ModemInfo::new());
+        features.insert(network::Network::default());
+        features.insert(reboot::Reboot::default());
+        features.insert(ssh_tunnel::SshTunnel::new());
+        features.insert(wifi_commissioning::WifiCommissioning::default());
+        // last, since update validation fails if another feature failed
+        features.insert_or_disable(
+            firmware_update::FirmwareUpdate::ID,
+            firmware_update::FirmwareUpdate::new(features.any_failed).await,
+        );
 
         let cancel = CancellationToken::new();
         let fs_watcher_handle =
@@ -135,7 +148,7 @@ impl Twin {
             tx_reported_properties,
             tx_outgoing_message,
             state: TwinState::Uninitialized,
-            features,
+            features: features.map,
             waiting_for_reboot: false,
             cancel,
             fs_watcher_handle,

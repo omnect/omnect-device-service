@@ -33,3 +33,27 @@ pub(crate) trait Feature {
         unimplemented!();
     }
 }
+
+/// Takes the place of a feature whose constructor failed.
+pub(crate) struct FailedFeature {
+    pub name: &'static str,
+}
+
+impl FailedFeature {
+    // never reported, since the feature is disabled
+    const VERSION: u8 = 0;
+}
+
+impl Feature for FailedFeature {
+    fn name(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn version(&self) -> u8 {
+        Self::VERSION
+    }
+
+    fn is_enabled(&self) -> bool {
+        false
+    }
+}

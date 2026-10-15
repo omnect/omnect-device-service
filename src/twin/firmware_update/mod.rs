@@ -260,12 +260,12 @@ impl Feature for FirmwareUpdate {
 
 impl FirmwareUpdate {
     const FIRMWARE_UPDATE_VERSION: u8 = 1;
-    const ID: &'static str = "firmware_update";
+    pub(crate) const ID: &'static str = "firmware_update";
 
-    pub async fn new() -> Result<Self> {
+    pub async fn new(feature_init_failed: bool) -> Result<Self> {
         Ok(FirmwareUpdate {
             swu_file_path: None,
-            update_validation: UpdateValidation::new().await?,
+            update_validation: UpdateValidation::new(feature_init_failed).await?,
         })
     }
 
@@ -590,7 +590,7 @@ mod tests {
         crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
         crate::common::set_env_var("DEVICE_UPDATE_PATH", du_config_file);
         crate::common::set_env_var("SW_VERSIONS_PATH", sw_versions_file);
-        let update_validation = UpdateValidation::new().await.unwrap();
+        let update_validation = UpdateValidation::new(false).await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
@@ -614,7 +614,7 @@ mod tests {
         crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
         crate::common::set_env_var("DEVICE_UPDATE_PATH", du_config_file);
         crate::common::set_env_var("SW_VERSIONS_PATH", &sw_versions_file);
-        let update_validation = UpdateValidation::new().await.unwrap();
+        let update_validation = UpdateValidation::new(false).await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,
@@ -661,7 +661,7 @@ mod tests {
         crate::common::set_env_var("UPDATE_FOLDER_PATH", update_folder);
         crate::common::set_env_var("DEVICE_UPDATE_PATH", &du_config_file);
         crate::common::set_env_var("SW_VERSIONS_PATH", sw_versions_file);
-        let update_validation = UpdateValidation::new().await.unwrap();
+        let update_validation = UpdateValidation::new(false).await.unwrap();
 
         let mut firmware_update = FirmwareUpdate {
             swu_file_path: None,

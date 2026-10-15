@@ -182,7 +182,7 @@ impl Feature for ProvisioningConfig {
 
 impl ProvisioningConfig {
     const PROVISIONING_CONFIG_VERSION: u8 = 1;
-    const ID: &'static str = "provisioning_config";
+    pub(crate) const ID: &'static str = "provisioning_config";
     const IDENTITY_CONFIG_FILE_PATH_DEFAULT: &'static str = "/etc/aziot/config.toml";
 
     pub fn new() -> Result<Self> {

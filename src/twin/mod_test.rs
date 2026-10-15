@@ -448,6 +448,45 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn init_features_failed_factory_reset_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+        let env_vars = vec![(
+            "FACTORY_RESET_CONFIG_FILE_PATH",
+            "testfiles/positive/missing-factory-reset.json",
+        )];
+
+        let test = |test_attr: &mut TestConfig| {
+            let feature_info = test_attr.twin.feature_info();
+            assert_eq!(
+                feature_info["factory_reset"],
+                json!(null),
+                "failed feature must be reported as unavailable"
+            );
+            assert_eq!(
+                feature_info["system_info"],
+                json!({"version": 1}),
+                "other features must stay available"
+            );
+
+            let (reply, rx_reply) = tokio::sync::oneshot::channel();
+            block_on(test_attr.twin.handle_request(CommandRequest {
+                command: Command::FactoryReset(factory_reset::FactoryResetCommand {
+                    mode: factory_reset::FactoryResetMode::Mode1,
+                    preserve: vec![],
+                }),
+                reply: Some(reply),
+            }))
+            .expect("request to a failed feature must not stop the run loop");
+            assert!(
+                block_on(rx_reply).expect("reply").is_err(),
+                "request to a failed feature must get an error reply"
+            );
+        };
+
+        TestCase::run(test_files, vec![], env_vars, |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn init_features_no_factory_reset_test() {
         let test_files = vec![
             "testfiles/positive/os-release",

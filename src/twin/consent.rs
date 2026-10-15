@@ -108,7 +108,7 @@ impl Feature for DeviceUpdateConsent {
 
 impl DeviceUpdateConsent {
     const USER_CONSENT_VERSION: u8 = 1;
-    const ID: &'static str = "device_update_consent";
+    pub(crate) const ID: &'static str = "device_update_consent";
     const SUPPRESS_ENV: &'static str = "SUPPRESS_DEVICE_UPDATE_USER_CONSENT";
 
     fn is_suppressed() -> bool {

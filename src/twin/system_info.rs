@@ -183,7 +183,7 @@ impl Feature for SystemInfo {
 
 impl SystemInfo {
     const SYSTEM_INFO_VERSION: u8 = 1;
-    const ID: &'static str = "system_info";
+    pub(crate) const ID: &'static str = "system_info";
 
     pub fn new(fs_watcher: &mut FsWatcher) -> Result<Self> {
         let azure_sdk_version = IotHubClient::sdk_version_string();
