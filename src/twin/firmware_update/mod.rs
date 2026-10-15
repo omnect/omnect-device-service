@@ -419,6 +419,28 @@ impl FirmwareUpdate {
             log_file_path!()
         ))?;
 
+        let omnect_file = bootargs_omnect_file_path!();
+        let backup_file = PathBuf::from(bootargs_omnect_backup_file_path!());
+        fs::copy(&omnect_file, &backup_file).context("failed to back up omnect bootargs file")?;
+        guard.bootargs_omnect_backup = Some(backup_file);
+
+        #[cfg(not(feature = "mock"))]
+        Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).context(
+            format!(
+                "failed to update kernelargs: swupdate logs at {}",
+                log_file_path!()
+            ),
+        )?;
+
+        to_json_file(
+            &UpdateValidationConfig {
+                local: !validate_iothub_connection,
+            },
+            update_validation_config_path!(),
+            true,
+        )?;
+
+        // a flashed bootloader cannot be rolled back, so as few steps as possible may fail after it
         let _ = fs::remove_file(no_bootloader_updated_file_path!());
 
         let bootloader_updated =
@@ -440,28 +462,7 @@ impl FirmwareUpdate {
 
         guard.bootloader_updated = bootloader_updated;
 
-        let omnect_file = bootargs_omnect_file_path!();
-        let backup_file = PathBuf::from(bootargs_omnect_backup_file_path!());
-        fs::copy(&omnect_file, &backup_file).context("failed to back up omnect bootargs file")?;
-        guard.bootargs_omnect_backup = Some(backup_file);
-
-        #[cfg(not(feature = "mock"))]
-        Self::swupdate(swu_file_path, target_partition.kernelargs_update_params()).context(
-            format!(
-                "failed to update kernelargs: swupdate logs at {}",
-                log_file_path!()
-            ),
-        )?;
-
         Self::apply_bootargs(bootloader_updated)?;
-
-        to_json_file(
-            &UpdateValidationConfig {
-                local: !validate_iothub_connection,
-            },
-            update_validation_config_path!(),
-            true,
-        )?;
 
         if bootloader_updated {
             bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
