@@ -37,14 +37,13 @@ function do__cmd() {
     local output_when="$2" # 0 = never, 1 = failed only, 2 = all
     local cfgfile="$3"
     local selected_checks="$4"
-    local nselected_checks nchecked nchecks check i idx name type extra_args
+    local nchecked nchecks check i idx name type extra_args
     local output retval
 
-    nselected_checks=$(IFS=' ,'; set -- $selected_checks; echo $#)
     nchecked=0
     nchecks=$(jq 'length' "$cfgfile")
     [ $nchecks -gt 0 ] \
-	|| { warn "no checks defined in config file \"$cfgfile\""; return 0; }
+	|| warn "no checks defined in config file \"$cfgfile\""
     
     i=0
     while [ $i -lt "$nchecks" ]; do
@@ -53,7 +52,7 @@ function do__cmd() {
 
         type=$(jq -r "if .[$idx].\"type\" then .[$idx].\"type\" else empty end" "$cfgfile")
         [ "$type" ] \
-            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; do_rate 2; continue; }
+            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; do_rate 2; nchecked=$((nchecked + 1)); continue; }
 
         check="${HEALTHCHECK_DIR}/omnect_health__${type}.sh"
         if [ ! -x "$check" ]; then
@@ -61,6 +60,7 @@ function do__cmd() {
             error "check \"$check\" for type \"$type\" (entry $i in \"$cfgfile\") cannot be called"
             print_rating $rate ${type} "${check##*/}"
             do_rate $rate
+            nchecked=$((nchecked + 1))
             continue
         fi
         name=$(jq -r "if .[$idx].\"name\" then .[$idx].\"name\" else empty end" "$cfgfile")
@@ -80,8 +80,13 @@ function do__cmd() {
         fi
 	[ "$retval" -le 2 ] || print_rating 2 "$type" "${check##*/}"
 	do_rate $retval "${check##*/}"
+        nchecked=$((nchecked + 1))
 
     done
+
+    # a device nothing was checked on is not healthy, it is unknown
+    [ $nchecked -gt 0 ] \
+	|| { error "no check was run, health of this device is unknown"; do_rate 1; }
 }
 
 function do_checks() {

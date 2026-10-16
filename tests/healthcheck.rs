@@ -20,6 +20,7 @@ const EXECUTABLE_MODE: u32 = 0o755;
 const LIBRARY_MODE: u32 = 0o644;
 
 const RATING_GREEN: i32 = 0;
+const RATING_YELLOW: i32 = 1;
 const RATING_RED: i32 = 2;
 
 const CHECK_SCRIPTS: &[&str] = &[
@@ -225,6 +226,44 @@ impl Report {
 
 fn stock_config() -> String {
     read_script("omnect_health_checks.json")
+}
+
+#[test]
+fn an_empty_configuration_is_not_rated_green() {
+    let sandbox = Sandbox::new("[]");
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_YELLOW,
+        "a device that was never checked must not be rated green:\n{}{}",
+        report.stdout, report.stderr
+    );
+    assert!(
+        report.stderr.contains("no checks defined in config file"),
+        "the empty configuration must still be reported:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
+fn an_entry_without_a_type_is_rated_red() {
+    let sandbox = Sandbox::new(r#"[ { "name": "nameless" } ]"#);
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "an unusable configuration entry must be rated red:\n{}{}",
+        report.stdout, report.stderr
+    );
+    assert!(
+        !report.stderr.contains("no check was run"),
+        "a rated entry must not count as nothing having been checked:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
 }
 
 #[test]
