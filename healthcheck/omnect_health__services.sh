@@ -39,9 +39,9 @@ function do_check() {
             continue
         fi
 
-        hasratings=$(jq ".services[$n] | has(\".ratings\")" "$CFGFILEPATH")
+        hasratings=$(jq ".services[$n] | has(\"ratings\")" "$CFGFILEPATH")
         if $hasratings; then
-            jquery=$(jq '.services[] | if (has("ratings")) then .ratings else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") ' ${CFGFILEPATH})
+            jquery=$(jq --argjson n "$n" '.services[$n] | if (has("ratings")) then .ratings else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") ' ${CFGFILEPATH})
         else
             jquery=$(jq 'if (has("default-ratings")) then ."default-ratings" else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") | . + " | (.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }"' ${CFGFILEPATH})
         fi

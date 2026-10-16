@@ -56,6 +56,24 @@ const OVERLAPPING_SERVICES: &str = r#"{
     "services": [ { "service": "aziot" }, { "service": "aziot-certd" } ]
 }"#;
 
+/// Two services that both override the default rating of the same condition,
+/// in opposite directions.
+const PER_SERVICE_RATINGS: &str = r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"HUP\"", "rating": "yellow" }
+    ],
+    "services": [
+        {
+            "service": "lenient",
+            "ratings": [ { "condition": ".exitstatus == \"HUP\"", "rating": "green" } ]
+        },
+        {
+            "service": "strict",
+            "ratings": [ { "condition": ".exitstatus == \"HUP\"", "rating": "red" } ]
+        }
+    ]
+}"#;
+
 /// Reports one healthy service so the crash-loop check finds something to look at.
 const SYSTEMCTL_STUB: &str = r#"case "$*" in
     *list-units*) echo "stub.service loaded active running Stub" ;;
@@ -192,6 +210,17 @@ impl Sandbox {
             .expect("write service log config");
     }
 
+    /// Writes the exit log that `omnect_service_log.sh` would have left behind.
+    fn write_exit_log(&self, service: &str, exitstatus: &str) {
+        fs::write(
+            self.run().join(format!("{service}.exit-log")),
+            format!(
+                r#"{{ "service": "{service}", "infos": [ {{ "exitstatus": "{exitstatus}" }} ] }}"#
+            ),
+        )
+        .expect("write exit log");
+    }
+
     /// Installs a counting `jq` wrapper and returns the file it records calls in.
     fn count_jq_calls(&self) -> PathBuf {
         let counter = self.dir.path().join("jq-calls");
@@ -265,12 +294,17 @@ impl Report {
 
     /// The names of the checks that reported a rating, in the order they ran.
     fn rated_names(&self) -> Vec<&str> {
+        self.ratings().into_iter().map(|(_, name)| name).collect()
+    }
+
+    /// The reported ratings as `(rating, name)` pairs, in the order they ran.
+    fn ratings(&self) -> Vec<(&str, &str)> {
         self.stdout
             .lines()
             .filter_map(|line| {
                 let mut fields = line.split_whitespace();
-                fields.next().filter(|r| r.starts_with('['))?;
-                fields.next()
+                let rating = fields.next().filter(|r| r.starts_with('['))?;
+                Some((rating, fields.next()?))
             })
             .collect()
     }
@@ -423,6 +457,24 @@ fn a_check_script_finds_its_library_when_invoked_by_bare_name() {
             report.stderr
         );
     }
+}
+
+#[test]
+fn a_service_specific_rating_overrides_the_default_rating() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(PER_SERVICE_RATINGS);
+    sandbox.write_exit_log("lenient", "HUP");
+    sandbox.write_exit_log("strict", "HUP");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[GREEN]", "lenient"), ("[RED]", "strict")],
+        "each service must be rated by its own ratings, not by the defaults:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
 }
 
 #[test]
