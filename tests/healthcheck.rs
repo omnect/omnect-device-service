@@ -168,19 +168,23 @@ impl Sandbox {
     }
 
     fn command(&self, script: &str) -> Command {
+        let mut command = Command::new(self.lib().join(script));
+        self.set_env(&mut command);
+        command.current_dir(self.dir.path());
+        command
+    }
+
+    fn set_env(&self, command: &mut Command) {
         let path = format!(
             "{}:{}",
             self.bin().display(),
             std::env::var("PATH").unwrap_or_default()
         );
-        let mut command = Command::new(self.lib().join(script));
         command
             .env("PATH", path)
             .env("CFGDIR", self.etc())
             .env("LOGDIR", self.run())
-            .env("ANALYSISDIR", self.run())
-            .current_dir(self.dir.path());
-        command
+            .env("ANALYSISDIR", self.run());
     }
 
     fn run_script(&self, script: &str, args: &[&str]) -> Report {
@@ -190,6 +194,15 @@ impl Sandbox {
                 .output()
                 .expect("run healthcheck script"),
         )
+    }
+
+    /// Mirrors `bash <bare-name>` from the script's own directory, the one
+    /// invocation form in which `${BASH_SOURCE[0]}` carries no directory part.
+    fn run_script_by_bare_name(&self, script: &str, args: &[&str]) -> Report {
+        let mut command = Command::new("bash");
+        self.set_env(&mut command);
+        command.arg(script).args(args).current_dir(self.lib());
+        Report::new(command.output().expect("run healthcheck script"))
     }
 }
 
@@ -349,6 +362,28 @@ fn check_rates_a_core_dump_red() {
         report.stdout,
         report.stderr
     );
+}
+
+#[test]
+fn a_check_script_finds_its_library_when_invoked_by_bare_name() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+
+    for script in CHECK_SCRIPTS {
+        let report = sandbox.run_script_by_bare_name(script, &["check"]);
+
+        assert!(
+            !report.stderr.contains("healthchecklib.sh"),
+            "{script} must locate its library when called by bare name:\n{}{}",
+            report.stdout,
+            report.stderr
+        );
+        assert!(
+            !report.stdout.is_empty(),
+            "{script} must still report a rating when called by bare name:\n{}{}",
+            report.stdout,
+            report.stderr
+        );
+    }
 }
 
 #[test]
