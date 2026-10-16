@@ -24,6 +24,19 @@ function fatal() {
     echo -e "${ME}: FATAL ERROR: ${@}" >&2
 }
 
+# true if $1 occurs as a complete, whitespace separated word in $2
+function in_list() {
+    local needle="$1" word
+    local -  # restores the shell options below on return
+    set -f   # $2 is split on purpose, but must not be globbed
+
+    for word in $2; do
+        [ "$word" = "$needle" ] && return 0
+    done
+
+    return 1
+}
+
 strrating=("GREEN" "YELLOW" "RED")
 overall_rating=0
 

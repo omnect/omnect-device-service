@@ -29,7 +29,7 @@ function do_check() {
         rating=0
 
         service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-        [ "$(echo $check_services | grep -w "$service")" ] || continue
+        in_list "$service" "$check_services" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ ! -r "$servicelog" ]; then
@@ -81,7 +81,7 @@ function do_get_infos() {
         rating=0
 
         service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-        [ "$(echo $check_services | grep -w "$service")" ] || continue
+        in_list "$service" "$check_services" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ ! -r "$servicelog" ]; then

@@ -19,8 +19,8 @@ function verify_check_names() {
     known_checktypes=$(jq -r '[ .[].type ] | unique | join(" ")' "$cfgfile")
 
     for check; do
-	[ "$(echo $known_checknames | grep -w "$check")" ] && continue
-	[ "$(echo $known_checktypes | grep -w "$check")" ] && continue
+	in_list "$check" "$known_checknames" && continue
+	in_list "$check" "$known_checktypes" && continue
 
 	retval=1
 	unknown_checks="${unknown_checks:+${unknown_checks} }${check}"
@@ -65,7 +65,11 @@ function do__cmd() {
         fi
         name=$(jq -r "if .[$idx].\"name\" then .[$idx].\"name\" else empty end" "$cfgfile")
         : ${name:=$type}
-        [ -z "$selected_checks" -o "$(echo $selected_checks | grep -w "$name")" -o "$(echo $selected_checks | grep -w "$type")" ] || continue
+        if [ "$selected_checks" ] \
+           && ! in_list "$name" "$selected_checks" \
+           && ! in_list "$type" "$selected_checks"; then
+            continue
+        fi
 
         extra_args=$(jq -r "if .[$idx].\"extra-args\" then .[$idx].\"extra-args\" else empty end" "$cfgfile")
         output=$($check $cmd $extra_args)
