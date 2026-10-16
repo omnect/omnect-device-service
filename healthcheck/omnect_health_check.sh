@@ -15,6 +15,9 @@ function verify_check_names() {
 
     retval=0
 
+    # nothing to verify, and no need to read the config file at all
+    [ $# -gt 0 ] || return 0
+
     known_checknames=$(jq -r '[ .[].name ] | unique | join(" ")' "$cfgfile")
     known_checktypes=$(jq -r '[ .[].type ] | unique | join(" ")' "$cfgfile")
 
@@ -37,20 +40,24 @@ function do__cmd() {
     local output_when="$2" # 0 = never, 1 = failed only, 2 = all
     local cfgfile="$3"
     local selected_checks="$4"
-    local nchecked nchecks check i idx name type extra_args
-    local output retval
+    local nchecked nchecks check i name type extra_args
+    local output retval entries entry
 
     nchecked=0
-    nchecks=$(jq 'length' "$cfgfile")
+    # one pass over the config file instead of three jq calls per entry;
+    # the unit separator is used because IFS would collapse empty tab
+    # separated fields, which would hide a missing "type" attribute
+    mapfile -t entries < <(jq -r '.[] | [ (."type" // "" | tostring), (."name" // "" | tostring), (."extra-args" // "" | tostring) ] | join("\u001f")' "$cfgfile")
+    nchecks=${#entries[@]}
     [ $nchecks -gt 0 ] \
 	|| warn "no checks defined in config file \"$cfgfile\""
     
     i=0
-    while [ $i -lt "$nchecks" ]; do
-        idx=$i
+    for entry in "${entries[@]}"; do
         i=$((i + 1))
 
-        type=$(jq -r "if .[$idx].\"type\" then .[$idx].\"type\" else empty end" "$cfgfile")
+        IFS=$'\037' read -r type name extra_args <<<"$entry"
+
         [ "$type" ] \
             || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; do_rate 2; nchecked=$((nchecked + 1)); continue; }
 
@@ -63,7 +70,6 @@ function do__cmd() {
             nchecked=$((nchecked + 1))
             continue
         fi
-        name=$(jq -r "if .[$idx].\"name\" then .[$idx].\"name\" else empty end" "$cfgfile")
         : ${name:=$type}
         if [ "$selected_checks" ] \
            && ! in_list "$name" "$selected_checks" \
@@ -71,7 +77,6 @@ function do__cmd() {
             continue
         fi
 
-        extra_args=$(jq -r "if .[$idx].\"extra-args\" then .[$idx].\"extra-args\" else empty end" "$cfgfile")
         output=$($check $cmd $extra_args)
         retval=$?
 

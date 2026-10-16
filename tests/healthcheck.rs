@@ -33,6 +33,22 @@ const CHECK_SCRIPTS: &[&str] = &[
 
 const COREDUMPS_CONFIG: &str = r#"[ { "name": "coredumps", "type": "coredumps" } ]"#;
 
+/// Eleven entries - as many as the stock configuration has - but none of type
+/// "services", so every `jq` call observed comes from the main script itself.
+const ELEVEN_CHECKS_CONFIG: &str = r#"[
+    { "name": "cores1", "type": "coredumps" },
+    { "name": "cores2", "type": "coredumps" },
+    { "name": "cores3", "type": "coredumps" },
+    { "name": "running1", "type": "system_running" },
+    { "name": "running2", "type": "system_running" },
+    { "name": "running3", "type": "system_running" },
+    { "name": "loop1", "type": "crash_loop" },
+    { "name": "loop2", "type": "crash_loop" },
+    { "name": "loop3", "type": "crash_loop" },
+    { "name": "time1", "type": "timesync" },
+    { "name": "time2", "type": "timesync" }
+]"#;
+
 /// Two services where one name is a prefix of the other up to a hyphen, which
 /// `grep -w` treats as a word boundary.
 const OVERLAPPING_SERVICES: &str = r#"{
@@ -64,6 +80,15 @@ fn require_jq() {
         .arg("--version")
         .output()
         .expect("jq not found in PATH, but the healthcheck scripts need it to read their config");
+}
+
+/// The real `jq`, resolved before any sandbox wrapper shadows it.
+fn real_jq() -> PathBuf {
+    let output = Command::new("bash")
+        .args(["-c", "command -v jq"])
+        .output()
+        .expect("look up jq");
+    PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 struct Sandbox {
@@ -165,6 +190,20 @@ impl Sandbox {
     fn set_service_analysis(&self, config: &str) {
         fs::write(self.etc().join("omnect_service_log_analysis.json"), config)
             .expect("write service log config");
+    }
+
+    /// Installs a counting `jq` wrapper and returns the file it records calls in.
+    fn count_jq_calls(&self) -> PathBuf {
+        let counter = self.dir.path().join("jq-calls");
+        self.stub(
+            "jq",
+            &format!(
+                "echo call >>\"{}\"\nexec \"{}\" \"$@\"\n",
+                counter.display(),
+                real_jq().display()
+            ),
+        );
+        counter
     }
 
     fn command(&self, script: &str) -> Command {
@@ -384,6 +423,30 @@ fn a_check_script_finds_its_library_when_invoked_by_bare_name() {
             report.stderr
         );
     }
+}
+
+#[test]
+fn the_check_configuration_is_read_in_a_single_pass() {
+    let sandbox = Sandbox::new(ELEVEN_CHECKS_CONFIG);
+    let counter = sandbox.count_jq_calls();
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_GREEN,
+        "an undisturbed system must still be rated green:\n{}{}",
+        report.stdout, report.stderr
+    );
+    let calls = fs::read_to_string(&counter)
+        .unwrap_or_default()
+        .lines()
+        .count();
+    assert!(
+        calls <= 2,
+        "reading 11 check entries must not start {calls} jq processes:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
 }
 
 #[test]
