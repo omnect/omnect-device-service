@@ -226,8 +226,7 @@ impl Twin {
                 }
 
                 match reason {
-                    UnauthenticatedReason::BadCredential
-                    | UnauthenticatedReason::CommunicationError => {
+                    UnauthenticatedReason::BadCredential => {
                         error!(
                             "Failed to connect to iothub: {reason:?}. Possible reasons: certificate renewal, reprovisioning or wrong system time"
                         );
@@ -242,7 +241,9 @@ impl Twin {
 
                         restart_twin = true;
                     }
-                    UnauthenticatedReason::RetryExpired
+                    // the SDK reconnects by itself after CommunicationError
+                    UnauthenticatedReason::CommunicationError
+                    | UnauthenticatedReason::RetryExpired
                     | UnauthenticatedReason::ExpiredSasToken
                     | UnauthenticatedReason::NoNetwork
                     | UnauthenticatedReason::Unknown => {
@@ -313,15 +314,16 @@ impl Twin {
             Err(e) => error!("handle_request: {cmd_string} returned error: {e:#}"),
         }
 
+        // a failed command doesn't reboot, so further requests must be handled
+        #[cfg(any(test, not(feature = "mock")))]
+        if result.is_ok() && cmd.triggers_reboot() {
+            self.waiting_for_reboot = true;
+        }
+
         if let Some(reply) = reply
             && reply.send(result).is_err()
         {
             error!("handle_request: {cmd_string} receiver dropped");
-        }
-
-        #[cfg(not(feature = "mock"))]
-        if cmd.triggers_reboot() {
-            self.waiting_for_reboot = true;
         }
 
         Ok(())

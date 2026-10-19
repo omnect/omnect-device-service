@@ -18,7 +18,7 @@ function checkit() {
     cores=$(coredumpctl -q --since "$since")
 
     if [ "${cores}" ]; then
-	rating=2
+        rating=2
     fi
     echo "${cores}"
     do_rate $rating
@@ -39,7 +39,7 @@ function do_get_infos() {
 
     print_info_header
     if [ $retval != 0 ]; then
-	echo "$cores"
+        echo "$cores"
     fi
 
     return $retval
@@ -52,12 +52,12 @@ check_command_arg "$command"
 # first argument must be either "check" or "get-infos"
 case "$command" in
     check)
-	do_check "$@"
-	retval=$?
-	;;
+        do_check "$@"
+        retval=$?
+        ;;
     get-infos)
-	do_get_infos "$@"
-	;;
+        do_get_infos "$@"
+        ;;
 esac
 
 exit $overall_rating
