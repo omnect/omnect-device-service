@@ -22,6 +22,12 @@ CFGFILEPATH="${CFGDIR}/${CFGFILE}"
 : ${LOGDIR:=/run/omnect_health_log}
 : ${ANALYSISDIR:=/run/omnect_health_log}
 
+# prints the services the configuration file knows, one per line
+function configured_services() {
+    jq -r '.services[].service' "$CFGFILEPATH" \
+        || { error "configuration file \"$CFGFILEPATH\" could not be read"; return 2; }
+}
+
 # rates the entries of a service exit log by the current rules and reports
 # the resulting rating as exit status
 function rate_servicelog() {
@@ -96,15 +102,16 @@ function rate_servicelog() {
 }
 
 function do_check() {
-    local nentries service rating servicelog
+    local service rating servicelog services=() known n
 
-    nentries=$(jq '.services | length' "$CFGFILEPATH")
-    [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
-    for ((n=0; n < nentries; n++)); do
+    known=$(configured_services) || { do_rate 2; return 2; }
+    [ "$known" ] && mapfile -t services <<<"$known"
+
+    for ((n=0; n < ${#services[@]}; n++)); do
         rating=0
+        service="${services[$n]}"
 
-        service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-        in_list "$service" "$check_services" || continue
+        [ -z "$check_services" ] || in_list "$service" "$check_services" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -r "$servicelog" ]; then
@@ -119,15 +126,16 @@ function do_check() {
 }
 
 function do_get_infos() {
-    local nentries service rating servicelog
+    local service rating servicelog services=() known n
 
-    nentries=$(jq '.services | length' "$CFGFILEPATH")
-    [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
-    for ((n=0; n < nentries; n++)); do
+    known=$(configured_services) || { do_rate 2; return 2; }
+    [ "$known" ] && mapfile -t services <<<"$known"
+
+    for ((n=0; n < ${#services[@]}; n++)); do
         rating=0
+        service="${services[$n]}"
 
-        service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-        in_list "$service" "$check_services" || continue
+        [ -z "$check_services" ] || in_list "$service" "$check_services" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -r "$servicelog" ]; then

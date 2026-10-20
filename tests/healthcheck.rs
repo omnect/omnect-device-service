@@ -689,6 +689,21 @@ fn get_infos_applies_the_current_rating_rules() {
 }
 
 #[test]
+fn a_service_config_that_cannot_be_read_is_rated_red() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(r#"{ "default-ratings": ["#);
+    sandbox.write_exit_log("picky", "SEGV");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "a service configuration that cannot be read must not pass as green:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
