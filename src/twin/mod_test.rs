@@ -746,10 +746,14 @@ pub mod mod_test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn reset_client_drops_connection_status_of_old_client_test() {
+        const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+        const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
             let (senders, mut observers) = observers();
+            let tx_old_status = senders.tx_connection_status.clone();
             senders
                 .tx_connection_status
                 .try_send(AuthenticationStatus::Unauthenticated(
@@ -782,6 +786,21 @@ pub mod mod_test {
                 observers.rx_connection_status.try_recv().is_err(),
                 "reset must not pass connection statuses of the old client on"
             );
+
+            let start = std::time::Instant::now();
+            while tx_old_status.capacity() < tx_old_status.max_capacity() {
+                assert!(
+                    start.elapsed() < DRAIN_TIMEOUT,
+                    "connection statuses of the old client were not drained"
+                );
+                std::thread::sleep(DRAIN_POLL_INTERVAL);
+            }
+            assert!(
+                !tx_old_status.is_closed(),
+                "reset must drain the old receivers, not drop them"
+            );
+            // the drain runs until all senders of the old client are gone
+            drop(tx_old_status);
         };
 
         TestCase::run(test_files, vec![], vec![], |_| {}, test);
