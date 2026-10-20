@@ -528,6 +528,11 @@ impl Twin {
                             client_created.set(Self::connect_iothub_client(builder));
                         };
                     },
+                    // before the client branches, so a direct method that
+                    // reboots can't skip a queued ValidateUpdate
+                    requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
+                        twin.handle_request(requests).await?
+                    },
                     Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
                         if let Some(request) = direct_method_request(dm) {
                             twin.handle_request(request).await?
@@ -537,9 +542,6 @@ impl Twin {
                         for request in desired_property_requests(desired) {
                             twin.handle_request(request).await?
                         }
-                    },
-                    requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
-                        twin.handle_request(requests).await?
                     },
                     Some(reported) = rx_reported_properties.recv() => {
                         let Some(client) = &twin.client else {
