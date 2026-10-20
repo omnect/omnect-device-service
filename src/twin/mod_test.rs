@@ -683,7 +683,7 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn fs_watcher_exit_bails_and_shuts_down_test() {
+    async fn fs_watcher_exit_bails_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
             "testfiles/positive/consent_conf.json",
@@ -691,39 +691,24 @@ pub mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().returning(|_| Ok(()));
-            mock.expect_shutdown().times(1).returning(|_| ());
-        };
-
         let test = |test_attr: &mut TestConfig| {
-            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
-            let (_tx_out, mut rx_out) = mpsc::channel(100);
-
             // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
-            let err = block_on(async {
-                test_attr
-                    .twin
-                    .handle_fs_watcher_exit(Ok(()), observers().1, &mut rx_rep, &mut rx_out)
-                    .await
-            })
-            .expect_err("handle_fs_watcher_exit must return Err");
+            let err = test_attr
+                .twin
+                .handle_fs_watcher_exit(Ok(()))
+                .expect_err("handle_fs_watcher_exit must return Err");
 
             assert!(
                 err.to_string().contains("FsWatcher task ended"),
                 "unexpected error message: {err:#}"
             );
-            assert!(
-                test_attr.twin.client.is_none(),
-                "shutdown must drop the iot hub client"
-            );
         };
 
-        TestCase::run(test_files, vec![], vec![], expect, test);
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn fs_watcher_exit_on_panic_bails_and_shuts_down_test() {
+    async fn fs_watcher_exit_on_panic_bails_test() {
         // Companion to the Ok(()) test above: a panicked FsWatcher task yields
         // a real `JoinError`. Both paths must bail with the same restart
         // message so the systemd unit treats them identically.
@@ -734,15 +719,7 @@ pub mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().returning(|_| Ok(()));
-            mock.expect_shutdown().times(1).returning(|_| ());
-        };
-
         let test = |test_attr: &mut TestConfig| {
-            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
-            let (_tx_out, mut rx_out) = mpsc::channel(100);
-
             // `JoinError` has no public constructor — obtain a real one by
             // awaiting a deliberately panicking task.
             let join_err = block_on(async {
@@ -753,25 +730,18 @@ pub mod mod_test {
                 .expect_err("spawned task should panic")
             });
 
-            let err = block_on(async {
-                test_attr
-                    .twin
-                    .handle_fs_watcher_exit(Err(join_err), observers().1, &mut rx_rep, &mut rx_out)
-                    .await
-            })
-            .expect_err("handle_fs_watcher_exit must return Err on panic");
+            let err = test_attr
+                .twin
+                .handle_fs_watcher_exit(Err(join_err))
+                .expect_err("handle_fs_watcher_exit must return Err on panic");
 
             assert!(
                 err.to_string().contains("FsWatcher task ended"),
                 "unexpected error message on panic path: {err:#}"
             );
-            assert!(
-                test_attr.twin.client.is_none(),
-                "shutdown must drop the iot hub client on panic path"
-            );
         };
 
-        TestCase::run(test_files, vec![], vec![], expect, test);
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]

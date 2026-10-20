@@ -330,17 +330,11 @@ impl Twin {
     }
 
     // Without FsWatcher, feature commands triggered by file changes are lost
-    // silently. Shut down and surface an error so main exits non-zero and
-    // systemd restarts the service with a fresh watcher. If the task exited
-    // because we cancelled it (normal shutdown), return Ok — the watcher
-    // ending was expected and another branch owns the exit code.
-    async fn handle_fs_watcher_exit(
-        &mut self,
-        result: Result<(), tokio::task::JoinError>,
-        observers: ClientObservers,
-        rx_reported_properties: &mut mpsc::Receiver<serde_json::Value>,
-        rx_outgoing_message: &mut mpsc::Receiver<IotMessage>,
-    ) -> Result<()> {
+    // silently. Surface an error so main exits non-zero and systemd restarts
+    // the service with a fresh watcher. If the task exited because we
+    // cancelled it (normal shutdown), return Ok — the watcher ending was
+    // expected and another branch owns the exit code.
+    fn handle_fs_watcher_exit(&self, result: Result<(), tokio::task::JoinError>) -> Result<()> {
         if self.cancel.is_cancelled() {
             info!("FsWatcher task exited after cancellation");
             return Ok(());
@@ -349,8 +343,6 @@ impl Twin {
             Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
             Err(e) => error!("FsWatcher task panicked: {e}"),
         }
-        self.shutdown(observers, rx_reported_properties, rx_outgoing_message)
-            .await;
         bail!("FsWatcher task ended; exiting to let systemd restart the service")
     }
 
@@ -492,88 +484,92 @@ impl Twin {
             let command_requests = futures::stream::select_all::select_all(command_requests);
         };
 
-        loop {
-            select! (
-                // we enforce top down order to handle select! branches
-                biased;
+        // `?` and `return` only leave this block, so every exit runs `shutdown`,
+        // which drains the observers before the client is destroyed.
+        let result = async {
+            loop {
+                select! (
+                    // we enforce top down order to handle select! branches
+                    biased;
 
-                Some(_) = trigger_watchdog.next() => {
-                    systemd::watchdog::WatchdogManager::notify().await?;
-                },
-                Some(signal) = signals.next() => {
-                    info!("received termination signal: {signal:?}");
-                    twin.shutdown(observers, &mut rx_reported_properties, &mut rx_outgoing_message).await;
-                    signals.handle().close();
-                    return Ok(())
-                },
-                Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
-                    signals.handle().close();
-                    return twin
-                        .handle_fs_watcher_exit(
-                            result,
-                            observers,
-                            &mut rx_reported_properties,
-                            &mut rx_outgoing_message,
-                        )
-                        .await;
-                },
-                result = &mut client_created, if twin.client.is_none() => {
-                    match result {
-                        Ok(client) => {
-                            info!("iothub client created");
-                            twin.client = Some(client);
-                        },
-                        Err(e) => {
-                            error!("couldn't create iothub client: {e:#}");
-                            twin.request_validate_update(false).await?;
+                    Some(_) = trigger_watchdog.next() => {
+                        systemd::watchdog::WatchdogManager::notify().await?;
+                    },
+                    Some(signal) = signals.next() => {
+                        info!("received termination signal: {signal:?}");
+                        return Ok(())
+                    },
+                    Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
+                        return twin.handle_fs_watcher_exit(result);
+                    },
+                    result = &mut client_created, if twin.client.is_none() => {
+                        match result {
+                            Ok(client) => {
+                                info!("iothub client created");
+                                twin.client = Some(client);
+                            },
+                            Err(e) => {
+                                error!("couldn't create iothub client: {e:#}");
+                                twin.request_validate_update(false).await?;
+                                let builder = twin.reset_client_with_delay(
+                                    &mut observers,
+                                    Some(CREATE_CLIENT_RETRY_DELAY),
+                                ).await;
+                                client_created.set(Self::connect_iothub_client(builder));
+                            }
+                        }
+                    },
+                    Some(status) = observers.rx_connection_status.recv() => {
+                        if twin.handle_connection_status(status).await? {
                             let builder = twin.reset_client_with_delay(
                                 &mut observers,
-                                Some(CREATE_CLIENT_RETRY_DELAY),
+                                Some(RECONNECT_CLIENT_DELAY),
                             ).await;
                             client_created.set(Self::connect_iothub_client(builder));
+                        };
+                    },
+                    Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
+                        if let Some(request) = direct_method_request(dm) {
+                            twin.handle_request(request).await?
                         }
-                    }
-                },
-                Some(status) = observers.rx_connection_status.recv() => {
-                    if twin.handle_connection_status(status).await? {
-                        let builder = twin.reset_client_with_delay(
-                            &mut observers,
-                            Some(RECONNECT_CLIENT_DELAY),
-                        ).await;
-                        client_created.set(Self::connect_iothub_client(builder));
-                    };
-                },
-                Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
-                    if let Some(request) = direct_method_request(dm) {
-                        twin.handle_request(request).await?
-                    }
-                },
-                Some(desired) = observers.rx_twin_desired.recv(), if !twin.waiting_for_reboot => {
-                    for request in desired_property_requests(desired) {
-                        twin.handle_request(request).await?
-                    }
-                },
-                requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
-                    twin.handle_request(requests).await?
-                },
-                Some(reported) = rx_reported_properties.recv() => {
-                    let Some(client) = &twin.client else {
-                        error!("couldn't report properties since client not present");
-                        continue
-                    };
+                    },
+                    Some(desired) = observers.rx_twin_desired.recv(), if !twin.waiting_for_reboot => {
+                        for request in desired_property_requests(desired) {
+                            twin.handle_request(request).await?
+                        }
+                    },
+                    requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
+                        twin.handle_request(requests).await?
+                    },
+                    Some(reported) = rx_reported_properties.recv() => {
+                        let Some(client) = &twin.client else {
+                            error!("couldn't report properties since client not present");
+                            continue
+                        };
 
-                    client.twin_report(reported)?
-                },
-                Some(message) = rx_outgoing_message.recv() => {
-                    let Some(client) = &twin.client else {
-                        error!("couldn't send msg since client not present");
-                        continue
-                    };
+                        client.twin_report(reported)?
+                    },
+                    Some(message) = rx_outgoing_message.recv() => {
+                        let Some(client) = &twin.client else {
+                            error!("couldn't send msg since client not present");
+                            continue
+                        };
 
-                    client.send_d2c_message(message)?
-                },
-            );
+                        client.send_d2c_message(message)?
+                    },
+                );
+            }
         }
+        .await;
+
+        twin.shutdown(
+            observers,
+            &mut rx_reported_properties,
+            &mut rx_outgoing_message,
+        )
+        .await;
+        signals.handle().close();
+        result
     }
 
     #[cfg(not(feature = "mock"))]
