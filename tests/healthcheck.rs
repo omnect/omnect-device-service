@@ -733,6 +733,25 @@ fn a_check_name_is_not_rejected_by_an_unreadable_config() {
 }
 
 #[test]
+fn an_unselected_broken_entry_does_not_rate_the_run() {
+    let sandbox = Sandbox::new(
+        r#"[ { "name": "coredumps", "type": "coredumps" },
+    { "name": "broken", "type": "does_not_exist" },
+    { "name": "nameless" } ]"#,
+    );
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check", "coredumps"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[GREEN]", "coredumps")],
+        "an entry that was not selected must not rate the run:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);

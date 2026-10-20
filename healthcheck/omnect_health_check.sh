@@ -79,6 +79,16 @@ function do__cmd() {
         i=$((i + 1))
 
         IFS=$'\037' read -r type name extra_args <<<"$entry"
+        : ${name:=$type}
+
+        # an entry nobody asked for must not rate this run, no matter whether
+        # it could be run at all; an entry without a type may still carry the
+        # name it was selected by
+        if [ "$selected_checks" ] \
+           && ! in_list "$name" "$selected_checks" \
+           && ! in_list "$type" "$selected_checks"; then
+            continue
+        fi
 
         [ "$type" ] \
             || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; do_rate 2; nchecked=$((nchecked + 1)); continue; }
@@ -90,12 +100,6 @@ function do__cmd() {
             print_rating $rate ${type} "${check##*/}"
             do_rate $rate
             nchecked=$((nchecked + 1))
-            continue
-        fi
-        : ${name:=$type}
-        if [ "$selected_checks" ] \
-           && ! in_list "$name" "$selected_checks" \
-           && ! in_list "$type" "$selected_checks"; then
             continue
         fi
 
