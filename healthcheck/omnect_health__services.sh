@@ -39,9 +39,18 @@ function unknown_services() {
 
 # rates the entries of a service exit log by the current rules and reports
 # the resulting rating as exit status
+#
+# NOTE:
+#   the rating is kept in a file beside the exit log, never in the log
+#   itself: omnect_service_log.sh appends to that log from a systemd
+#   StopPost hook while a check may run at the same time, and a rater
+#   replacing the log would drop whatever was recorded in between -- which
+#   is precisely the crash evidence the log exists for
 function rate_servicelog() {
     local n="$1" servicelog="$2"
-    local jquery rated counts red yellow
+    local jquery rated tmprated counts red yellow
+
+    rated="${servicelog}.rated"
 
     # re-rate in case of ...
     #   a) new entries, or
@@ -50,9 +59,9 @@ function rate_servicelog() {
     # NOTE:
     #   (re-)rating will normally happen after generation of new entries
     #   initiated by omnect_service_log.sh via systemd StopPost hook
-    if [    ! -r "${servicelog}.rated" \
-         -o "$CFGFILEPATH" -nt "${servicelog}" \
-         -o "${servicelog}" -nt "${servicelog}.rated" \
+    if [    ! -r "$rated" \
+         -o "$CFGFILEPATH" -nt "$rated" \
+         -o "${servicelog}" -nt "$rated" \
        ]; then
         # a service may bring its own ratings, otherwise the defaults apply;
         # either way an entry no rule matched is rated red rather than being
@@ -75,34 +84,36 @@ function rate_servicelog() {
             || { error "rating rules for \"$servicelog\" could not be read"; return 2; }
 
         # NOTE:
-        #   the rating is written to a file of its own, because
-        #   "${servicelog}.rated" only records when the log was last rated:
         #   a concurrent run -- the systemd StopPost hook rates a single
-        #   service while a manual run rates all of them -- would otherwise
-        #   move a half written file over the exit log
-        rated=$(mktemp "${servicelog}.XXXXXX") \
+        #   service while a manual run rates all of them -- must not see a
+        #   half written rating, so it is assembled under a unique name and
+        #   put in place by a rename, which is atomic
+        tmprated=$(mktemp "${rated}.XXXXXX") \
             || { error "no place to rate \"$servicelog\" in"; return 2; }
 
+        # mktemp creates the file private to its owner, but the rating has to
+        # stay as accessible as the log it describes, or a reader lacking the
+        # permission would take an unreadable rating for no findings
+        chmod "$(stat -c %a "$servicelog")" "$tmprated" \
+            || { error "rating of \"$servicelog\" could not be made accessible"; rm -f "$tmprated"; return 2; }
+
         # NOTE:
-        #   the rated log replaces the original one only if jq succeeded,
-        #   because otherwise the sole record of what happened to the service
-        #   would be overwritten by a truncated or empty file
-        if jq "$jquery" "$servicelog" > "$rated"; then
-            mv "$rated" "$servicelog"
-            # create empty anew to remember when we last rated all entries
-            : > "${servicelog}.rated"
+        #   the rating is put in place only if jq succeeded, because a
+        #   truncated or empty file would be counted as no findings
+        if jq "$jquery" "$servicelog" > "$tmprated"; then
+            mv "$tmprated" "$rated"
         else
             error "exit log \"$servicelog\" could not be rated"
-            # drop the marker so the next run attempts to rate again
-            rm -f "$rated" "${servicelog}.rated"
+            # drop an outdated rating so this log cannot pass as rated
+            rm -f "$tmprated" "$rated"
             return 2
         fi
     fi
 
     counts=$(jq -r '[ ( .infos | map(select(.rating == "red")) | length ),
                       ( .infos | map(select(.rating == "yellow")) | length )
-                    ] | join(" ")' "$servicelog") \
-        || { error "exit log \"$servicelog\" could not be read"; return 2; }
+                    ] | join(" ")' "$rated") \
+        || { error "rating of \"$servicelog\" could not be read"; return 2; }
     read -r red yellow <<<"$counts"
 
     [ "$red" -gt 0 ] && return 2

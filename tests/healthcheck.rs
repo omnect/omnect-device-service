@@ -613,36 +613,78 @@ fn a_rating_condition_is_not_run_by_the_shell() {
 }
 
 #[test]
-fn the_rating_is_not_written_to_the_marker_file() {
+fn the_rating_never_replaces_the_exit_log() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(PER_SERVICE_RATINGS);
     sandbox.write_exit_log("strict", "HUP");
-    let probe = sandbox.run().join("rating-output");
-    sandbox.stub(
-        "jq",
-        &format!(
-            "case \"$1\" in *del\\(.infos\\[\\].rating\\)*) exec 9>&1; readlink -f /proc/self/fd/9 >\"{}\" ;; esac\nexec \"{}\" \"$@\"\n",
-            probe.display(),
-            real_jq().display()
-        ),
-    );
+    let log = sandbox.run().join("strict.exit-log");
+    let recorded = fs::read_to_string(&log).expect("read exit log");
 
     let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
 
-    let written = fs::read_to_string(&probe).unwrap_or_else(|_| {
-        panic!(
-            "the rating was never applied:\n{}{}",
-            report.stdout, report.stderr
-        )
-    });
-    assert_ne!(
-        written.trim(),
-        sandbox
-            .run()
-            .join("strict.exit-log.rated")
-            .display()
-            .to_string(),
-        "the rating must not be written to the file that marks when it was done"
+    assert_eq!(
+        fs::read_to_string(&log).expect("read exit log"),
+        recorded,
+        "the only record of what happened to a service must not be rewritten:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+    let rated = fs::read_to_string(sandbox.run().join("strict.exit-log.rated"))
+        .expect("read rated exit log");
+    assert!(
+        rated.contains("\"rating\""),
+        "the rating must be kept beside the exit log, but found:\n{rated}"
+    );
+}
+
+#[test]
+fn rating_keeps_the_exit_log_as_readable_as_it_was() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(PER_SERVICE_RATINGS);
+    sandbox.write_exit_log("strict", "HUP");
+    let log = sandbox.run().join("strict.exit-log");
+    fs::set_permissions(&log, fs::Permissions::from_mode(0o644)).expect("chmod exit log");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    for file in [&log, &sandbox.run().join("strict.exit-log.rated")] {
+        let mode = fs::metadata(file).expect("stat log").permissions().mode() & 0o777;
+        assert_eq!(
+            mode,
+            0o644,
+            "rating must not lock {} away from its readers, but left mode {mode:o}:\n{}{}",
+            file.display(),
+            report.stdout,
+            report.stderr
+        );
+    }
+}
+
+#[test]
+fn an_entry_added_after_a_rating_is_rated_too() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    let log = sandbox.run().join("picky.exit-log");
+    fs::write(
+        &log,
+        r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" } ] }"#,
+    )
+    .expect("write exit log");
+    sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    fs::write(
+        &log,
+        r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" }, { "exitstatus": "SEGV" } ] }"#,
+    )
+    .expect("append to exit log");
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky")],
+        "an entry recorded after the last rating must not stay unrated:\n{}{}",
+        report.stdout,
+        report.stderr
     );
 }
 
