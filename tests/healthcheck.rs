@@ -613,6 +613,40 @@ fn a_rating_condition_is_not_run_by_the_shell() {
 }
 
 #[test]
+fn the_rating_is_not_written_to_the_marker_file() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(PER_SERVICE_RATINGS);
+    sandbox.write_exit_log("strict", "HUP");
+    let probe = sandbox.run().join("rating-output");
+    sandbox.stub(
+        "jq",
+        &format!(
+            "case \"$1\" in *del\\(.infos\\[\\].rating\\)*) exec 9>&1; readlink -f /proc/self/fd/9 >\"{}\" ;; esac\nexec \"{}\" \"$@\"\n",
+            probe.display(),
+            real_jq().display()
+        ),
+    );
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    let written = fs::read_to_string(&probe).unwrap_or_else(|_| {
+        panic!(
+            "the rating was never applied:\n{}{}",
+            report.stdout, report.stderr
+        )
+    });
+    assert_ne!(
+        written.trim(),
+        sandbox
+            .run()
+            .join("strict.exit-log.rated")
+            .display()
+            .to_string(),
+        "the rating must not be written to the file that marks when it was done"
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);

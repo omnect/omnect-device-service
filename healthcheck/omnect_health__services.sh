@@ -23,7 +23,7 @@ CFGFILEPATH="${CFGDIR}/${CFGFILE}"
 : ${ANALYSISDIR:=/run/omnect_health_log}
 
 function do_check() {
-    local jquery nentries service rating servicelog
+    local jquery nentries service rating servicelog rated
 
     nentries=$(jq '.services | length' "$CFGFILEPATH")
     [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
@@ -71,17 +71,26 @@ function do_check() {
                 | join(" | ")' "$CFGFILEPATH")
 
             # NOTE:
+            #   the rating is written to a file of its own, because
+            #   "${servicelog}.rated" only records when the log was last
+            #   rated: a concurrent run -- the systemd StopPost hook rates a
+            #   single service while a manual run rates all of them -- would
+            #   otherwise move a half written file over the exit log
+            rated=$(mktemp "${servicelog}.XXXXXX") \
+                || { error "no place to rate \"$servicelog\" in"; do_rate 2; return 2; }
+
+            # NOTE:
             #   the rated log replaces the original one only if jq succeeded,
             #   because otherwise the sole record of what happened to the
             #   service would be overwritten by a truncated or empty file
-            if jq "$jquery" "$servicelog" > "${servicelog}.rated"; then
-                mv "${servicelog}.rated" "$servicelog"
+            if jq "$jquery" "$servicelog" > "$rated"; then
+                mv "$rated" "$servicelog"
                 # create empty anew to remember when we last rated all entries
                 : > "${servicelog}.rated"
             else
                 error "exit log \"$servicelog\" could not be rated"
                 # drop the marker so the next run attempts to rate again
-                rm -f "${servicelog}.rated"
+                rm -f "$rated" "${servicelog}.rated"
                 print_rating 2 "$service" "$ME"
                 do_rate 2
                 continue
