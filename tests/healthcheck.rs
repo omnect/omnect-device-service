@@ -102,6 +102,15 @@ const TWO_SERVICES: &str = r#"{
     "services": [ { "service": "svc-a" }, { "service": "svc-b" } ]
 }"#;
 
+/// Rates green the very condition that the stricter policy below no longer
+/// mentions, so a stale rating stands out when the policy is replaced.
+const SEGV_RATED_GREEN: &str = r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"SEGV\"", "rating": "green" }
+    ],
+    "services": [ { "service": "picky" } ]
+}"#;
+
 /// Reports one healthy service so the crash-loop check finds something to look at.
 const SYSTEMCTL_STUB: &str = r#"case "$*" in
     *list-units*) echo "stub.service loaded active running Stub" ;;
@@ -548,6 +557,33 @@ fn a_line_broken_extra_args_value_stays_one_check() {
         "both names must reach the services check as arguments:\n{}{}",
         report.stdout,
         report.stderr
+    );
+}
+
+#[test]
+fn a_changed_policy_re_rates_an_already_rated_entry() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(SEGV_RATED_GREEN);
+    sandbox.write_exit_log("picky", "SEGV");
+
+    let first = sandbox.run_script("omnect_health__services.sh", &["check"]);
+    assert_eq!(
+        first.ratings(),
+        [("[GREEN]", "picky")],
+        "the lenient policy has to rate the entry green first:\n{}{}",
+        first.stdout,
+        first.stderr
+    );
+
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    let second = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        second.ratings(),
+        [("[RED]", "picky")],
+        "a rating the current rules no longer justify must not survive:\n{}{}",
+        second.stdout,
+        second.stderr
     );
 }
 

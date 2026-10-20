@@ -42,13 +42,20 @@ function do_check() {
         # a service may bring its own ratings, otherwise the defaults apply;
         # either way an entry no rule matched is rated red rather than being
         # left unrated, which would make it count as green
+        #
+        # NOTE:
+        #   ratings of an earlier run are dropped first, because they were
+        #   derived from rules that may have been changed or removed since:
+        #   keeping them would let a rating survive that the current rules do
+        #   not justify anymore, and shield the entry from the red fallback
         jquery=$(jq --argjson n "$n" '
-            [ ( if (.services[$n] | has("ratings"))
-                then .services[$n].ratings[]?
-                else ."default-ratings"[]?
-                end
-              ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
-            ]
+            [ "del(.infos[].rating)" ]
+            + [ ( if (.services[$n] | has("ratings"))
+                  then .services[$n].ratings[]?
+                  else ."default-ratings"[]?
+                  end
+                ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
+              ]
             + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
             | join(" | ")' "$CFGFILEPATH")
 
