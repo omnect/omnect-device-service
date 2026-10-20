@@ -47,21 +47,25 @@ function do__cmd() {
     local output retval entries entry rawentries
 
     nchecked=0
-    # one pass over the config file instead of three jq calls per entry;
-    # the unit separator is used because IFS would collapse empty tab
-    # separated fields, which would hide a missing "type" attribute
+    # read all entries in a single pass to keep the number of jq invocations
+    # independent of the number of configured checks
     #
     # NOTE:
-    #   each entry occupies one line, so any line break a JSON string may
-    #   legitimately carry is turned into a blank first: an "extra-args" value
-    #   spanning two lines used to be word split into separate arguments, but
-    #   would now become an entry of its own and be mistaken for a check type
+    #   the unit separator joins the attributes of an entry because IFS
+    #   collapses consecutive tabs or blanks, which would make an entry
+    #   without a "type" attribute look like one that has it
     #
     # NOTE:
-    #   jq is deliberately not run in a process substitution, because that
-    #   would hide its exit status: on a malformed config file jq prints the
-    #   entries it managed to read before it gives up, and silently checking
-    #   only those would rate an unexamined device green
+    #   an entry is framed by a line, so a line break a JSON string carries
+    #   is replaced by a blank: it would otherwise end the entry early and
+    #   turn the remainder of the attribute into an entry of its own
+    #
+    # NOTE:
+    #   the output is assigned rather than piped or read from a process
+    #   substitution, because only an assignment makes jq's exit status
+    #   available: on a malformed config file jq prints the entries it could
+    #   read before giving up, and checking only those would rate a device
+    #   whose remaining checks never ran
     rawentries=$(jq -r 'def flat: tostring | gsub("[\n\r]"; " "); .[] | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
 	|| { error "config file \"$cfgfile\" could not be read"; do_rate 2; return 2; }
 

@@ -49,8 +49,8 @@ const ELEVEN_CHECKS_CONFIG: &str = r#"[
     { "name": "time2", "type": "timesync" }
 ]"#;
 
-/// Two services where one name is a prefix of the other up to a hyphen, which
-/// `grep -w` treats as a word boundary.
+/// Two services where one name is a prefix of the other up to a hyphen, so a
+/// selection of the shorter name must not match the longer one.
 const OVERLAPPING_SERVICES: &str = r#"{
     "default-ratings": [],
     "services": [ { "service": "aziot" }, { "service": "aziot-certd" } ]
@@ -89,7 +89,7 @@ const UNMATCHED_SERVICE_RATING: &str = r#"{
 }"#;
 
 /// Two services selected by a single `extra-args` value that is broken across
-/// lines, which JSON allows and which the health check used to word-split.
+/// lines, which JSON allows and which must stay the arguments of one check.
 const NEWLINE_EXTRA_ARGS_CONFIG: &str = r#"[
     { "type": "services", "extra-args": "svc-a\nsvc-b" }
 ]"#;
