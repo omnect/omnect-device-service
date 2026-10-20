@@ -647,6 +647,48 @@ fn the_rating_is_not_written_to_the_marker_file() {
 }
 
 #[test]
+fn get_infos_rates_an_unratable_exit_log_red() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    fs::write(
+        sandbox.run().join("picky.exit-log"),
+        r#"{ "service": "picky", "infos": [ { "exitstatus": "#,
+    )
+    .expect("write corrupt exit log");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["get-infos"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "an exit log that cannot be read must not be reported as green:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
+#[test]
+fn get_infos_applies_the_current_rating_rules() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(SEGV_RATED_GREEN);
+    sandbox.write_exit_log("picky", "SEGV");
+
+    let first = sandbox.run_script("omnect_health__services.sh", &["check"]);
+    assert_eq!(
+        first.rating, RATING_GREEN,
+        "the lenient policy has to rate the entry green first:\n{}{}",
+        first.stdout, first.stderr
+    );
+
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    let report = sandbox.run_script("omnect_health__services.sh", &["get-infos"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "get-infos has to rate by the current rules, just like check:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
