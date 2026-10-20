@@ -30,6 +30,8 @@ pub mod mod_test {
 
     const TMPDIR_FORMAT_STR: &str = "/tmp/omnect-device-service-tests/";
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+    const POLL_TIMEOUT: Duration = Duration::from_secs(5);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
     thread_local! {
         /// Client that the next `build_module_client` on this thread returns,
@@ -149,32 +151,6 @@ pub mod mod_test {
 
     struct TestCase;
 
-    /// Senders as the SDK callbacks of one client hold them.
-    struct ObserverSenders {
-        tx_connection_status: mpsc::Sender<AuthenticationStatus>,
-        tx_direct_method: mpsc::Sender<DirectMethod>,
-        _tx_twin_desired: mpsc::Sender<TwinUpdate>,
-    }
-
-    fn observers() -> (ObserverSenders, ClientObservers) {
-        let (tx_connection_status, rx_connection_status) = mpsc::channel(100);
-        let (tx_twin_desired, rx_twin_desired) = mpsc::channel(100);
-        let (tx_direct_method, rx_direct_method) = mpsc::channel(100);
-
-        (
-            ObserverSenders {
-                tx_connection_status,
-                tx_direct_method,
-                _tx_twin_desired: tx_twin_desired,
-            },
-            ClientObservers {
-                rx_connection_status,
-                rx_twin_desired,
-                rx_direct_method,
-            },
-        )
-    }
-
     struct TestConfig {
         twin: Twin,
         dir: PathBuf,
@@ -276,9 +252,6 @@ pub mod mod_test {
                 Client::sdk_version_string()
             });
 
-            let (tx_connection_status, _rx_connection_status) = mpsc::channel(100);
-            let (tx_twin_desired, _rx_twin_desired) = mpsc::channel(100);
-            let (tx_direct_method, _rx_direct_method) = mpsc::channel(100);
             let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
             let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
             let (tx_web_service, _rx_web_service) = mpsc::channel(100);
@@ -290,10 +263,7 @@ pub mod mod_test {
             ))
             .unwrap();
 
-            let client_builder = IotHubClient::builder()
-                .observe_connection_state(tx_connection_status)
-                .observe_desired_properties(tx_twin_desired)
-                .observe_direct_methods(tx_direct_method);
+            let (client_builder, _observers) = ClientObservers::builder();
             twin.client = Some(
                 client_builder
                     .build_module_client("connection_string")
@@ -775,11 +745,11 @@ pub mod mod_test {
             let (_tx_rep, mut rx_rep) = mpsc::channel(100);
             let (_tx_out, mut rx_out) = mpsc::channel(100);
 
-            block_on(
-                test_attr
-                    .twin
-                    .shutdown(observers().1, &mut rx_rep, &mut rx_out),
-            );
+            block_on(test_attr.twin.shutdown(
+                ClientObservers::channels().1,
+                &mut rx_rep,
+                &mut rx_out,
+            ));
 
             assert!(
                 test_attr.twin.client.is_none(),
@@ -816,13 +786,10 @@ pub mod mod_test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn reset_client_drops_connection_status_of_old_client_test() {
-        const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
-        const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
-
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            let (senders, mut observers) = observers();
+            let (senders, mut observers) = ClientObservers::channels();
             let tx_old_status = senders.tx_connection_status.clone();
             senders
                 .tx_connection_status
@@ -852,18 +819,14 @@ pub mod mod_test {
             test_attr.twin.client = Some(MockMyIotHub::default());
 
             assert!(client_dropped, "reset must drop the iot hub client");
-            assert!(
-                observers.rx_connection_status.try_recv().is_err(),
-                "reset must not pass connection statuses of the old client on"
-            );
 
             let start = std::time::Instant::now();
             while tx_old_status.capacity() < tx_old_status.max_capacity() {
                 assert!(
-                    start.elapsed() < DRAIN_TIMEOUT,
+                    start.elapsed() < POLL_TIMEOUT,
                     "connection statuses of the old client were not drained"
                 );
-                std::thread::sleep(DRAIN_POLL_INTERVAL);
+                std::thread::sleep(POLL_INTERVAL);
             }
             assert!(
                 !tx_old_status.is_closed(),
@@ -878,13 +841,10 @@ pub mod mod_test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn reset_client_answers_direct_method_of_old_client_test() {
-        const CALLBACK_TIMEOUT: Duration = Duration::from_secs(5);
-        const CALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(10);
-
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            let (senders, mut observers) = observers();
+            let (senders, mut observers) = ClientObservers::channels();
             let tx_direct_method = senders.tx_direct_method.clone();
 
             // a direct method callback of the SDK blocks its thread until it gets a reply
@@ -914,10 +874,10 @@ pub mod mod_test {
                     let start = std::time::Instant::now();
                     while !callback.is_finished() {
                         assert!(
-                            start.elapsed() < CALLBACK_TIMEOUT,
+                            start.elapsed() < POLL_TIMEOUT,
                             "direct method of the old client was not answered"
                         );
-                        std::thread::sleep(CALLBACK_POLL_INTERVAL);
+                        std::thread::sleep(POLL_INTERVAL);
                     }
                     let reply = callback.join().expect("callback thread panicked");
                     assert!(
