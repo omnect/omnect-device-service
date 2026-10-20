@@ -13,6 +13,7 @@ pub mod mod_test {
     use rand::{RngExt, distr::Alphanumeric, rng};
     use serde_json::json;
     use std::{
+        cell::RefCell,
         env,
         fs::{OpenOptions, copy, create_dir_all, remove_dir_all},
         path::PathBuf,
@@ -30,17 +31,34 @@ pub mod mod_test {
     const TMPDIR_FORMAT_STR: &str = "/tmp/omnect-device-service-tests/";
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
 
-    pub struct MyIotHubBuilder;
+    thread_local! {
+        /// Client that the next `build_module_client` on this thread returns,
+        /// with the connection status it sends right after it is built.
+        static NEXT_CLIENT: RefCell<Option<(MockMyIotHub, AuthenticationStatus)>> =
+            const { RefCell::new(None) };
+    }
+
+    #[derive(Default)]
+    pub struct MyIotHubBuilder {
+        tx_connection_status: Option<AuthenticationObserver>,
+    }
 
     impl MyIotHubBuilder {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
-            Ok(MockMyIotHub::default())
+            let Some((client, status)) = NEXT_CLIENT.take() else {
+                return Ok(MockMyIotHub::default());
+            };
+            if let Some(tx) = &self.tx_connection_status {
+                tx.try_send(status).expect("send connection status");
+            }
+            Ok(client)
         }
 
         pub fn observe_connection_state(
-            self,
-            _tx_connection_status: AuthenticationObserver,
+            mut self,
+            tx_connection_status: AuthenticationObserver,
         ) -> Self {
+            self.tx_connection_status = Some(tx_connection_status);
             self
         }
 
@@ -60,7 +78,7 @@ pub mod mod_test {
     #[automock]
     impl MyIotHub {
         pub fn builder() -> MyIotHubBuilder {
-            MyIotHubBuilder {}
+            MyIotHubBuilder::default()
         }
 
         pub fn sdk_version_string() -> String {
@@ -251,7 +269,7 @@ pub mod mod_test {
 
             // create iothub client mock
             let ctx = MockMyIotHub::builder_context();
-            ctx.expect().returning(|| MyIotHubBuilder {});
+            ctx.expect().returning(MyIotHubBuilder::default);
             let ctx = MockMyIotHub::sdk_version_string_context();
             ctx.expect().returning(|| {
                 use azure_iot_sdk::client::IotHubClient as Client;
@@ -770,6 +788,30 @@ pub mod mod_test {
         };
 
         TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_destroys_client_on_error_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |_: &mut TestConfig| {
+            let mut client = MockMyIotHub::default();
+            client
+                .expect_twin_report()
+                .returning(|_| Err(anyhow!("twin report failed")));
+            client.expect_shutdown().times(1).returning(|_| ());
+            // `connect_twin` on Authenticated fails, which ends the run loop with an error
+            NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
+
+            let err = block_on(Twin::run()).expect_err("run must return the error");
+
+            assert!(
+                err.to_string().contains("twin report failed"),
+                "unexpected error: {err:#}"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
