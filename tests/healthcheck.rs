@@ -509,6 +509,19 @@ fn an_entry_no_service_rule_matches_is_rated_red() {
 }
 
 #[test]
+fn a_configuration_jq_cannot_read_completely_is_rated_red() {
+    let sandbox = Sandbox::new(r#"[ { "type": "system_running" }, 42, { "type": "coredumps" } ]"#);
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "a configuration that cannot be read completely must not be rated green:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
+#[test]
 fn the_check_configuration_is_read_in_a_single_pass() {
     let sandbox = Sandbox::new(ELEVEN_CHECKS_CONFIG);
     let counter = sandbox.count_jq_calls();

@@ -41,13 +41,26 @@ function do__cmd() {
     local cfgfile="$3"
     local selected_checks="$4"
     local nchecked nchecks check i name type extra_args
-    local output retval entries entry
+    local output retval entries entry rawentries
 
     nchecked=0
     # one pass over the config file instead of three jq calls per entry;
     # the unit separator is used because IFS would collapse empty tab
     # separated fields, which would hide a missing "type" attribute
-    mapfile -t entries < <(jq -r '.[] | [ (."type" // "" | tostring), (."name" // "" | tostring), (."extra-args" // "" | tostring) ] | join("\u001f")' "$cfgfile")
+    #
+    # NOTE:
+    #   jq is deliberately not run in a process substitution, because that
+    #   would hide its exit status: on a malformed config file jq prints the
+    #   entries it managed to read before it gives up, and silently checking
+    #   only those would rate an unexamined device green
+    rawentries=$(jq -r '.[] | [ (."type" // "" | tostring), (."name" // "" | tostring), (."extra-args" // "" | tostring) ] | join("\u001f")' "$cfgfile") \
+	|| { error "config file \"$cfgfile\" could not be read"; do_rate 2; return 2; }
+
+    if [ "$rawentries" ]; then
+        mapfile -t entries <<<"$rawentries"
+    else
+        entries=()
+    fi
     nchecks=${#entries[@]}
     [ $nchecks -gt 0 ] \
 	|| warn "no checks defined in config file \"$cfgfile\""
