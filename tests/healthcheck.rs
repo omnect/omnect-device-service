@@ -720,6 +720,19 @@ fn a_requested_service_without_rules_is_rated_yellow() {
 }
 
 #[test]
+fn a_check_name_is_not_rejected_by_an_unreadable_config() {
+    let sandbox = Sandbox::new(r#"[ { "type": "timesync" }, 42 ]"#);
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check", "timesync"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "naming a check must not turn an unreadable config into an unknown name:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);

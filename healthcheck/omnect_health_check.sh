@@ -18,8 +18,11 @@ function verify_check_names() {
     # nothing to verify, and no need to read the config file at all
     [ $# -gt 0 ] || return 0
 
-    known_checknames=$(jq -r '[ .[].name ] | unique | join(" ")' "$cfgfile")
-    known_checktypes=$(jq -r '[ .[].type ] | unique | join(" ")' "$cfgfile")
+    # a config file that cannot be read tells nothing about the check names,
+    # so it is reported as what it is instead of as an unknown name
+    known_checknames=$(jq -r '[ .[].name ] | unique | join(" ")' "$cfgfile") \
+	&& known_checktypes=$(jq -r '[ .[].type ] | unique | join(" ")' "$cfgfile") \
+	|| { error "config file \"$cfgfile\" could not be read"; return 2; }
 
     for check; do
 	in_list "$check" "$known_checknames" && continue
@@ -137,8 +140,11 @@ check_command_arg "$command"
 # first argument must be either "check" or "get-infos" other arguments are
 # optional and contain names of checks
 unknown=$(verify_check_names "${CFGFILEPATH}" "$@")
-[ $? = 0 ] \
-    || { error "unknown check name(s) [${unknown// /, }]"; exit 1; }
+case $? in
+    0) ;;
+    2) exit 2 ;;
+    *) error "unknown check name(s) [${unknown// /, }]"; exit 1 ;;
+esac
 case "$command" in
     check)
 	do_checks "${CFGFILEPATH}" "$*"
