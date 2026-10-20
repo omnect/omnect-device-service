@@ -432,14 +432,6 @@ impl FirmwareUpdate {
             ),
         )?;
 
-        to_json_file(
-            &UpdateValidationConfig {
-                local: !validate_iothub_connection,
-            },
-            update_validation_config_path!(),
-            true,
-        )?;
-
         // a flashed bootloader cannot be rolled back, so as few steps as possible may fail after it
         let _ = fs::remove_file(no_bootloader_updated_file_path!());
 
@@ -452,6 +444,8 @@ impl FirmwareUpdate {
             no_bootloader_updated_file_path!()
         };
 
+        guard.bootloader_updated = bootloader_updated;
+
         #[cfg(not(feature = "mock"))]
         ensure!(
             Path::new(&_expected_file).try_exists().is_ok_and(|r| r),
@@ -460,19 +454,13 @@ impl FirmwareUpdate {
             log_file_path!()
         );
 
-        guard.bootloader_updated = bootloader_updated;
-
         Self::apply_bootargs(bootloader_updated)?;
 
-        if bootloader_updated {
-            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
-            bootloader_env::set(OMNECT_OS_BOOTPART, &target_partition.index().to_string())?;
-        } else {
-            bootloader_env::set(
-                OMNECT_VALIDATE_UPDATE_PART,
-                &target_partition.index().to_string(),
-            )?;
-        }
+        Self::set_boot_partition(
+            &target_partition,
+            bootloader_updated,
+            validate_iothub_connection,
+        )?;
 
         // explicitly finalize even if reboot fails
         // we don't want to rollback if the reboot call fails, but a system reboot is actually triggered
@@ -483,6 +471,30 @@ impl FirmwareUpdate {
         info!("update succeeded");
 
         Ok(None)
+    }
+
+    // with a bootloader update the new partition is booted without validation,
+    // so the update validation config is only written for a validated boot
+    fn set_boot_partition(
+        target_partition: &RootPartition,
+        bootloader_updated: bool,
+        validate_iothub_connection: bool,
+    ) -> Result<()> {
+        let index = target_partition.index().to_string();
+
+        if bootloader_updated {
+            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
+            bootloader_env::set(OMNECT_OS_BOOTPART, &index)
+        } else {
+            to_json_file(
+                &UpdateValidationConfig {
+                    local: !validate_iothub_connection,
+                },
+                update_validation_config_path!(),
+                true,
+            )?;
+            bootloader_env::set(OMNECT_VALIDATE_UPDATE_PART, &index)
+        }
     }
 
     fn apply_bootargs(bootloader_updated: bool) -> Result<()> {
@@ -993,23 +1005,24 @@ mod tests {
 
     #[test]
     fn rollback_bootloader_updated_restores_bootargs_from_backup() {
-        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         crate::bootloader_env::clear_mock();
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
         let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
 
         // simulate kernelargs swupdate and apply_bootargs on the bootloader-updated path
-        fs::write(&omnect_path, "new_arg").unwrap();
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "new_arg custom_arg").unwrap();
+        fs::write(&omnect_path, "new_arg").expect("write omnect file");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "new_arg custom_arg")
+            .expect("set extra bootargs");
 
         rollback(&mut make_guard(true, true, Some(backup_path.clone())));
 
         assert_eq!(
-            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).unwrap(),
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
             "original_arg custom_arg"
         );
         assert_eq!(
-            fs::read_to_string(&omnect_path).unwrap(),
+            fs::read_to_string(&omnect_path).expect("read omnect file"),
             "original_arg",
             "expected omnect file to be restored from backup"
         );
@@ -1021,14 +1034,14 @@ mod tests {
 
     #[test]
     fn rollback_removes_update_validation_config() {
-        let _lock = BOOTARGS_TEST_LOCK.lock().unwrap();
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
 
         for bootloader_updated in [false, true] {
             crate::bootloader_env::clear_mock();
-            let tmp = tempfile::tempdir().unwrap();
+            let tmp = tempfile::tempdir().expect("tempdir");
 
             let config_path = tmp.path().join("update_validation_conf.json");
-            fs::write(&config_path, r#"{"local":true}"#).unwrap();
+            fs::write(&config_path, r#"{"local":true}"#).expect("write config");
             crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
             rollback(&mut make_guard(true, bootloader_updated, None));
@@ -1038,6 +1051,59 @@ mod tests {
                 "expected update validation config to be removed by rollback (bootloader_updated: {bootloader_updated})"
             );
         }
+    }
+
+    #[test]
+    fn set_boot_partition_with_bootloader_update_writes_no_validation_config() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = tmp.path().join("update_validation_conf.json");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+
+        FirmwareUpdate::set_boot_partition(&RootPartition::B, true, false)
+            .expect("set boot partition");
+
+        assert!(
+            !config_path.exists(),
+            "expected no update validation config without validation"
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_OS_BOOTPART).expect("get bootpart"),
+            RootPartition::B.index().to_string()
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
+            "1"
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART).expect("get validate part"),
+            ""
+        );
+    }
+
+    #[test]
+    fn set_boot_partition_without_bootloader_update_writes_validation_config() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = tmp.path().join("update_validation_conf.json");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+
+        FirmwareUpdate::set_boot_partition(&RootPartition::B, false, false)
+            .expect("set boot partition");
+
+        let config: UpdateValidationConfig =
+            from_json_file(&config_path).expect("read update validation config");
+        assert!(config.local);
+        assert_eq!(
+            bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART).expect("get validate part"),
+            RootPartition::B.index().to_string()
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
+            ""
+        );
     }
 
     #[test]
