@@ -745,6 +745,34 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_destroys_client_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+            mock.expect_shutdown().times(1).returning(|_| ());
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
+            let (_tx_out, mut rx_out) = mpsc::channel(100);
+
+            block_on(
+                test_attr
+                    .twin
+                    .shutdown(observers().1, &mut rx_rep, &mut rx_out),
+            );
+
+            assert!(
+                test_attr.twin.client.is_none(),
+                "shutdown must drop the iot hub client"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], expect, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn reset_client_drops_connection_status_of_old_client_test() {
         const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
         const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
