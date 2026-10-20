@@ -74,6 +74,20 @@ const PER_SERVICE_RATINGS: &str = r#"{
     ]
 }"#;
 
+/// A service whose own rules cover only one condition, so an entry that none of
+/// them matches has to fall back to the unrated default.
+const UNMATCHED_SERVICE_RATING: &str = r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"SEGV\"", "rating": "red" }
+    ],
+    "services": [
+        {
+            "service": "picky",
+            "ratings": [ { "condition": ".exitstatus == \"HUP\"", "rating": "yellow" } ]
+        }
+    ]
+}"#;
+
 /// Reports one healthy service so the crash-loop check finds something to look at.
 const SYSTEMCTL_STUB: &str = r#"case "$*" in
     *list-units*) echo "stub.service loaded active running Stub" ;;
@@ -472,6 +486,23 @@ fn a_service_specific_rating_overrides_the_default_rating() {
         report.ratings(),
         [("[GREEN]", "lenient"), ("[RED]", "strict")],
         "each service must be rated by its own ratings, not by the defaults:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
+fn an_entry_no_service_rule_matches_is_rated_red() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    sandbox.write_exit_log("picky", "SEGV");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky")],
+        "an entry that no service rule rates must not pass as green:\n{}{}",
         report.stdout,
         report.stderr
     );

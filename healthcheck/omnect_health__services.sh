@@ -23,7 +23,7 @@ CFGFILEPATH="${CFGDIR}/${CFGFILE}"
 : ${ANALYSISDIR:=/run/omnect_health_log}
 
 function do_check() {
-    local jquery nentries service hasratings rating servicelog
+    local jquery nentries service rating servicelog
 
     nentries=$(jq '.services | length' "$CFGFILEPATH")
     [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
@@ -39,12 +39,18 @@ function do_check() {
             continue
         fi
 
-        hasratings=$(jq ".services[$n] | has(\"ratings\")" "$CFGFILEPATH")
-        if $hasratings; then
-            jquery=$(jq --argjson n "$n" '.services[$n] | if (has("ratings")) then .ratings else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") ' ${CFGFILEPATH})
-        else
-            jquery=$(jq 'if (has("default-ratings")) then ."default-ratings" else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") | . + " | (.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }"' ${CFGFILEPATH})
-        fi
+        # a service may bring its own ratings, otherwise the defaults apply;
+        # either way an entry no rule matched is rated red rather than being
+        # left unrated, which would make it count as green
+        jquery=$(jq --argjson n "$n" '
+            [ ( if (.services[$n] | has("ratings"))
+                then .services[$n].ratings[]?
+                else ."default-ratings"[]?
+                end
+              ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
+            ]
+            + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
+            | join(" | ")' "$CFGFILEPATH")
 
         # re-rate in case of ...
         #   a) new entries, or
