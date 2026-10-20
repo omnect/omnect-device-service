@@ -88,6 +88,20 @@ const UNMATCHED_SERVICE_RATING: &str = r#"{
     ]
 }"#;
 
+/// Two services selected by a single `extra-args` value that is broken across
+/// lines, which JSON allows and which the health check used to word-split.
+const NEWLINE_EXTRA_ARGS_CONFIG: &str = r#"[
+    { "type": "services", "extra-args": "svc-a\nsvc-b" }
+]"#;
+
+/// Two services without any own rules, so they are rated by the defaults.
+const TWO_SERVICES: &str = r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"SEGV\"", "rating": "red" }
+    ],
+    "services": [ { "service": "svc-a" }, { "service": "svc-b" } ]
+}"#;
+
 /// Reports one healthy service so the crash-loop check finds something to look at.
 const SYSTEMCTL_STUB: &str = r#"case "$*" in
     *list-units*) echo "stub.service loaded active running Stub" ;;
@@ -518,6 +532,22 @@ fn a_configuration_jq_cannot_read_completely_is_rated_red() {
         report.rating, RATING_RED,
         "a configuration that cannot be read completely must not be rated green:\n{}{}",
         report.stdout, report.stderr
+    );
+}
+
+#[test]
+fn a_line_broken_extra_args_value_stays_one_check() {
+    let sandbox = Sandbox::new(NEWLINE_EXTRA_ARGS_CONFIG);
+    sandbox.set_service_analysis(TWO_SERVICES);
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[GREEN]", "svc-a"), ("[GREEN]", "svc-b")],
+        "both names must reach the services check as arguments:\n{}{}",
+        report.stdout,
+        report.stderr
     );
 }
 

@@ -49,11 +49,17 @@ function do__cmd() {
     # separated fields, which would hide a missing "type" attribute
     #
     # NOTE:
+    #   each entry occupies one line, so any line break a JSON string may
+    #   legitimately carry is turned into a blank first: an "extra-args" value
+    #   spanning two lines used to be word split into separate arguments, but
+    #   would now become an entry of its own and be mistaken for a check type
+    #
+    # NOTE:
     #   jq is deliberately not run in a process substitution, because that
     #   would hide its exit status: on a malformed config file jq prints the
     #   entries it managed to read before it gives up, and silently checking
     #   only those would rate an unexamined device green
-    rawentries=$(jq -r '.[] | [ (."type" // "" | tostring), (."name" // "" | tostring), (."extra-args" // "" | tostring) ] | join("\u001f")' "$cfgfile") \
+    rawentries=$(jq -r 'def flat: tostring | gsub("[\n\r]"; " "); .[] | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
 	|| { error "config file \"$cfgfile\" could not be read"; do_rate 2; return 2; }
 
     if [ "$rawentries" ]; then
