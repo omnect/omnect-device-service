@@ -28,6 +28,17 @@ function configured_services() {
         || { error "configuration file \"$CFGFILEPATH\" could not be read"; return 2; }
 }
 
+# prints the requested services the configuration file does not know
+function unknown_services() {
+    local known="$1" service
+    local -  # restore shell options on return
+
+    set -f  # a service name is a literal, never a file name pattern
+    for service in $check_services; do
+        in_list "$service" "$known" || echo "$service"
+    done
+}
+
 # rates the entries of a service exit log by the current rules and reports
 # the resulting rating as exit status
 function rate_servicelog() {
@@ -122,6 +133,12 @@ function do_check() {
         print_rating $rating "$service" "$ME"
         do_rate "$rating"
     done
+
+    for service in $(unknown_services "$known"); do
+        warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
+        print_rating 1 "$service" "$ME"
+        do_rate 1
+    done
     return $overall_rating
 }
 
@@ -148,6 +165,12 @@ function do_get_infos() {
         if [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ]; then
                 cat /var/run/omnect_health_log/${service}.exit-info
         fi
+    done
+
+    for service in $(unknown_services "$known"); do
+        warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
+        do_rate 1
+        print_info_header "${ME}(${service})" 1
     done
     get_overall_rating
 }

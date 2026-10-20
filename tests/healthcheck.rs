@@ -704,6 +704,22 @@ fn a_service_config_that_cannot_be_read_is_rated_red() {
 }
 
 #[test]
+fn a_requested_service_without_rules_is_rated_yellow() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check", "typo-service"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[YELLOW]", "typo-service")],
+        "a service that was asked for but cannot be assessed must be reported:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
