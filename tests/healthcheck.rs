@@ -588,6 +588,31 @@ fn a_changed_policy_re_rates_an_already_rated_entry() {
 }
 
 #[test]
+fn a_rating_condition_is_not_run_by_the_shell() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    let marker = sandbox.run().join("expanded");
+    sandbox.set_service_analysis(&format!(
+        r#"{{
+    "default-ratings": [
+        {{ "condition": ".exitstatus == \"$(touch {})SEGV\"", "rating": "green" }}
+    ],
+    "services": [ {{ "service": "picky" }} ]
+}}"#,
+        marker.display()
+    ));
+    sandbox.write_exit_log("picky", "SEGV");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert!(
+        !marker.exists(),
+        "a condition from the configuration file must not be run as a command:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
 fn an_unratable_exit_log_is_rated_red_and_kept() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);

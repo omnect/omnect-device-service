@@ -39,26 +39,6 @@ function do_check() {
             continue
         fi
 
-        # a service may bring its own ratings, otherwise the defaults apply;
-        # either way an entry no rule matched is rated red rather than being
-        # left unrated, which would make it count as green
-        #
-        # NOTE:
-        #   ratings of an earlier run are dropped first, because they were
-        #   derived from rules that may have been changed or removed since:
-        #   keeping them would let a rating survive that the current rules do
-        #   not justify anymore, and shield the entry from the red fallback
-        jquery=$(jq --argjson n "$n" '
-            [ "del(.infos[].rating)" ]
-            + [ ( if (.services[$n] | has("ratings"))
-                  then .services[$n].ratings[]?
-                  else ."default-ratings"[]?
-                  end
-                ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
-              ]
-            + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
-            | join(" | ")' "$CFGFILEPATH")
-
         # re-rate in case of ...
         #   a) new entries, or
         #   b) newer configuration file which might change the (overall)
@@ -70,11 +50,31 @@ function do_check() {
              -o "$CFGFILEPATH" -nt "${servicelog}" \
              -o "${servicelog}" -nt "${servicelog}.rated" \
            ]; then
+            # a service may bring its own ratings, otherwise the defaults
+            # apply; either way an entry no rule matched is rated red rather
+            # than being left unrated, which would make it count as green
+            #
+            # ratings of an earlier run are dropped first, because they were
+            # derived from rules that may have been changed or removed since:
+            # keeping them would let a rating survive that the current rules
+            # do not justify anymore, and shield the entry from the red
+            # fallback
+            jquery=$(jq -r --argjson n "$n" '
+                [ "del(.infos[].rating)" ]
+                + [ ( if (.services[$n] | has("ratings"))
+                      then .services[$n].ratings[]?
+                      else ."default-ratings"[]?
+                      end
+                    ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
+                  ]
+                + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
+                | join(" | ")' "$CFGFILEPATH")
+
             # NOTE:
             #   the rated log replaces the original one only if jq succeeded,
             #   because otherwise the sole record of what happened to the
             #   service would be overwritten by a truncated or empty file
-            if eval jq $jquery "$servicelog" > "${servicelog}.rated"; then
+            if jq "$jquery" "$servicelog" > "${servicelog}.rated"; then
                 mv "${servicelog}.rated" "$servicelog"
                 # create empty anew to remember when we last rated all entries
                 : > "${servicelog}.rated"
