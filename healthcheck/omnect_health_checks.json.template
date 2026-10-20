@@ -17,11 +17,10 @@
 # which defines various helper functions for uniform output and handling and
 # that has to be sourced in each script at the very beginning like this:
 #
-#   [[ ${BASH_SOURCE[0]} == */* ]] && HC_DIR=${BASH_SOURCE[0]%/*} || HC_DIR=.
-#   . "${HC_DIR}/healthchecklib.sh" || exit 2
+#   . "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 #
-# The detour via HC_DIR is needed because ${BASH_SOURCE[0]} has no directory
-# part when the script is started by its bare name from its own directory.
+# dirname is used because ${BASH_SOURCE[0]} has no directory part when the
+# script is started by its bare name from its own directory.
 #
 # The script must have a return value of ...
 #  - 0: "green", meaning everything OK

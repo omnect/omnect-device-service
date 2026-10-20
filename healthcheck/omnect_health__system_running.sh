@@ -1,9 +1,7 @@
 #!/bin/bash
 #
 
-# ${BASH_SOURCE[0]} has no directory part when called by bare name
-[[ ${BASH_SOURCE[0]} == */* ]] && HC_DIR=${BASH_SOURCE[0]%/*} || HC_DIR=.
-. "${HC_DIR}/healthchecklib.sh" || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
 function checkit() {
     do_rate_cmd systemctl -q is-system-running
