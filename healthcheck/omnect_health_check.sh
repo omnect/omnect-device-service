@@ -11,38 +11,36 @@ CFGFILEPATH="${CFGFILEDIR}/${CFGFILE}"
 function verify_check_names() {
     local cfgfile="$1"
     shift
-    local check known_checknames known_checktypes unknown_checks retval
-
-    retval=0
+    local check known=() rawknown unknown_checks=()
 
     # nothing to verify, and no need to read the config file at all
     [ $# -gt 0 ] || return 0
 
     # a config file that cannot be read tells nothing about the check names,
     # so it is reported as what it is instead of as an unknown name
-    known_checknames=$(jq -r '[ .[].name ] | unique | join(" ")' "$cfgfile") \
-	&& known_checktypes=$(jq -r '[ .[].type ] | unique | join(" ")' "$cfgfile") \
+    rawknown=$(jq -r 'def flat: tostring | gsub("[\n\r]"; " ");
+                      [ .[] | (.name // empty), (.type // empty) ]
+                      | unique | .[] | flat' "$cfgfile") \
 	|| { error "config file \"$cfgfile\" could not be read"; return 2; }
+    [ "$rawknown" ] && mapfile -t known <<<"$rawknown"
 
     for check; do
-	in_list "$check" "$known_checknames" && continue
-	in_list "$check" "$known_checktypes" && continue
-
-	retval=1
-	unknown_checks="${unknown_checks:+${unknown_checks} }${check}"
+	in_list "$check" "${known[@]}" || unknown_checks+=("$check")
     done
 
-    echo "$unknown_checks"
-    [ "$unknown_checks" ] && retval=1
-    
-    return $retval
+    # one name per line, so a name containing a blank stays one name
+    [ ${#unknown_checks[@]} -gt 0 ] || return 0
+    printf '%s\n' "${unknown_checks[@]}"
+
+    return 1
 }
 
 function do__cmd() {
     local cmd="$1"
     local output_when="$2" # 0 = never, 1 = failed only, 2 = all
     local cfgfile="$3"
-    local selected_checks="$4"
+    shift 3
+    local selected_checks=("$@")
     local nchecked nchecks check i name type extra_args
     local output retval entries entry rawentries
 
@@ -88,9 +86,9 @@ function do__cmd() {
         # an entry nobody asked for must not rate this run, no matter whether
         # it could be run at all; an entry without a type may still carry the
         # name it was selected by
-        if [ "$selected_checks" ] \
-           && ! in_list "$name" "$selected_checks" \
-           && ! in_list "$type" "$selected_checks"; then
+        if [ ${#selected_checks[@]} -gt 0 ] \
+           && ! in_list "$name" "${selected_checks[@]}" \
+           && ! in_list "$type" "${selected_checks[@]}"; then
             continue
         fi
 
@@ -126,16 +124,16 @@ function do__cmd() {
 
 function do_checks() {
     local cfgfile="$1"
-    local selected_checks="$2"
+    shift
 
-    do__cmd check 2 "$cfgfile" "$2"
+    do__cmd check 2 "$cfgfile" "$@"
 }
 
 function do_get_infos() {
     local cfgfile="$1"
-    local selected_checks="$2"
+    shift
 
-    do__cmd get-infos 1 "$cfgfile" "$2"
+    do__cmd get-infos 1 "$cfgfile" "$@"
 }
 
 # let's set "check" as default command and allow parameter-less invocation
@@ -151,15 +149,20 @@ unknown=$(verify_check_names "${CFGFILEPATH}" "$@")
 case $? in
     0) ;;
     2) exit 2 ;;
-    *) error "unknown check name(s) [${unknown// /, }]"; exit 1 ;;
+    *)
+	mapfile -t unknown_checks <<<"$unknown"
+	printf -v unknown_list '%s, ' "${unknown_checks[@]}"
+	error "unknown check name(s) [${unknown_list%, }]"
+	exit 1
+	;;
 esac
 case "$command" in
     check)
-	do_checks "${CFGFILEPATH}" "$*"
+	do_checks "${CFGFILEPATH}" "$@"
 	retval=$?
 	;;
     get-infos)
-	do_get_infos "${CFGFILEPATH}" "$*"
+	do_get_infos "${CFGFILEPATH}" "$@"
 	;;
 esac
 

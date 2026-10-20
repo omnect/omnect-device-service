@@ -88,6 +88,13 @@ const UNMATCHED_SERVICE_RATING: &str = r#"{
     ]
 }"#;
 
+/// A check whose name consists of more than one word, which the selection on
+/// the command line has to keep together.
+const MULTIWORD_NAME_CONFIG: &str = r#"[
+    { "name": "disk space", "type": "coredumps" },
+    { "name": "time", "type": "timesync" }
+]"#;
+
 /// Two services selected by a single `extra-args` value that is broken across
 /// lines, which JSON allows and which must stay the arguments of one check.
 const NEWLINE_EXTRA_ARGS_CONFIG: &str = r#"[
@@ -814,6 +821,21 @@ fn an_unratable_exit_log_is_rated_red_and_kept() {
         fs::read_to_string(&log).expect("read exit log"),
         corrupt,
         "a failed rating must leave the exit log untouched"
+    );
+}
+
+#[test]
+fn a_check_name_of_several_words_can_be_selected() {
+    let sandbox = Sandbox::new(MULTIWORD_NAME_CONFIG);
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check", "disk space"]);
+
+    assert_eq!(
+        report.rated_names(),
+        ["coredumps"],
+        "a check name holding a blank must select its entry and nothing else:\n{}{}",
+        report.stdout,
+        report.stderr
     );
 }
 

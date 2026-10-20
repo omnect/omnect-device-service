@@ -24,14 +24,18 @@ function fatal() {
     echo -e "${ME}: FATAL ERROR: ${@}" >&2
 }
 
-# true if $1 occurs as a complete, whitespace separated word in $2
+# true if $1 equals one of the remaining arguments
+#
+# NOTE:
+#   the list is passed as separate arguments rather than as one string,
+#   because a check or service name may contain a blank, which splitting a
+#   string would turn into two names
 function in_list() {
-    local needle="$1" word
-    local -  # restores the shell options below on return
-    set -f   # $2 is split on purpose, but must not be globbed
+    local needle="$1" item
+    shift
 
-    for word in $2; do
-        [ "$word" = "$needle" ] && return 0
+    for item; do
+        [ "$item" = "$needle" ] && return 0
     done
 
     return 1

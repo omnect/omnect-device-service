@@ -26,14 +26,12 @@ function configured_services() {
         || { error "configuration file \"$CFGFILEPATH\" could not be read"; return 2; }
 }
 
-# prints the requested services the configuration file does not know
+# prints the requested services the given list of known ones does not hold
 function unknown_services() {
-    local known="$1" service
-    local -  # restore shell options on return
+    local service
 
-    set -f  # a service name is a literal, never a file name pattern
-    for service in $check_services; do
-        in_list "$service" "$known" || echo "$service"
+    for service in "${check_services[@]}"; do
+        in_list "$service" "$@" || echo "$service"
     done
 }
 
@@ -122,7 +120,7 @@ function rate_servicelog() {
 }
 
 function do_check() {
-    local service rating servicelog services=() known n
+    local service rating servicelog services=() known unknown=() n
 
     known=$(configured_services) || { do_rate 2; return 2; }
     [ "$known" ] && mapfile -t services <<<"$known"
@@ -131,7 +129,7 @@ function do_check() {
         rating=0
         service="${services[$n]}"
 
-        [ -z "$check_services" ] || in_list "$service" "$check_services" || continue
+        [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -r "$servicelog" ]; then
@@ -143,7 +141,8 @@ function do_check() {
         do_rate "$rating"
     done
 
-    for service in $(unknown_services "$known"); do
+    mapfile -t unknown < <(unknown_services "${services[@]}")
+    for service in "${unknown[@]}"; do
         warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
         print_rating 1 "$service" "$ME"
         do_rate 1
@@ -152,7 +151,7 @@ function do_check() {
 }
 
 function do_get_infos() {
-    local service rating servicelog services=() known n
+    local service rating servicelog services=() known unknown=() n
 
     known=$(configured_services) || { do_rate 2; return 2; }
     [ "$known" ] && mapfile -t services <<<"$known"
@@ -161,7 +160,7 @@ function do_get_infos() {
         rating=0
         service="${services[$n]}"
 
-        [ -z "$check_services" ] || in_list "$service" "$check_services" || continue
+        [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -r "$servicelog" ]; then
@@ -176,7 +175,8 @@ function do_get_infos() {
         fi
     done
 
-    for service in $(unknown_services "$known"); do
+    mapfile -t unknown < <(unknown_services "${services[@]}")
+    for service in "${unknown[@]}"; do
         warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
         do_rate 1
         print_info_header "${ME}(${service})" 1
@@ -194,7 +194,7 @@ command="${1:-check}"
 check_command_arg "$command"
 
 # allow to select tests via command line
-check_services="$*"
+check_services=("$@")
 
 # first argument must be either "check" or "get-infos"
 case "$command" in
