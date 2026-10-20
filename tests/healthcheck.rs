@@ -522,6 +522,30 @@ fn a_configuration_jq_cannot_read_completely_is_rated_red() {
 }
 
 #[test]
+fn an_unratable_exit_log_is_rated_red_and_kept() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    let log = sandbox.run().join("picky.exit-log");
+    let corrupt = r#"{ "service": "picky", "infos": [ { "exitstatus": "#;
+    fs::write(&log, corrupt).expect("write corrupt exit log");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky")],
+        "an exit log that cannot be rated must not pass as green:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(&log).expect("read exit log"),
+        corrupt,
+        "a failed rating must leave the exit log untouched"
+    );
+}
+
+#[test]
 fn the_check_configuration_is_read_in_a_single_pass() {
     let sandbox = Sandbox::new(ELEVEN_CHECKS_CONFIG);
     let counter = sandbox.count_jq_calls();

@@ -63,10 +63,22 @@ function do_check() {
              -o "$CFGFILEPATH" -nt "${servicelog}" \
              -o "${servicelog}" -nt "${servicelog}.rated" \
            ]; then
-            eval jq $jquery "$servicelog" > "${servicelog}.rated"
-            mv "${servicelog}.rated" "$servicelog"
-            # create empty anew to remember when we last rated all entries
-            : > "${servicelog}.rated"
+            # NOTE:
+            #   the rated log replaces the original one only if jq succeeded,
+            #   because otherwise the sole record of what happened to the
+            #   service would be overwritten by a truncated or empty file
+            if eval jq $jquery "$servicelog" > "${servicelog}.rated"; then
+                mv "${servicelog}.rated" "$servicelog"
+                # create empty anew to remember when we last rated all entries
+                : > "${servicelog}.rated"
+            else
+                error "exit log \"$servicelog\" could not be rated"
+                # drop the marker so the next run attempts to rate again
+                rm -f "${servicelog}.rated"
+                print_rating 2 "$service" "$ME"
+                do_rate 2
+                continue
+            fi
         fi
 
         if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
