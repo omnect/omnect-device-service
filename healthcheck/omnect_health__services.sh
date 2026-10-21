@@ -35,6 +35,25 @@ function unknown_services() {
     done
 }
 
+# reports the identity of the files a rating is derived from
+#
+# NOTE:
+#   both writers -- omnect_service_log.sh and the rating below -- publish by
+#   rename, so a changed inode already tells new content from old; mtime and
+#   size are reported as well to catch a writer that changes a file in place
+function input_identity() {
+    stat -c '%i %Y %s' "$@" 2>/dev/null | tr '\n' ' '
+}
+
+# reports what a rating was derived from and what it found, as one line of
+# fields separated by a unit separator
+function read_rating() {
+    jq -r '[ ( ."rated-from" // "" ),
+             ( .infos | map(select(.rating == "red")) | length | tostring ),
+             ( .infos | map(select(.rating == "yellow")) | length | tostring )
+           ] | join("\u001f")' "$1"
+}
+
 # rates the entries of a service exit log by the current rules and reports
 # the resulting rating as exit status
 #
@@ -46,21 +65,27 @@ function unknown_services() {
 #   is precisely the crash evidence the log exists for
 function rate_servicelog() {
     local n="$1" servicelog="$2"
-    local jquery rated tmprated counts red yellow
+    local jquery rated tmprated fields source ratedfrom red yellow attempt
 
     rated="${servicelog}.rated"
 
-    # re-rate in case of ...
-    #   a) new entries, or
-    #   b) newer configuration file which might change the (overall)
-    #      outcome
+    source=$(input_identity "$servicelog" "$CFGFILEPATH")
+    ratedfrom=""
+    if [ -r "$rated" ]; then
+        fields=$(read_rating "$rated") \
+            && IFS=$'\037' read -r ratedfrom red yellow <<<"$fields"
+    fi
+
+    # re-rate unless the rating at hand was derived from exactly the files
+    # that are there now, because new entries or changed rules may change the
+    # outcome
+    #
     # NOTE:
-    #   (re-)rating will normally happen after generation of new entries
-    #   initiated by omnect_service_log.sh via systemd StopPost hook
-    if [    ! -r "$rated" \
-         -o "$CFGFILEPATH" -nt "$rated" \
-         -o "${servicelog}" -nt "$rated" \
-       ]; then
+    #   a rating records what it was made from, not when it was made: a rater
+    #   that reads the log before an entry is appended may well put its
+    #   result in place afterwards, and a timestamp would then make that
+    #   result look like it covered the new entry, hiding a crash for good
+    if [ "$ratedfrom" != "$source" ]; then
         # a service may bring its own ratings, otherwise the defaults apply;
         # either way an entry no rule matched is rated red rather than being
         # left unrated, which would make it count as green
@@ -81,38 +106,53 @@ function rate_servicelog() {
             | join(" | ")' "$CFGFILEPATH") \
             || { error "rating rules for \"$servicelog\" could not be read"; return 2; }
 
-        # NOTE:
-        #   a concurrent run -- the systemd StopPost hook rates a single
-        #   service while a manual run rates all of them -- must not see a
-        #   half written rating, so it is assembled under a unique name and
-        #   put in place by a rename, which is atomic
-        tmprated=$(mktemp "${rated}.XXXXXX") \
-            || { error "no place to rate \"$servicelog\" in"; return 2; }
+        # a file may be written while it is being read, so the result may
+        # describe a state that never was; a few retries settle that, and
+        # should they not, the stamp still keeps the result from passing as
+        # current on the next run
+        for attempt in 1 2 3; do
+            # NOTE:
+            #   a concurrent run -- the systemd StopPost hook rates a single
+            #   service while a manual run rates all of them -- must not see
+            #   a half written rating, so it is assembled under a unique name
+            #   and put in place by a rename, which is atomic
+            tmprated=$(mktemp "${rated}.XXXXXX") \
+                || { error "no place to rate \"$servicelog\" in"; return 2; }
 
-        # mktemp creates the file private to its owner, but the rating has to
-        # stay as accessible as the log it describes, or a reader lacking the
-        # permission would take an unreadable rating for no findings
-        chmod "$(stat -c %a "$servicelog")" "$tmprated" \
-            || { error "rating of \"$servicelog\" could not be made accessible"; rm -f "$tmprated"; return 2; }
+            # mktemp creates the file private to its owner, but the rating
+            # has to stay as accessible as the log it describes, or a reader
+            # lacking the permission would take an unreadable rating for no
+            # findings
+            chmod "$(stat -c %a "$servicelog")" "$tmprated" \
+                || { error "rating of \"$servicelog\" could not be made accessible"; rm -f "$tmprated"; return 2; }
 
-        # NOTE:
-        #   the rating is put in place only if jq succeeded, because a
-        #   truncated or empty file would be counted as no findings
-        if jq "$jquery" "$servicelog" > "$tmprated"; then
-            mv "$tmprated" "$rated"
-        else
-            error "exit log \"$servicelog\" could not be rated"
-            # drop an outdated rating so this log cannot pass as rated
-            rm -f "$tmprated" "$rated"
-            return 2
-        fi
+            # NOTE:
+            #   the rating is put in place only if jq succeeded, because a
+            #   truncated or empty file would be counted as no findings
+            if ! jq --arg src "$source" "$jquery"' | ."rated-from" = $src' \
+                    "$servicelog" > "$tmprated"; then
+                error "exit log \"$servicelog\" could not be rated"
+                # drop an outdated rating so this log cannot pass as rated
+                rm -f "$tmprated" "$rated"
+                return 2
+            fi
+
+            fields=$(input_identity "$servicelog" "$CFGFILEPATH")
+            [ "$fields" = "$source" ] && break
+
+            rm -f "$tmprated"
+            source="$fields"
+            tmprated=""
+        done
+
+        [ -n "$tmprated" ] || { error "exit log \"$servicelog\" changed while it was rated"; return 2; }
+
+        mv "$tmprated" "$rated"
+
+        fields=$(read_rating "$rated") \
+            || { error "rating of \"$servicelog\" could not be read"; return 2; }
+        IFS=$'\037' read -r ratedfrom red yellow <<<"$fields"
     fi
-
-    counts=$(jq -r '[ ( .infos | map(select(.rating == "red")) | length ),
-                      ( .infos | map(select(.rating == "yellow")) | length )
-                    ] | join(" ")' "$rated") \
-        || { error "rating of \"$servicelog\" could not be read"; return 2; }
-    read -r red yellow <<<"$counts"
 
     [ "$red" -gt 0 ] && return 2
     [ "$yellow" -gt 0 ] && return 1

@@ -88,6 +88,16 @@ const UNMATCHED_SERVICE_RATING: &str = r#"{
     ]
 }"#;
 
+/// A service that tells a clean exit from a crash, so a rating taken before a
+/// crash is green and one taken after it is red.
+const CRASH_RATED_SERVICE: &str = r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"clean\"", "rating": "green" },
+        { "condition": ".exitstatus == \"SEGV\"", "rating": "red" }
+    ],
+    "services": [ { "service": "picky" } ]
+}"#;
+
 /// A check whose name consists of more than one word, which the selection on
 /// the command line has to keep together.
 const MULTIWORD_NAME_CONFIG: &str = r#"[
@@ -213,6 +223,43 @@ impl Sandbox {
 
     fn run(&self) -> PathBuf {
         self.dir.path().join("run")
+    }
+
+    fn root(&self) -> PathBuf {
+        self.dir.path().to_path_buf()
+    }
+
+    /// Starts a check that reads the exit log now but writes its rating only
+    /// once `release` appears, so a second rater can get in between.
+    fn spawn_stalling_rater(&self, signal: &Path, release: &Path) -> std::process::Child {
+        self.stub(
+            "jq",
+            &format!(
+                r#"case "${{@: -1}}" in
+  *.exit-log)
+      if [ "$STALL" = 1 ]; then
+          content=$(cat "${{@: -1}}")
+          touch "{signal}"
+          while [ ! -e "{release}" ]; do sleep 0.02; done
+          printf '%s' "$content" | "{jq}" "${{@:1:$#-1}}"
+          exit $?
+      fi
+      ;;
+esac
+exec "{jq}" "$@"
+"#,
+                signal = signal.display(),
+                release = release.display(),
+                jq = real_jq().display()
+            ),
+        );
+        self.command("omnect_health__services.sh")
+            .args(["check", "picky"])
+            .env("STALL", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("start stalling rater")
     }
 
     /// The dispatcher hard-codes its deployment paths, so redirect them at the sandbox.
@@ -821,6 +868,55 @@ fn an_unratable_exit_log_is_rated_red_and_kept() {
         fs::read_to_string(&log).expect("read exit log"),
         corrupt,
         "a failed rating must leave the exit log untouched"
+    );
+}
+
+#[test]
+fn a_rating_that_was_overtaken_is_not_believed() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    let log = sandbox.run().join("picky.exit-log");
+    fs::write(
+        &log,
+        r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" } ] }"#,
+    )
+    .expect("write exit log");
+
+    let signal = sandbox.root().join("has-read");
+    let release = sandbox.root().join("may-write");
+    let mut stalled = sandbox.spawn_stalling_rater(&signal, &release);
+    while !signal.exists() {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    // the service crashes and its StopPost hook rates the crash, all while the
+    // first rater still holds the picture of a healthy service
+    fs::write(
+        &log,
+        r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" }, { "exitstatus": "SEGV" } ] }"#,
+    )
+    .expect("record the crash");
+    let crash = sandbox.run_script("omnect_health__services.sh", &["check"]);
+    assert_eq!(
+        crash.ratings(),
+        [("[RED]", "picky")],
+        "the crash must be rated when it is recorded:\n{}{}",
+        crash.stdout,
+        crash.stderr
+    );
+
+    // only now the first rater gets to publish what it saw before the crash
+    fs::write(&release, "").expect("release the stalled rater");
+    stalled.wait().expect("await stalled rater");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky")],
+        "a rating overtaken by a newer one must not bury the crash:\n{}{}",
+        report.stdout,
+        report.stderr
     );
 }
 
