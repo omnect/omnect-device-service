@@ -262,6 +262,29 @@ exec "{jq}" "$@"
             .expect("start stalling rater")
     }
 
+    /// Waits until the stalling rater announces that it has read the exit log.
+    ///
+    /// A child that dies before it gets there would otherwise leave the test
+    /// waiting for a signal nobody is going to give, taking the whole suite
+    /// with it, so give up after a while and say what happened.
+    fn await_signal(&self, signal: &Path, rater: &mut std::process::Child, release: &Path) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !signal.exists() {
+            if let Some(status) = rater.try_wait().expect("query stalling rater") {
+                panic!("the stalling rater gave up with {status} before it read the exit log");
+            }
+            if std::time::Instant::now() >= deadline {
+                // let the stub out of its wait first, so a child that is only
+                // slow can still finish on its own, then make sure it is gone
+                let _ = fs::write(release, "");
+                let _ = rater.kill();
+                let _ = rater.wait();
+                panic!("the stalling rater did not read the exit log in time");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     /// The dispatcher hard-codes its deployment paths, so redirect them at the sandbox.
     fn install_dispatcher(&self) {
         let source = read_script("omnect_health_check.sh");
@@ -717,14 +740,22 @@ fn rating_keeps_the_exit_log_as_readable_as_it_was() {
 #[test]
 fn an_entry_added_after_a_rating_is_rated_too() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
-    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
     let log = sandbox.run().join("picky.exit-log");
     fs::write(
         &log,
         r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" } ] }"#,
     )
     .expect("write exit log");
-    sandbox.run_script("omnect_health__services.sh", &["check"]);
+    let rated = sandbox.run_script("omnect_health__services.sh", &["check"]);
+    assert_eq!(
+        rated.ratings(),
+        [("[GREEN]", "picky")],
+        "the entry this test appends to has to be rated green, or the rating \
+         below cannot tell a re-rating from the rating it replaces:\n{}{}",
+        rated.stdout,
+        rated.stderr
+    );
 
     fs::write(
         &log,
@@ -885,9 +916,7 @@ fn a_rating_that_was_overtaken_is_not_believed() {
     let signal = sandbox.root().join("has-read");
     let release = sandbox.root().join("may-write");
     let mut stalled = sandbox.spawn_stalling_rater(&signal, &release);
-    while !signal.exists() {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    sandbox.await_signal(&signal, &mut stalled, &release);
 
     // the service crashes and its StopPost hook rates the crash, all while the
     // first rater still holds the picture of a healthy service
