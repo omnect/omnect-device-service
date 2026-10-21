@@ -35,12 +35,19 @@ use futures::{
     future::OptionFuture,
     stream::{SelectAll, pending, select_all},
 };
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use log::{debug, error, info, warn};
 use serde_json::json;
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
-use std::{any::TypeId, collections::HashMap, env, path::Path, time};
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    env,
+    panic::{self, AssertUnwindSafe},
+    path::Path,
+    time,
+};
 use tokio::{select, sync::mpsc, task::JoinHandle};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -481,9 +488,9 @@ impl Twin {
             let command_requests = Self::select_command_requests(command_requests);
         };
 
-        // `?` and `return` only leave this block, so every exit runs `shutdown`,
-        // which drains the observers before the client is destroyed.
-        let result = async {
+        // `?`, `return` and a panic only leave this block, so every exit runs
+        // `shutdown`, which drains the observers before the client is destroyed.
+        let result = AssertUnwindSafe(async {
             loop {
                 select! (
                     // we enforce top down order to handle select! branches
@@ -499,6 +506,8 @@ impl Twin {
                     Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
                         return Self::handle_fs_watcher_exit(result);
                     },
+                    // before rx_connection_status: the SDK can queue a status of
+                    // the new client before the client is returned
                     result = &mut client_created, if twin.client.is_none() => {
                         match result {
                             Ok(client) => {
@@ -557,7 +566,8 @@ impl Twin {
                     },
                 );
             }
-        }
+        })
+        .catch_unwind()
         .await;
 
         twin.shutdown(
@@ -567,7 +577,7 @@ impl Twin {
         )
         .await;
         signals.handle().close();
-        result
+        result.unwrap_or_else(|payload| panic::resume_unwind(payload))
     }
 
     #[cfg(not(feature = "mock"))]

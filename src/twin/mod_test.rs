@@ -18,6 +18,10 @@ pub mod mod_test {
         env,
         fs::{OpenOptions, copy, create_dir_all, remove_dir_all},
         path::PathBuf,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         time::Duration,
     };
 
@@ -755,6 +759,40 @@ pub mod mod_test {
             assert!(
                 err.to_string().contains("twin report failed"),
                 "unexpected error: {err:#}"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_shuts_down_client_on_panic_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |_: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
+            let mut client = MockMyIotHub::default();
+            client
+                .expect_twin_report()
+                .returning(|_| panic!("twin report panicked"));
+            // mockall skips its call count checks while a thread panics
+            let shut_down = Arc::new(AtomicBool::new(false));
+            let shut_down_in_mock = Arc::clone(&shut_down);
+            client
+                .expect_shutdown()
+                .times(1)
+                .returning(move |_| shut_down_in_mock.store(true, Ordering::SeqCst));
+            // `connect_twin` on Authenticated panics inside the run loop
+            NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
+
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| block_on(Twin::run())));
+
+            assert!(result.is_err(), "run must pass the panic on");
+            assert!(
+                shut_down.load(Ordering::SeqCst),
+                "run must shut down the client on a panic"
             );
         };
 
