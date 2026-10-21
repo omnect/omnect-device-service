@@ -56,7 +56,6 @@ enum TwinState {
 pub struct Twin {
     client: Option<IotHubClient>,
     web_service: Option<web_service::WebService>,
-    tx_command_request: mpsc::Sender<CommandRequest>,
     tx_reported_properties: mpsc::Sender<serde_json::Value>,
     tx_outgoing_message: mpsc::Sender<IotMessage>,
     state: TwinState,
@@ -125,13 +124,11 @@ impl Twin {
         ]);
 
         let cancel = CancellationToken::new();
-        let fs_watcher_handle =
-            fs_watcher.into_stream(tx_command_request.clone(), cancel.child_token())?;
+        let fs_watcher_handle = fs_watcher.into_stream(tx_command_request, cancel.child_token())?;
 
         let twin = Twin {
             client: None,
             web_service,
-            tx_command_request,
             tx_reported_properties,
             tx_outgoing_message,
             state: TwinState::Uninitialized,
@@ -204,11 +201,6 @@ impl Twin {
         &mut self,
         auth_status: AuthenticationStatus,
     ) -> Result<bool> {
-        if self.client.is_none() {
-            info!("ignore connection status {auth_status:?} since client not present");
-            return Ok(false);
-        }
-
         let mut restart_twin = false;
         match auth_status {
             AuthenticationStatus::Authenticated => {
@@ -258,7 +250,7 @@ impl Twin {
 
         let authenticated = auth_status == AuthenticationStatus::Authenticated;
 
-        self.request_validate_update(authenticated).await?;
+        self.validate_update(authenticated).await?;
 
         web_service::publish(
             web_service::PublishChannel::OnlineStatusV1,
@@ -331,14 +323,8 @@ impl Twin {
 
     // Without FsWatcher, feature commands triggered by file changes are lost
     // silently. Surface an error so main exits non-zero and systemd restarts
-    // the service with a fresh watcher. If the task exited because we
-    // cancelled it (normal shutdown), return Ok — the watcher ending was
-    // expected and another branch owns the exit code.
-    fn handle_fs_watcher_exit(&self, result: Result<(), tokio::task::JoinError>) -> Result<()> {
-        if self.cancel.is_cancelled() {
-            info!("FsWatcher task exited after cancellation");
-            return Ok(());
-        }
+    // the service with a fresh watcher.
+    fn handle_fs_watcher_exit(result: Result<(), tokio::task::JoinError>) -> Result<()> {
         match result {
             Ok(()) => error!("FsWatcher task exited, all file watches are now inactive"),
             Err(e) => error!("FsWatcher task panicked: {e}"),
@@ -381,9 +367,8 @@ impl Twin {
     }
 
     async fn destroy_client(&mut self, observers: ClientObservers) {
-        observers.drain();
-
         if let Some(client) = self.client.as_mut() {
+            observers.drain();
             info!("shutdown iotclient");
             client.shutdown(CLIENT_SHUTDOWN_TIMEOUT).await;
             self.client = None;
@@ -436,14 +421,16 @@ impl Twin {
             .collect()
     }
 
-    async fn request_validate_update(&mut self, authenticated: bool) -> Result<()> {
-        self.tx_command_request
-            .send(CommandRequest {
-                command: Command::ValidateUpdate(authenticated),
-                reply: None,
-            })
-            .await
-            .context("request_validate_update: requests receiver dropped")
+    async fn validate_update(&mut self, authenticated: bool) -> Result<()> {
+        if self.waiting_for_reboot {
+            return Ok(());
+        }
+
+        self.handle_request(CommandRequest {
+            command: Command::ValidateUpdate(authenticated),
+            reply: None,
+        })
+        .await
     }
 
     pub async fn run() -> Result<()> {
@@ -500,7 +487,7 @@ impl Twin {
                         return Ok(())
                     },
                     Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
-                        return twin.handle_fs_watcher_exit(result);
+                        return Self::handle_fs_watcher_exit(result);
                     },
                     result = &mut client_created, if twin.client.is_none() => {
                         match result {
@@ -510,7 +497,7 @@ impl Twin {
                             },
                             Err(e) => {
                                 error!("couldn't create iothub client: {e:#}");
-                                twin.request_validate_update(false).await?;
+                                twin.validate_update(false).await?;
                                 let builder = twin.reset_client_with_delay(
                                     &mut observers,
                                     Some(CREATE_CLIENT_RETRY_DELAY),
@@ -528,11 +515,7 @@ impl Twin {
                             client_created.set(Self::connect_iothub_client(builder));
                         };
                     },
-                    // before the client branches, so a direct method that
-                    // reboots can't skip a queued ValidateUpdate
-                    requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
-                        twin.handle_request(requests).await?
-                    },
+                    // the SDK callback thread blocks until a direct method is answered
                     Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
                         if let Some(request) = direct_method_request(dm) {
                             twin.handle_request(request).await?
@@ -542,6 +525,9 @@ impl Twin {
                         for request in desired_property_requests(desired) {
                             twin.handle_request(request).await?
                         }
+                    },
+                    requests = command_requests.select_next_some(), if !twin.waiting_for_reboot => {
+                        twin.handle_request(requests).await?
                     },
                     Some(reported) = rx_reported_properties.recv() => {
                         let Some(client) = &twin.client else {

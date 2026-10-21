@@ -32,6 +32,7 @@ pub mod mod_test {
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
     const POLL_TIMEOUT: Duration = Duration::from_secs(5);
     const POLL_INTERVAL: Duration = Duration::from_millis(10);
+    const TEST_CHANNEL_SIZE: usize = 100;
 
     thread_local! {
         /// Client that the next `build_module_client` on this thread returns,
@@ -154,6 +155,7 @@ pub mod mod_test {
     struct TestConfig {
         twin: Twin,
         dir: PathBuf,
+        rx_command_request: mpsc::Receiver<CommandRequest>,
     }
 
     impl TestCase {
@@ -245,19 +247,20 @@ pub mod mod_test {
 
             // create iothub client mock
             let ctx = MockMyIotHub::builder_context();
-            ctx.expect().returning(MyIotHubBuilder::default);
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
             let ctx = MockMyIotHub::sdk_version_string_context();
             ctx.expect().returning(|| {
                 use azure_iot_sdk::client::IotHubClient as Client;
                 Client::sdk_version_string()
             });
 
-            let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
-            let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
-            let (tx_web_service, _rx_web_service) = mpsc::channel(100);
+            let (tx_reported_properties, mut rx_reported_properties) =
+                mpsc::channel(TEST_CHANNEL_SIZE);
+            let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (tx_command_request, rx_command_request) = mpsc::channel(TEST_CHANNEL_SIZE);
 
             let mut twin = block_on(Twin::new(
-                tx_web_service,
+                tx_command_request,
                 tx_reported_properties,
                 tx_outgoing_message,
             ))
@@ -274,6 +277,7 @@ pub mod mod_test {
             let mut config = TestConfig {
                 twin,
                 dir: PathBuf::from(test_env.dirpath()),
+                rx_command_request,
             };
 
             // set testcase specific mock expectaions
@@ -672,27 +676,14 @@ pub mod mod_test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn fs_watcher_exit_bails_test() {
-        let test_files = vec![
-            "testfiles/positive/os-release",
-            "testfiles/positive/consent_conf.json",
-            "testfiles/positive/request_consent.json",
-            "testfiles/positive/history_consent.json",
-        ];
+        // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
+        let err = Twin::handle_fs_watcher_exit(Ok(()))
+            .expect_err("handle_fs_watcher_exit must return Err");
 
-        let test = |test_attr: &mut TestConfig| {
-            // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
-            let err = test_attr
-                .twin
-                .handle_fs_watcher_exit(Ok(()))
-                .expect_err("handle_fs_watcher_exit must return Err");
-
-            assert!(
-                err.to_string().contains("FsWatcher task ended"),
-                "unexpected error message: {err:#}"
-            );
-        };
-
-        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+        assert!(
+            err.to_string().contains("FsWatcher task ended"),
+            "unexpected error message: {err:#}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -700,36 +691,21 @@ pub mod mod_test {
         // Companion to the Ok(()) test above: a panicked FsWatcher task yields
         // a real `JoinError`. Both paths must bail with the same restart
         // message so the systemd unit treats them identically.
-        let test_files = vec![
-            "testfiles/positive/os-release",
-            "testfiles/positive/consent_conf.json",
-            "testfiles/positive/request_consent.json",
-            "testfiles/positive/history_consent.json",
-        ];
+        // `JoinError` has no public constructor — obtain a real one by
+        // awaiting a deliberately panicking task.
+        let join_err = tokio::spawn(async {
+            panic!("intentional panic for test");
+        })
+        .await
+        .expect_err("spawned task should panic");
 
-        let test = |test_attr: &mut TestConfig| {
-            // `JoinError` has no public constructor — obtain a real one by
-            // awaiting a deliberately panicking task.
-            let join_err = block_on(async {
-                tokio::spawn(async {
-                    panic!("intentional panic for test");
-                })
-                .await
-                .expect_err("spawned task should panic")
-            });
+        let err = Twin::handle_fs_watcher_exit(Err(join_err))
+            .expect_err("handle_fs_watcher_exit must return Err on panic");
 
-            let err = test_attr
-                .twin
-                .handle_fs_watcher_exit(Err(join_err))
-                .expect_err("handle_fs_watcher_exit must return Err on panic");
-
-            assert!(
-                err.to_string().contains("FsWatcher task ended"),
-                "unexpected error message on panic path: {err:#}"
-            );
-        };
-
-        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+        assert!(
+            err.to_string().contains("FsWatcher task ended"),
+            "unexpected error message on panic path: {err:#}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -742,8 +718,8 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
-            let (_tx_out, mut rx_out) = mpsc::channel(100);
+            let (_tx_rep, mut rx_rep) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (_tx_out, mut rx_out) = mpsc::channel(TEST_CHANNEL_SIZE);
 
             block_on(test_attr.twin.shutdown(
                 ClientObservers::channels().1,
@@ -765,6 +741,8 @@ pub mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |_: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
             let mut client = MockMyIotHub::default();
             client
                 .expect_twin_report()
@@ -789,6 +767,8 @@ pub mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
             let (senders, mut observers) = ClientObservers::channels();
             let tx_old_status = senders.tx_connection_status.clone();
             senders
@@ -844,6 +824,8 @@ pub mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
             let (senders, mut observers) = ClientObservers::channels();
             let tx_direct_method = senders.tx_direct_method.clone();
 
@@ -896,26 +878,18 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn connection_status_without_client_is_ignored_test() {
+    async fn connection_status_validates_update_at_once_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            let client = test_attr.twin.client.take();
-
-            let result = block_on(
-                test_attr
-                    .twin
-                    .handle_connection_status(AuthenticationStatus::Authenticated),
-            );
-            test_attr.twin.client = client;
+            block_on(test_attr.twin.handle_connection_status(
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError),
+            ))
+            .expect("handle connection status");
 
             assert!(
-                !result.expect("status without client must not fail"),
-                "status without client must not restart the client"
-            );
-            assert!(
-                test_attr.twin.state != TwinState::Authenticated,
-                "status without client must not change the twin state"
+                test_attr.rx_command_request.try_recv().is_err(),
+                "ValidateUpdate must be handled at once, not queued"
             );
         };
 

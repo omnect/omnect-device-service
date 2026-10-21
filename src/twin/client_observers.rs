@@ -6,7 +6,6 @@ use tokio::{runtime::Handle, select, sync::mpsc};
 
 const OBSERVER_CHANNEL_SIZE: usize = 100;
 
-/// Receivers of the callbacks of one iot hub client.
 pub struct ClientObservers {
     pub rx_connection_status: mpsc::Receiver<AuthenticationStatus>,
     pub rx_twin_desired: mpsc::Receiver<TwinUpdate>,
@@ -64,16 +63,16 @@ impl ClientObservers {
                 loop {
                     select! {
                         Some(dm) = self.rx_direct_method.recv() => {
-                            warn!("reject direct method {} of the old iothub client", dm.name);
-                            if dm.responder.send(Err(anyhow!("iothub client reset"))).is_err() {
+                            warn!("reject direct method {}: iothub client shutting down", dm.name);
+                            if dm.responder.send(Err(anyhow!("iothub client shutting down"))).is_err() {
                                 error!("direct method response receiver dropped");
                             }
                         },
                         Some(status) = self.rx_connection_status.recv() => {
-                            debug!("drop connection status {status:?} of the old iothub client");
+                            debug!("drop connection status {status:?}: iothub client shutting down");
                         },
                         Some(_) = self.rx_twin_desired.recv() => {
-                            debug!("drop desired properties of the old iothub client");
+                            debug!("drop desired properties: iothub client shutting down");
                         },
                         else => break,
                     }
