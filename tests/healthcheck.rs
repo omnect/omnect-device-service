@@ -706,11 +706,23 @@ fn the_rating_never_replaces_the_exit_log() {
         report.stdout,
         report.stderr
     );
-    let rated = fs::read_to_string(sandbox.run().join("strict.exit-log.rated"))
-        .expect("read rated exit log");
-    assert!(
-        rated.contains("\"rating\""),
-        "the rating must be kept beside the exit log, but found:\n{rated}"
+    let mut left_behind: Vec<String> = fs::read_dir(sandbox.run())
+        .expect("read log directory")
+        .map(|entry| {
+            entry
+                .expect("read log entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    left_behind.sort();
+    assert_eq!(
+        left_behind,
+        ["strict.exit-log"],
+        "rating writes nothing down, so it must leave nothing behind:\n{}{}",
+        report.stdout,
+        report.stderr
     );
 }
 
@@ -724,17 +736,13 @@ fn rating_keeps_the_exit_log_as_readable_as_it_was() {
 
     let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
 
-    for file in [&log, &sandbox.run().join("strict.exit-log.rated")] {
-        let mode = fs::metadata(file).expect("stat log").permissions().mode() & 0o777;
-        assert_eq!(
-            mode,
-            0o644,
-            "rating must not lock {} away from its readers, but left mode {mode:o}:\n{}{}",
-            file.display(),
-            report.stdout,
-            report.stderr
-        );
-    }
+    let mode = fs::metadata(&log).expect("stat log").permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o644,
+        "rating must not lock the exit log away from its readers, but left \
+         mode {mode:o}:\n{}{}",
+        report.stdout, report.stderr
+    );
 }
 
 #[test]
@@ -1010,40 +1018,6 @@ fn a_rule_rewritten_within_the_second_is_not_missed() {
         [("[RED]", "picky")],
         "a rule rewritten without a trace in its metadata still has to be \
          applied:\n{}{}",
-        report.stdout,
-        report.stderr
-    );
-}
-
-#[test]
-fn a_retry_does_not_rate_by_rules_it_gave_up() {
-    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
-    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
-    let log = sandbox.run().join("picky.exit-log");
-    fs::write(
-        &log,
-        r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" } ] }"#,
-    )
-    .expect("write exit log");
-
-    let signal = sandbox.root().join("has-read");
-    let release = sandbox.root().join("may-write");
-    let mut stalled = sandbox.spawn_stalling_rater(&signal, &release);
-    sandbox.await_signal(&signal, &mut stalled, &release);
-
-    // the rules are replaced by ones that no longer call this entry healthy,
-    // while the stalled rater still holds the rules it read before
-    sandbox.set_service_analysis(UNMATCHED_SERVICE_RATING);
-
-    fs::write(&release, "").expect("release the stalled rater");
-    stalled.wait().expect("await stalled rater");
-
-    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
-
-    assert_eq!(
-        report.ratings(),
-        [("[RED]", "picky")],
-        "a rating has to follow the rules it is stamped with:\n{}{}",
         report.stdout,
         report.stderr
     );
