@@ -38,11 +38,14 @@ function unknown_services() {
 # reports the identity of the files a rating is derived from
 #
 # NOTE:
-#   both writers -- omnect_service_log.sh and the rating below -- publish by
-#   rename, so a changed inode already tells new content from old; mtime and
-#   size are reported as well to catch a writer that changes a file in place
+#   the identity is taken from the content, not from the metadata around it:
+#   "stat" tells modification times apart by the second only, so a rule
+#   rewritten twice within one second -- an editor saving again is enough --
+#   would keep its file looking untouched and a rating derived from the
+#   replaced rules would go on passing as current; all files are named in one
+#   call, which costs no more than asking for their metadata did
 function input_identity() {
-    stat -c '%i %Y %s' "$@" 2>/dev/null | tr '\n' ' '
+    sha256sum "$@" 2>/dev/null | tr '\n' ' '
 }
 
 # reports what a rating was derived from and what it found, as one line of
@@ -69,7 +72,12 @@ function rate_servicelog() {
 
     rated="${servicelog}.rated"
 
+    # an identity of nothing would compare equal to the one a rating that was
+    # never made carries, and the unrated log would pass as green
     source=$(input_identity "$servicelog" "$CFGFILEPATH")
+    [ -n "$source" ] \
+        || { error "neither \"$servicelog\" nor its rules could be read"; return 2; }
+
     ratedfrom=""
     if [ -r "$rated" ]; then
         fields=$(read_rating "$rated") \

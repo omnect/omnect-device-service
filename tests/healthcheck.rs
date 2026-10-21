@@ -950,6 +950,72 @@ fn a_rating_that_was_overtaken_is_not_believed() {
 }
 
 #[test]
+fn a_rule_rewritten_within_the_second_is_not_missed() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    let log = sandbox.run().join("picky.exit-log");
+    fs::write(
+        &log,
+        r#"{ "service": "picky", "infos": [ { "exitstatus": "clean" } ] }"#,
+    )
+    .expect("write exit log");
+    let rated = sandbox.run_script("omnect_health__services.sh", &["check"]);
+    assert_eq!(
+        rated.ratings(),
+        [("[GREEN]", "picky")],
+        "the rule this test rewrites has to rate the entry green first:\n{}{}",
+        rated.stdout,
+        rated.stderr
+    );
+
+    // rewrite the rule so it no longer covers the entry, leaving the file in
+    // place with the very same size and modification time: an editor that
+    // saves twice in the same second is enough to produce this
+    let policy = sandbox.etc().join("omnect_service_log_analysis.json");
+    let stamp = String::from_utf8(
+        Command::new("stat")
+            .args(["-c", "%.9Y"])
+            .arg(&policy)
+            .output()
+            .expect("read policy timestamp")
+            .stdout,
+    )
+    .expect("policy timestamp is text");
+    let rewritten = CRASH_RATED_SERVICE.replace(r#"== \"clean\""#, r#"== \"cleaX\""#);
+    assert_ne!(
+        rewritten, CRASH_RATED_SERVICE,
+        "the rule has to be rewritten"
+    );
+    assert_eq!(
+        rewritten.len(),
+        CRASH_RATED_SERVICE.len(),
+        "the rewritten rule has to keep the size of the one it replaces"
+    );
+    fs::write(&policy, &rewritten).expect("rewrite policy");
+    assert!(
+        Command::new("touch")
+            .arg("-d")
+            .arg(format!("@{}", stamp.trim()))
+            .arg(&policy)
+            .status()
+            .expect("restore policy timestamp")
+            .success(),
+        "the policy has to keep the modification time it had"
+    );
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky")],
+        "a rule rewritten without a trace in its metadata still has to be \
+         applied:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
 fn a_retry_does_not_rate_by_rules_it_gave_up() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(CRASH_RATED_SERVICE);
