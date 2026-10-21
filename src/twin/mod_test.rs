@@ -7,6 +7,7 @@ pub mod mod_test {
     };
     use cp_r::CopyOptions;
     use env_logger::{Builder, Env};
+    use futures::FutureExt;
     use futures_executor::block_on;
     use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
@@ -155,7 +156,6 @@ pub mod mod_test {
     struct TestConfig {
         twin: Twin,
         dir: PathBuf,
-        rx_command_request: mpsc::Receiver<CommandRequest>,
     }
 
     impl TestCase {
@@ -257,7 +257,7 @@ pub mod mod_test {
             let (tx_reported_properties, mut rx_reported_properties) =
                 mpsc::channel(TEST_CHANNEL_SIZE);
             let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(TEST_CHANNEL_SIZE);
-            let (tx_command_request, rx_command_request) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (tx_command_request, _rx_command_request) = mpsc::channel(TEST_CHANNEL_SIZE);
 
             let mut twin = block_on(Twin::new(
                 tx_command_request,
@@ -277,7 +277,6 @@ pub mod mod_test {
             let mut config = TestConfig {
                 twin,
                 dir: PathBuf::from(test_env.dirpath()),
-                rx_command_request,
             };
 
             // set testcase specific mock expectaions
@@ -674,8 +673,8 @@ pub mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn fs_watcher_exit_bails_test() {
+    #[test]
+    fn fs_watcher_exit_bails_test() {
         // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
         let err = Twin::handle_fs_watcher_exit(Ok(()))
             .expect_err("handle_fs_watcher_exit must return Err");
@@ -878,22 +877,45 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn connection_status_validates_update_at_once_test() {
+    async fn connection_status_validates_update_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            block_on(test_attr.twin.handle_connection_status(
-                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError),
-            ))
-            .expect("handle connection status");
+            // without the feature that handles ValidateUpdate, handling it fails
+            test_attr
+                .twin
+                .features
+                .remove(&Command::ValidateUpdate(true).feature_id());
 
+            let status =
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError);
+
+            let err = block_on(test_attr.twin.handle_connection_status(status))
+                .expect_err("connection status must handle ValidateUpdate");
             assert!(
-                test_attr.rx_command_request.try_recv().is_err(),
-                "ValidateUpdate must be handled at once, not queued"
+                err.to_string().contains("failed to get feature"),
+                "unexpected error: {err:#}"
             );
+
+            test_attr.twin.waiting_for_reboot = true;
+            block_on(test_attr.twin.handle_connection_status(status))
+                .expect("ValidateUpdate must be skipped while a reboot is pending");
         };
 
         TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[test]
+    fn command_requests_stay_pending_test() {
+        let (tx, rx) = mpsc::channel(TEST_CHANNEL_SIZE);
+        drop(tx);
+
+        let mut requests = Twin::select_command_requests(vec![ReceiverStream::new(rx).boxed()]);
+
+        assert!(
+            requests.next().now_or_never().is_none(),
+            "command requests must stay pending after all senders are gone"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

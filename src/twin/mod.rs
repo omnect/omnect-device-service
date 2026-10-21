@@ -31,7 +31,10 @@ use crate::{
 use anyhow::{Context, Result, anyhow, bail};
 use azure_iot_sdk::client::*;
 use dotenvy;
-use futures::future::OptionFuture;
+use futures::{
+    future::OptionFuture,
+    stream::{SelectAll, pending, select_all},
+};
 use futures_util::StreamExt;
 use log::{debug, error, info, warn};
 use serde_json::json;
@@ -375,7 +378,6 @@ impl Twin {
         }
     }
 
-    /// Returns the builder for the next client. `observers` then belong to it.
     async fn reset_client_with_delay(
         &mut self,
         observers: &mut ClientObservers,
@@ -392,6 +394,14 @@ impl Twin {
         }
 
         builder
+    }
+
+    fn select_command_requests(
+        mut streams: Vec<CommandRequestStream>,
+    ) -> SelectAll<CommandRequestStream> {
+        // select_next_some() panics once all streams have ended
+        streams.push(pending().boxed());
+        select_all(streams)
     }
 
     fn feature_command_request_streams(&mut self) -> Vec<CommandRequestStream> {
@@ -468,7 +478,7 @@ impl Twin {
                 None => futures_util::stream::empty::<tokio::time::Instant>().boxed(),
                 Some(interval) => IntervalStream::new(interval).boxed(),
             };
-            let command_requests = futures::stream::select_all::select_all(command_requests);
+            let command_requests = Self::select_command_requests(command_requests);
         };
 
         // `?` and `return` only leave this block, so every exit runs `shutdown`,
