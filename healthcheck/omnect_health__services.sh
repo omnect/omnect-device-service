@@ -86,31 +86,38 @@ function rate_servicelog() {
     #   result in place afterwards, and a timestamp would then make that
     #   result look like it covered the new entry, hiding a crash for good
     if [ "$ratedfrom" != "$source" ]; then
-        # a service may bring its own ratings, otherwise the defaults apply;
-        # either way an entry no rule matched is rated red rather than being
-        # left unrated, which would make it count as green
-        #
-        # ratings of an earlier run are dropped first, because they were
-        # derived from rules that may have been changed or removed since:
-        # keeping them would let a rating survive that the current rules do
-        # not justify anymore, and shield the entry from the red fallback
-        jquery=$(jq -r --argjson n "$n" '
-            [ "del(.infos[].rating)" ]
-            + [ ( if (.services[$n] | has("ratings"))
-                  then .services[$n].ratings[]?
-                  else ."default-ratings"[]?
-                  end
-                ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
-              ]
-            + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
-            | join(" | ")' "$CFGFILEPATH") \
-            || { error "rating rules for \"$servicelog\" could not be read"; return 2; }
-
         # a file may be written while it is being read, so the result may
         # describe a state that never was; a few retries settle that, and
-        # should they not, the stamp still keeps the result from passing as
-        # current on the next run
+        # should they not, the rating is not put in place at all
         for attempt in 1 2 3; do
+            # NOTE:
+            #   the rules are read inside the retry, because an attempt that
+            #   starts over does so with the identity of the configuration it
+            #   found, and rules read before that change would then be
+            #   stamped as if they were the ones in force -- every later
+            #   check would believe a rating the current rules do not justify
+            #
+            # a service may bring its own ratings, otherwise the defaults
+            # apply; either way an entry no rule matched is rated red rather
+            # than being left unrated, which would make it count as green
+            #
+            # ratings of an earlier run are dropped first, because they were
+            # derived from rules that may have been changed or removed since:
+            # keeping them would let a rating survive that the current rules
+            # do not justify anymore, and shield the entry from the red
+            # fallback
+            jquery=$(jq -r --argjson n "$n" '
+                [ "del(.infos[].rating)" ]
+                + [ ( if (.services[$n] | has("ratings"))
+                      then .services[$n].ratings[]?
+                      else ."default-ratings"[]?
+                      end
+                    ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
+                  ]
+                + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
+                | join(" | ")' "$CFGFILEPATH") \
+                || { error "rating rules for \"$servicelog\" could not be read"; return 2; }
+
             # NOTE:
             #   a concurrent run -- the systemd StopPost hook rates a single
             #   service while a manual run rates all of them -- must not see
