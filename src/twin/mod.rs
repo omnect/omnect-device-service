@@ -352,7 +352,7 @@ impl Twin {
 
         self.cancel.cancel();
 
-        self.drain_observers(observers);
+        drop(observers);
 
         if let Some(client) = self.client.as_ref() {
             // report remaining properties
@@ -378,12 +378,6 @@ impl Twin {
         info!("twin shutdown complete");
     }
 
-    fn drain_observers(&self, observers: ClientObservers) {
-        if self.client.is_some() {
-            observers.drain();
-        }
-    }
-
     async fn destroy_client(&mut self) {
         if let Some(client) = self.client.as_mut() {
             info!("shutdown iotclient");
@@ -398,9 +392,7 @@ impl Twin {
         timeout: Option<time::Duration>,
     ) -> IotHubClientBuilder {
         let (builder, new_observers) = ClientObservers::builder();
-        let old_observers = std::mem::replace(observers, new_observers);
-
-        self.drain_observers(old_observers);
+        *observers = new_observers;
         self.destroy_client().await;
 
         if let Some(t) = timeout {
@@ -497,7 +489,7 @@ impl Twin {
         };
 
         // `?`, `return` and a panic only leave this block, so every exit runs
-        // `shutdown`, which drains the observers before the client is destroyed.
+        // `shutdown`, which drops the observers before the client is destroyed.
         let result = AssertUnwindSafe(async {
             loop {
                 select! (
