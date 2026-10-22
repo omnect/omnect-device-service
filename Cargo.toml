@@ -26,7 +26,7 @@ freedesktop_entry_parser = { version = "2.0", default-features = false, features
   "high_level",
 ] }
 futures = { version = "0.3", default-features = false }
-futures-util = { version = "0.3", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 glob = { version = "0.3", default-features = false }
 inotify = { version = "0.11", default-features = false, features = ["stream"] }
 lazy_static = { version = "1.5", default-features = false }

@@ -7,15 +7,21 @@ pub mod mod_test {
     };
     use cp_r::CopyOptions;
     use env_logger::{Builder, Env};
+    use futures::FutureExt;
     use futures_executor::block_on;
     use lazy_static::lazy_static;
     use mockall::{automock, predicate::*};
     use rand::{RngExt, distr::Alphanumeric, rng};
     use serde_json::json;
     use std::{
+        cell::RefCell,
         env,
         fs::{OpenOptions, copy, create_dir_all, remove_dir_all},
         path::PathBuf,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         time::Duration,
     };
 
@@ -29,18 +35,38 @@ pub mod mod_test {
 
     const TMPDIR_FORMAT_STR: &str = "/tmp/omnect-device-service-tests/";
     const UTC_REGEX: &str = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[\+-]\d{2}:\d{2})";
+    const POLL_TIMEOUT: Duration = Duration::from_secs(5);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+    const TEST_CHANNEL_SIZE: usize = 100;
 
-    pub struct MyIotHubBuilder;
+    thread_local! {
+        /// Client that the next `build_module_client` on this thread returns,
+        /// with the connection status it sends right after it is built.
+        static NEXT_CLIENT: RefCell<Option<(MockMyIotHub, AuthenticationStatus)>> =
+            const { RefCell::new(None) };
+    }
+
+    #[derive(Default)]
+    pub struct MyIotHubBuilder {
+        tx_connection_status: Option<AuthenticationObserver>,
+    }
 
     impl MyIotHubBuilder {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
-            Ok(MockMyIotHub::default())
+            let Some((client, status)) = NEXT_CLIENT.take() else {
+                return Ok(MockMyIotHub::default());
+            };
+            if let Some(tx) = &self.tx_connection_status {
+                tx.try_send(status).expect("send connection status");
+            }
+            Ok(client)
         }
 
         pub fn observe_connection_state(
-            self,
-            _tx_connection_status: AuthenticationObserver,
+            mut self,
+            tx_connection_status: AuthenticationObserver,
         ) -> Self {
+            self.tx_connection_status = Some(tx_connection_status);
             self
         }
 
@@ -60,7 +86,7 @@ pub mod mod_test {
     #[automock]
     impl MyIotHub {
         pub fn builder() -> MyIotHubBuilder {
-            MyIotHubBuilder {}
+            MyIotHubBuilder::default()
         }
 
         pub fn sdk_version_string() -> String {
@@ -225,31 +251,26 @@ pub mod mod_test {
 
             // create iothub client mock
             let ctx = MockMyIotHub::builder_context();
-            ctx.expect().times(1).returning(|| MyIotHubBuilder {});
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
             let ctx = MockMyIotHub::sdk_version_string_context();
             ctx.expect().returning(|| {
                 use azure_iot_sdk::client::IotHubClient as Client;
                 Client::sdk_version_string()
             });
 
-            let (tx_connection_status, _rx_connection_status) = mpsc::channel(100);
-            let (tx_twin_desired, _rx_twin_desired) = mpsc::channel(100);
-            let (tx_direct_method, _rx_direct_method) = mpsc::channel(100);
-            let (tx_reported_properties, mut rx_reported_properties) = mpsc::channel(100);
-            let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(100);
-            let (tx_web_service, _rx_web_service) = mpsc::channel(100);
+            let (tx_reported_properties, mut rx_reported_properties) =
+                mpsc::channel(TEST_CHANNEL_SIZE);
+            let (tx_outgoing_message, _rx_outgoing_message) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (tx_command_request, _rx_command_request) = mpsc::channel(TEST_CHANNEL_SIZE);
 
             let mut twin = block_on(Twin::new(
-                tx_web_service,
+                tx_command_request,
                 tx_reported_properties,
                 tx_outgoing_message,
             ))
             .unwrap();
 
-            let client_builder = IotHubClient::builder()
-                .observe_connection_state(tx_connection_status)
-                .observe_desired_properties(tx_twin_desired)
-                .observe_direct_methods(tx_direct_method);
+            let (client_builder, _observers) = ClientObservers::builder();
             twin.client = Some(
                 client_builder
                     .build_module_client("connection_string")
@@ -658,14 +679,43 @@ pub mod mod_test {
         TestCase::run(test_files, vec![], env_vars, expect, test);
     }
 
+    #[test]
+    fn fs_watcher_exit_bails_test() {
+        // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
+        let err = Twin::handle_fs_watcher_exit(Ok(()))
+            .expect_err("handle_fs_watcher_exit must return Err");
+
+        assert!(
+            err.to_string().contains("FsWatcher task ended"),
+            "unexpected error message: {err:#}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread")]
-    async fn fs_watcher_exit_bails_and_shuts_down_test() {
-        let test_files = vec![
-            "testfiles/positive/os-release",
-            "testfiles/positive/consent_conf.json",
-            "testfiles/positive/request_consent.json",
-            "testfiles/positive/history_consent.json",
-        ];
+    async fn fs_watcher_exit_on_panic_bails_test() {
+        // Companion to the Ok(()) test above: a panicked FsWatcher task yields
+        // a real `JoinError`. Both paths must bail with the same restart
+        // message so the systemd unit treats them identically.
+        // `JoinError` has no public constructor — obtain a real one by
+        // awaiting a deliberately panicking task.
+        let join_err = tokio::spawn(async {
+            panic!("intentional panic for test");
+        })
+        .await
+        .expect_err("spawned task should panic");
+
+        let err = Twin::handle_fs_watcher_exit(Err(join_err))
+            .expect_err("handle_fs_watcher_exit must return Err on panic");
+
+        assert!(
+            err.to_string().contains("FsWatcher task ended"),
+            "unexpected error message on panic path: {err:#}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_destroys_client_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
 
         let expect = |mock: &mut MockMyIotHub| {
             mock.expect_twin_report().returning(|_| Ok(()));
@@ -673,22 +723,15 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
-            let (_tx_out, mut rx_out) = mpsc::channel(100);
+            let (_tx_rep, mut rx_rep) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (_tx_out, mut rx_out) = mpsc::channel(TEST_CHANNEL_SIZE);
 
-            // Ok(()) path: FsWatcher task exited cleanly — still treated as fatal.
-            let err = block_on(async {
-                test_attr
-                    .twin
-                    .handle_fs_watcher_exit(Ok(()), &mut rx_rep, &mut rx_out)
-                    .await
-            })
-            .expect_err("handle_fs_watcher_exit must return Err");
+            block_on(test_attr.twin.shutdown(
+                ClientObservers::channels().1,
+                &mut rx_rep,
+                &mut rx_out,
+            ));
 
-            assert!(
-                err.to_string().contains("FsWatcher task ended"),
-                "unexpected error message: {err:#}"
-            );
             assert!(
                 test_attr.twin.client.is_none(),
                 "shutdown must drop the iot hub client"
@@ -699,67 +742,117 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn fs_watcher_exit_on_panic_bails_and_shuts_down_test() {
-        // Companion to the Ok(()) test above: a panicked FsWatcher task yields
-        // a real `JoinError`. Both paths must bail with the same restart
-        // message so the systemd unit treats them identically.
-        let test_files = vec![
-            "testfiles/positive/os-release",
-            "testfiles/positive/consent_conf.json",
-            "testfiles/positive/request_consent.json",
-            "testfiles/positive/history_consent.json",
-        ];
-
-        let expect = |mock: &mut MockMyIotHub| {
-            mock.expect_twin_report().returning(|_| Ok(()));
-            mock.expect_shutdown().times(1).returning(|_| ());
-        };
-
-        let test = |test_attr: &mut TestConfig| {
-            let (_tx_rep, mut rx_rep) = mpsc::channel(100);
-            let (_tx_out, mut rx_out) = mpsc::channel(100);
-
-            // `JoinError` has no public constructor — obtain a real one by
-            // awaiting a deliberately panicking task.
-            let join_err = block_on(async {
-                tokio::spawn(async {
-                    panic!("intentional panic for test");
-                })
-                .await
-                .expect_err("spawned task should panic")
-            });
-
-            let err = block_on(async {
-                test_attr
-                    .twin
-                    .handle_fs_watcher_exit(Err(join_err), &mut rx_rep, &mut rx_out)
-                    .await
-            })
-            .expect_err("handle_fs_watcher_exit must return Err on panic");
-
-            assert!(
-                err.to_string().contains("FsWatcher task ended"),
-                "unexpected error message on panic path: {err:#}"
-            );
-            assert!(
-                test_attr.twin.client.is_none(),
-                "shutdown must drop the iot hub client on panic path"
-            );
-        };
-
-        TestCase::run(test_files, vec![], vec![], expect, test);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn reset_client_drops_stale_connection_status_test() {
+    async fn shutdown_drains_observers_before_reporting_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            let (tx, mut rx) = mpsc::channel(100);
-            tx.try_send(AuthenticationStatus::Unauthenticated(
-                UnauthenticatedReason::CommunicationError,
-            ))
-            .expect("send CommunicationError");
+            test_attr
+                .twin
+                .client
+                .as_mut()
+                .expect("client present")
+                .expect_twin_report()
+                .returning(|_| panic!("twin report panicked"));
+
+            let (senders, observers) = ClientObservers::channels();
+            let (tx_rep, mut rx_rep) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (_tx_out, mut rx_out) = mpsc::channel(TEST_CHANNEL_SIZE);
+            tx_rep
+                .try_send(json!({}))
+                .expect("queue reported properties");
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                block_on(test_attr.twin.shutdown(observers, &mut rx_rep, &mut rx_out))
+            }));
+            test_attr.twin.client = Some(MockMyIotHub::default());
+
+            assert!(result.is_err(), "twin_report must panic");
+            assert!(
+                !senders.tx_connection_status.is_closed(),
+                "shutdown must drain the observers before it reports"
+            );
+            // the drain runs until all senders of the old client are gone
+            drop(senders);
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_destroys_client_on_error_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |_: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
+            let mut client = MockMyIotHub::default();
+            client
+                .expect_twin_report()
+                .returning(|_| Err(anyhow!("twin report failed")));
+            client.expect_shutdown().times(1).returning(|_| ());
+            // `connect_twin` on Authenticated fails, which ends the run loop with an error
+            NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
+
+            let err = block_on(Twin::run()).expect_err("run must return the error");
+
+            assert!(
+                err.to_string().contains("twin report failed"),
+                "unexpected error: {err:#}"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_shuts_down_client_on_panic_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |_: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
+            let mut client = MockMyIotHub::default();
+            client
+                .expect_twin_report()
+                .returning(|_| panic!("twin report panicked"));
+            // mockall skips its call count checks while a thread panics
+            let shut_down = Arc::new(AtomicBool::new(false));
+            let shut_down_in_mock = Arc::clone(&shut_down);
+            client
+                .expect_shutdown()
+                .times(1)
+                .returning(move |_| shut_down_in_mock.store(true, Ordering::SeqCst));
+            // `connect_twin` on Authenticated panics inside the run loop
+            NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
+
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| block_on(Twin::run())));
+
+            assert!(result.is_err(), "run must pass the panic on");
+            assert!(
+                shut_down.load(Ordering::SeqCst),
+                "run must shut down the client on a panic"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reset_client_drops_connection_status_of_old_client_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |test_attr: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
+            let (senders, mut observers) = ClientObservers::channels();
+            let tx_old_status = senders.tx_connection_status.clone();
+            senders
+                .tx_connection_status
+                .try_send(AuthenticationStatus::Unauthenticated(
+                    UnauthenticatedReason::BadCredential,
+                ))
+                .expect("send BadCredential");
 
             // the old client still reports Authenticated while it shuts down
             test_attr
@@ -770,73 +863,136 @@ pub mod mod_test {
                 .expect_shutdown()
                 .times(1)
                 .returning(move |_| {
-                    tx.try_send(AuthenticationStatus::Authenticated)
+                    senders
+                        .tx_connection_status
+                        .try_send(AuthenticationStatus::Authenticated)
                         .expect("send Authenticated");
                 });
 
-            block_on(test_attr.twin.reset_client_with_delay(&mut rx, None));
+            let _builder = block_on(test_attr.twin.reset_client_with_delay(&mut observers, None));
 
             let client_dropped = test_attr.twin.client.is_none();
             test_attr.twin.client = Some(MockMyIotHub::default());
 
             assert!(client_dropped, "reset must drop the iot hub client");
+
+            let start = std::time::Instant::now();
+            while tx_old_status.capacity() < tx_old_status.max_capacity() {
+                assert!(
+                    start.elapsed() < POLL_TIMEOUT,
+                    "connection statuses of the old client were not drained"
+                );
+                std::thread::sleep(POLL_INTERVAL);
+            }
             assert!(
-                rx.try_recv().is_err(),
-                "reset must drop connection statuses of the old client"
+                !tx_old_status.is_closed(),
+                "reset must drain the old receivers, not drop them"
             );
+            // the drain runs until all senders of the old client are gone
+            drop(tx_old_status);
         };
 
         TestCase::run(test_files, vec![], vec![], |_| {}, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn reset_client_without_client_drops_stale_connection_status_test() {
+    async fn reset_client_answers_direct_method_of_old_client_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            let client = test_attr.twin.client.take();
-            let (tx, mut rx) = mpsc::channel(100);
-            tx.try_send(AuthenticationStatus::Authenticated)
-                .expect("send Authenticated");
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
+            let (senders, mut observers) = ClientObservers::channels();
+            let tx_direct_method = senders.tx_direct_method.clone();
 
-            block_on(test_attr.twin.reset_client_with_delay(&mut rx, None));
-            test_attr.twin.client = client;
+            // a direct method callback of the SDK blocks its thread until it gets a reply
+            let callback = std::thread::spawn(move || {
+                let (responder, rx_result) = tokio::sync::oneshot::channel();
+                tx_direct_method
+                    .blocking_send(DirectMethod {
+                        name: "reboot".to_string(),
+                        payload: json!({}),
+                        responder,
+                    })
+                    .expect("send direct method");
+                rx_result.blocking_recv()
+            });
 
-            assert_eq!(
-                rx.try_recv(),
-                Err(mpsc::error::TryRecvError::Empty),
-                "reset must drop queued connection statuses"
-            );
+            // the SDK joins the callback thread when the client is destroyed
+            let mut callback = Some(callback);
+            test_attr
+                .twin
+                .client
+                .as_mut()
+                .expect("client present")
+                .expect_shutdown()
+                .times(1)
+                .returning(move |_| {
+                    let callback = callback.take().expect("callback thread");
+                    let start = std::time::Instant::now();
+                    while !callback.is_finished() {
+                        assert!(
+                            start.elapsed() < POLL_TIMEOUT,
+                            "direct method of the old client was not answered"
+                        );
+                        std::thread::sleep(POLL_INTERVAL);
+                    }
+                    let reply = callback.join().expect("callback thread panicked");
+                    assert!(
+                        matches!(reply, Ok(Err(_))),
+                        "direct method of the old client must get an error reply"
+                    );
+                });
+
+            let _builder = block_on(test_attr.twin.reset_client_with_delay(&mut observers, None));
+            drop(senders);
+
+            test_attr.twin.client = Some(MockMyIotHub::default());
         };
 
         TestCase::run(test_files, vec![], vec![], |_| {}, test);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn connection_status_without_client_is_ignored_test() {
+    async fn connection_status_validates_update_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            let client = test_attr.twin.client.take();
+            // without the feature that handles ValidateUpdate, handling it fails
+            test_attr
+                .twin
+                .features
+                .remove(&Command::ValidateUpdate(true).feature_id());
 
-            let result = block_on(
-                test_attr
-                    .twin
-                    .handle_connection_status(AuthenticationStatus::Authenticated),
-            );
-            test_attr.twin.client = client;
+            let status =
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError);
 
+            let err = block_on(test_attr.twin.handle_connection_status(status))
+                .expect_err("connection status must handle ValidateUpdate");
             assert!(
-                !result.expect("status without client must not fail"),
-                "status without client must not restart the client"
+                err.to_string().contains("failed to get feature"),
+                "unexpected error: {err:#}"
             );
-            assert!(
-                test_attr.twin.state != TwinState::Authenticated,
-                "status without client must not change the twin state"
-            );
+
+            test_attr.twin.waiting_for_reboot = true;
+            block_on(test_attr.twin.handle_connection_status(status))
+                .expect("ValidateUpdate must be skipped while a reboot is pending");
         };
 
         TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[test]
+    fn command_requests_stay_pending_test() {
+        let (tx, rx) = mpsc::channel(TEST_CHANNEL_SIZE);
+        drop(tx);
+
+        let mut requests = Twin::select_command_requests(vec![ReceiverStream::new(rx).boxed()]);
+
+        assert!(
+            requests.next().now_or_never().is_none(),
+            "command requests must stay pending after all senders are gone"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
