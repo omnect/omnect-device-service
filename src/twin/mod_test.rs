@@ -740,6 +740,43 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_drains_observers_before_reporting_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |test_attr: &mut TestConfig| {
+            test_attr
+                .twin
+                .client
+                .as_mut()
+                .expect("client present")
+                .expect_twin_report()
+                .returning(|_| panic!("twin report panicked"));
+
+            let (senders, observers) = ClientObservers::channels();
+            let (tx_rep, mut rx_rep) = mpsc::channel(TEST_CHANNEL_SIZE);
+            let (_tx_out, mut rx_out) = mpsc::channel(TEST_CHANNEL_SIZE);
+            tx_rep
+                .try_send(json!({}))
+                .expect("queue reported properties");
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                block_on(test_attr.twin.shutdown(observers, &mut rx_rep, &mut rx_out))
+            }));
+            test_attr.twin.client = Some(MockMyIotHub::default());
+
+            assert!(result.is_err(), "twin_report must panic");
+            assert!(
+                !senders.tx_connection_status.is_closed(),
+                "shutdown must drain the observers before it reports"
+            );
+            // the drain runs until all senders of the old client are gone
+            drop(senders);
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn run_destroys_client_on_error_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 

@@ -352,6 +352,8 @@ impl Twin {
 
         self.cancel.cancel();
 
+        self.drain_observers(observers);
+
         if let Some(client) = self.client.as_ref() {
             // report remaining properties
             while let Ok(reported) = rx_reported_properties.try_recv() {
@@ -368,7 +370,7 @@ impl Twin {
             }
         }
 
-        self.destroy_client(observers).await;
+        self.destroy_client().await;
 
         if let Some(ws) = &self.web_service {
             ws.shutdown().await;
@@ -376,9 +378,14 @@ impl Twin {
         info!("twin shutdown complete");
     }
 
-    async fn destroy_client(&mut self, observers: ClientObservers) {
-        if let Some(client) = self.client.as_mut() {
+    fn drain_observers(&self, observers: ClientObservers) {
+        if self.client.is_some() {
             observers.drain();
+        }
+    }
+
+    async fn destroy_client(&mut self) {
+        if let Some(client) = self.client.as_mut() {
             info!("shutdown iotclient");
             client.shutdown(CLIENT_SHUTDOWN_TIMEOUT).await;
             self.client = None;
@@ -393,7 +400,8 @@ impl Twin {
         let (builder, new_observers) = ClientObservers::builder();
         let old_observers = std::mem::replace(observers, new_observers);
 
-        self.destroy_client(old_observers).await;
+        self.drain_observers(old_observers);
+        self.destroy_client().await;
 
         if let Some(t) = timeout {
             info!("reset_client: sleep for {}ms", t.as_millis());
