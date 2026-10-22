@@ -44,15 +44,25 @@ pub mod mod_test {
         /// with the connection status it sends right after it is built.
         static NEXT_CLIENT: RefCell<Option<(MockMyIotHub, AuthenticationStatus)>> =
             const { RefCell::new(None) };
+        /// Observer senders of the last built client. The real client also
+        /// keeps them until it is destroyed.
+        static CLIENT_SENDERS: RefCell<Option<MyIotHubBuilder>> = const { RefCell::new(None) };
     }
 
-    #[derive(Default)]
+    fn drop_client_senders() {
+        CLIENT_SENDERS.take();
+    }
+
+    #[derive(Clone, Default)]
     pub struct MyIotHubBuilder {
         tx_connection_status: Option<AuthenticationObserver>,
+        tx_twin_desired: Option<TwinObserver>,
+        tx_direct_method: Option<DirectMethodObserver>,
     }
 
     impl MyIotHubBuilder {
         pub fn build_module_client(&self, _connection_string: &str) -> Result<MockMyIotHub> {
+            CLIENT_SENDERS.set(Some(self.clone()));
             let Some((client, status)) = NEXT_CLIENT.take() else {
                 return Ok(MockMyIotHub::default());
             };
@@ -70,11 +80,13 @@ pub mod mod_test {
             self
         }
 
-        pub fn observe_desired_properties(self, _tx_twin_desired: TwinObserver) -> Self {
+        pub fn observe_desired_properties(mut self, tx_twin_desired: TwinObserver) -> Self {
+            self.tx_twin_desired = Some(tx_twin_desired);
             self
         }
 
-        pub fn observe_direct_methods(self, _tx_direct_method: DirectMethodObserver) -> Self {
+        pub fn observe_direct_methods(mut self, tx_direct_method: DirectMethodObserver) -> Self {
+            self.tx_direct_method = Some(tx_direct_method);
             self
         }
     }
@@ -787,7 +799,10 @@ pub mod mod_test {
             client
                 .expect_twin_report()
                 .returning(|_| Err(anyhow!("twin report failed")));
-            client.expect_shutdown().times(1).returning(|_| ());
+            client
+                .expect_shutdown()
+                .times(1)
+                .returning(|_| drop_client_senders());
             // `connect_twin` on Authenticated fails, which ends the run loop with an error
             NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
 
@@ -816,10 +831,10 @@ pub mod mod_test {
             // mockall skips its call count checks while a thread panics
             let shut_down = Arc::new(AtomicBool::new(false));
             let shut_down_in_mock = Arc::clone(&shut_down);
-            client
-                .expect_shutdown()
-                .times(1)
-                .returning(move |_| shut_down_in_mock.store(true, Ordering::SeqCst));
+            client.expect_shutdown().times(1).returning(move |_| {
+                drop_client_senders();
+                shut_down_in_mock.store(true, Ordering::SeqCst);
+            });
             // `connect_twin` on Authenticated panics inside the run loop
             NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
 
@@ -830,6 +845,41 @@ pub mod mod_test {
             assert!(
                 shut_down.load(Ordering::SeqCst),
                 "run must shut down the client on a panic"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_exits_on_closed_observer_channel_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let test = |_: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(1).returning(MyIotHubBuilder::default);
+            let mut client = MockMyIotHub::default();
+            // `connect_twin` on Authenticated reports, and the client loses its senders
+            client.expect_twin_report().returning(|_| {
+                drop_client_senders();
+                Ok(())
+            });
+            client
+                .expect_shutdown()
+                .times(1)
+                .returning(|_| drop_client_senders());
+            NEXT_CLIENT.set(Some((client, AuthenticationStatus::Authenticated)));
+
+            let err = block_on(Twin::run()).expect_err("run must return an error");
+
+            assert!(
+                err.to_string().contains("connection status channel closed"),
+                "unexpected error: {err:#}"
             );
         };
 
