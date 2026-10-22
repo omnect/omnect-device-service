@@ -115,8 +115,10 @@ impl RunUpdateGuard {
     /// them.  Extracted as a free-standing associated function so `Drop` can
     /// move the fields into `spawn_blocking` without borrowing `self`.
     fn do_rollback(bootloader_updated: bool, bootargs_omnect_backup: Option<PathBuf>) {
+        // cannot rollback a stable,bootloader image once flashed
         if bootloader_updated {
-            warn!("bootloader was updated: rollback of the bootloader image not possible");
+            warn!("bootloader was updated: rollback not possible");
+            return;
         }
 
         if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS) {
@@ -1016,53 +1018,44 @@ mod tests {
     }
 
     #[test]
-    fn rollback_bootloader_updated_restores_bootargs_from_backup() {
+    fn rollback_bootloader_updated_does_nothing() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         crate::bootloader_env::clear_mock();
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
 
-        // simulate kernelargs swupdate and apply_bootargs on the bootloader-updated path
-        fs::write(&omnect_path, "new_arg").expect("write omnect file");
-        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "new_arg custom_arg")
-            .expect("set extra bootargs");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "unchanged").expect("set extra bootargs");
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "staged")
+            .expect("set validate extra bootargs");
 
-        rollback(&mut make_guard(true, true, Some(backup_path.clone())));
+        rollback(&mut make_guard(true, true, None));
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
-            "original_arg custom_arg"
+            "unchanged"
         );
         assert_eq!(
-            fs::read_to_string(&omnect_path).expect("read omnect file"),
-            "original_arg",
-            "expected omnect file to be restored from backup"
-        );
-        assert!(
-            !backup_path.exists(),
-            "expected backup file to be cleaned up"
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
+                .expect("get validate extra bootargs"),
+            "staged",
+            "expected validate key to remain when bootloader was updated"
         );
     }
 
     #[test]
     fn rollback_removes_update_validation_config() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
 
-        for bootloader_updated in [false, true] {
-            crate::bootloader_env::clear_mock();
-            let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = tmp.path().join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
-            let config_path = tmp.path().join("update_validation_conf.json");
-            fs::write(&config_path, r#"{"local":true}"#).expect("write config");
-            crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+        rollback(&mut make_guard(true, false, None));
 
-            rollback(&mut make_guard(true, bootloader_updated, None));
-
-            assert!(
-                !config_path.exists(),
-                "expected update validation config to be removed by rollback (bootloader_updated: {bootloader_updated})"
-            );
-        }
+        assert!(
+            !config_path.exists(),
+            "expected update validation config to be removed by rollback"
+        );
     }
 
     #[test]
@@ -1151,7 +1144,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_boot_partition_switch_after_bootloader_update_restores_old_bootargs() {
+    fn failed_boot_partition_switch_after_bootloader_update_keeps_new_bootargs() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1168,10 +1161,6 @@ mod tests {
             "",
             "expected the old partition to stay selected"
         );
-        assert_eq!(
-            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
-            "new_arg custom_arg"
-        );
 
         rollback(&mut guard);
         // Drop would spawn the async rollback without a runtime
@@ -1179,12 +1168,12 @@ mod tests {
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
-            "original_arg custom_arg",
-            "expected the old rootfs to boot with its own bootargs"
+            "new_arg custom_arg",
+            "expected no rollback of the bootargs after a bootloader update"
         );
         assert_eq!(
             fs::read_to_string(&omnect_path).expect("read omnect file"),
-            "original_arg"
+            "new_arg"
         );
     }
 
