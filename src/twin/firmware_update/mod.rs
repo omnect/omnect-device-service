@@ -454,11 +454,27 @@ impl FirmwareUpdate {
             log_file_path!()
         );
 
-        Self::apply_bootargs(bootloader_updated)?;
+        Self::activate_update(&mut guard, &target_partition, validate_iothub_connection)?;
+
+        systemd::reboot("swupdate", "local update").await?;
+
+        info!("update succeeded");
+
+        Ok(None)
+    }
+
+    // finalize right after the boot partition is switched: a rollback must never
+    // run once the next boot selects the new partition
+    fn activate_update(
+        guard: &mut RunUpdateGuard,
+        target_partition: &RootPartition,
+        validate_iothub_connection: bool,
+    ) -> Result<()> {
+        Self::apply_bootargs(guard.bootloader_updated)?;
 
         Self::set_boot_partition(
-            &target_partition,
-            bootloader_updated,
+            target_partition,
+            guard.bootloader_updated,
             validate_iothub_connection,
         )?;
 
@@ -466,11 +482,7 @@ impl FirmwareUpdate {
         // we don't want to rollback if the reboot call fails, but a system reboot is actually triggered
         guard.finalize();
 
-        systemd::reboot("swupdate", "local update").await?;
-
-        info!("update succeeded");
-
-        Ok(None)
+        Ok(())
     }
 
     // with a bootloader update the new partition is booted without validation,
@@ -1103,6 +1115,76 @@ mod tests {
         assert_eq!(
             bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
             ""
+        );
+    }
+
+    // returns the paths of the omnect bootargs file and its backup, with the
+    // state right after a kernelargs swupdate on the bootloader-updated path
+    fn setup_bootloader_updated_files(tmp: &tempfile::TempDir) -> (PathBuf, PathBuf) {
+        let (omnect_path, backup_path) = setup_rollback_files(tmp, "original_arg", "custom_arg");
+        fs::write(&omnect_path, "new_arg").expect("write omnect file");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "original_arg custom_arg")
+            .expect("set extra bootargs");
+        (omnect_path, backup_path)
+    }
+
+    #[test]
+    fn activate_update_with_bootloader_update_keeps_new_bootargs() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (_, backup_path) = setup_bootloader_updated_files(&tmp);
+        let mut guard = make_guard(false, true, Some(backup_path));
+
+        FirmwareUpdate::activate_update(&mut guard, &RootPartition::B, false)
+            .expect("activate update");
+
+        assert!(guard.succeeded, "expected no rollback after the switch");
+        assert_eq!(
+            bootloader_env::get(OMNECT_OS_BOOTPART).expect("get bootpart"),
+            RootPartition::B.index().to_string()
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
+            "new_arg custom_arg"
+        );
+    }
+
+    #[test]
+    fn failed_boot_partition_switch_after_bootloader_update_restores_old_bootargs() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (omnect_path, backup_path) = setup_bootloader_updated_files(&tmp);
+        let mut guard = make_guard(false, true, Some(backup_path));
+        crate::bootloader_env::fail_set_mock(OMNECT_OS_BOOTPART);
+
+        FirmwareUpdate::activate_update(&mut guard, &RootPartition::B, false)
+            .expect_err("expected switch of the boot partition to fail");
+
+        assert!(!guard.succeeded, "expected a rollback");
+        assert_eq!(
+            bootloader_env::get(OMNECT_OS_BOOTPART).expect("get bootpart"),
+            "",
+            "expected the old partition to stay selected"
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
+            "new_arg custom_arg"
+        );
+
+        rollback(&mut guard);
+        // Drop would spawn the async rollback without a runtime
+        guard.finalize();
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
+            "original_arg custom_arg",
+            "expected the old rootfs to boot with its own bootargs"
+        );
+        assert_eq!(
+            fs::read_to_string(&omnect_path).expect("read omnect file"),
+            "original_arg"
         );
     }
 

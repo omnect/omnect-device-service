@@ -23,9 +23,14 @@ mod mock_store {
     use std::{collections::BTreeMap, sync::Mutex};
 
     pub static STORE: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
+    pub static FAILING_KEY: Mutex<Option<String>> = Mutex::new(None);
 
     pub fn store() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
         STORE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn failing_key() -> std::sync::MutexGuard<'static, Option<String>> {
+        FAILING_KEY.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -48,6 +53,10 @@ pub fn set(key: &str, value: &str) -> Result<()> {
 
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
+        anyhow::ensure!(
+            mock_store::failing_key().as_deref() != Some(key),
+            "mock: set {key} failed"
+        );
         let mut guard = mock_store::store();
         guard.insert(key.to_string(), value.to_string());
         Ok(())
@@ -75,6 +84,16 @@ pub fn unset(key: &str) -> Result<()> {
 ))]
 pub(crate) fn clear_mock() {
     mock_store::store().clear();
+    *mock_store::failing_key() = None;
+}
+
+/// Makes every following `set` of `key` fail, until the next `clear_mock`.
+#[cfg(all(
+    not(any(feature = "bootloader_grub", feature = "bootloader_uboot")),
+    test
+))]
+pub(crate) fn fail_set_mock(key: &str) {
+    *mock_store::failing_key() = Some(key.to_string());
 }
 
 /// Shared lock for all tests that mutate the global mock store or
