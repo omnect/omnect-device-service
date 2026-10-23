@@ -1242,3 +1242,28 @@ fn an_exit_log_turns_up_only_once_its_first_entry_is_in_it() {
         "the exit log never turned up at all"
     );
 }
+
+/// Stopping a service must not rate it: nothing reads the result, and the
+/// rating is worked out afresh whenever a check actually asks for one.
+#[test]
+fn the_stop_hook_does_not_rate_the_service_it_logs() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.install_service_log();
+    let marker = sandbox.root().join("the-service-check-ran");
+    write_with_mode(
+        &sandbox.lib().join("omnect_health__services.sh"),
+        &format!("#!/bin/bash\ntouch \"{}\"\n", marker.display()),
+        EXECUTABLE_MODE,
+    );
+
+    sandbox.run_script(
+        "omnect_service_log.sh",
+        &["stop", "picky", "exit-code", "exited", "SEGV"],
+    );
+
+    assert!(
+        !marker.exists(),
+        "stopping a service ran a check whose rating is then thrown away"
+    );
+}

@@ -133,7 +133,6 @@ case "$1" in
     stop)
 	# FIXME: do we need to take care of log file rotation or removal?
 	output_logentry "$SERVICE_EXITLOGFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
-	${HEALTHCHECK_DIR}/omnect_health__services.sh check "$SERVICE" > /dev/null
 	output_exitinfo "$SERVICE_EXITINFOFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
 	if [ ! -r "$SERVICE_EXITINFOFILE_1ST" ]; then
 	    cp -a "$SERVICE_EXITINFOFILE" "$SERVICE_EXITINFOFILE_1ST"
