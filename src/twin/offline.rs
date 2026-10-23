@@ -1,31 +1,30 @@
-// How long the device may stay without an iothub connection before a warning
-// says so. The limit is the wait-online timeout (OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS):
-// at boot, a device that is not online by then is rebooted, so the boot warning
-// comes at half of it; after boot nothing reboots the device, so a lost
-// connection warns once it has lasted the whole limit. A timeout of 0 means the
-// device may stay offline, so it never warns.
-use std::{
-    fmt::Debug,
-    time::{Duration, Instant},
-};
+use crate::systemd::networkd::DEFAULT_WAIT_ONLINE_TIMEOUT;
+use azure_iot_sdk::client::UnauthenticatedReason;
+use std::time::{Duration, Instant};
 
-const DEFAULT_LIMIT: Duration = Duration::from_secs(300);
+// systemd-networkd-wait-online reboots a device that is not online when its
+// timeout ends at boot, so the boot warning must come before that.
+const BOOT_WARNING_DIVISOR: u32 = 2;
 
 pub fn offline_limit(wait_online_timeout: anyhow::Result<Option<Duration>>) -> Option<Duration> {
-    wait_online_timeout.unwrap_or(Some(DEFAULT_LIMIT))
+    wait_online_timeout.unwrap_or(Some(DEFAULT_WAIT_ONLINE_TIMEOUT))
+}
+
+fn boot_warning_at(limit: Duration) -> Duration {
+    limit / BOOT_WARNING_DIVISOR
 }
 
 /// How long from now until the boot warning, if this process started before it.
 pub fn boot_warning_delay(limit: Option<Duration>, uptime: Duration) -> Option<Duration> {
-    let at = limit? / 2;
+    let at = boot_warning_at(limit?);
     (uptime < at).then(|| at - uptime)
 }
 
 pub fn boot_message(limit: Duration) -> String {
-    let limit = limit.as_secs();
     format!(
         "boot: failed to connect to iothub within {} s after boot; if the network is not online at {limit} s after boot, systemd-networkd-wait-online reboots the device (OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS={limit})",
-        limit / 2
+        boot_warning_at(limit).as_secs(),
+        limit = limit.as_secs()
     )
 }
 
@@ -63,9 +62,9 @@ impl OfflineTracker {
         &mut self,
         now: Instant,
         limit: Option<Duration>,
-        reason: impl Debug,
+        reason: UnauthenticatedReason,
     ) -> Option<String> {
-        // until the first connect, the boot warning speaks for this process
+        // until the first connect, only the boot warning applies
         if !self.connected_once && self.has_boot_warning {
             return None;
         }
@@ -91,12 +90,7 @@ impl OfflineTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Debug)]
-    enum Reason {
-        NoNetwork,
-    }
-    use Reason::NoNetwork;
+    use UnauthenticatedReason::NoNetwork;
 
     const T: Duration = Duration::from_secs(300);
 
@@ -106,7 +100,7 @@ mod tests {
         assert_eq!(offline_limit(Ok(None)), None);
         assert_eq!(
             offline_limit(Err(anyhow::anyhow!("service file missing"))),
-            Some(Duration::from_secs(300))
+            Some(DEFAULT_WAIT_ONLINE_TIMEOUT)
         );
     }
 
@@ -126,6 +120,20 @@ mod tests {
         assert_eq!(
             boot_message(T),
             "boot: failed to connect to iothub within 150 s after boot; if the network is not online at 300 s after boot, systemd-networkd-wait-online reboots the device (OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS=300)"
+        );
+    }
+
+    #[test]
+    fn boot_warning_for_an_odd_limit() {
+        let odd = Duration::from_secs(301);
+        assert_eq!(
+            boot_warning_delay(Some(odd), Duration::ZERO),
+            Some(Duration::from_millis(150_500))
+        );
+        assert!(
+            boot_message(odd).starts_with("boot: failed to connect to iothub within 150 s"),
+            "unexpected boot message: {}",
+            boot_message(odd)
         );
     }
 

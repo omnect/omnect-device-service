@@ -994,6 +994,50 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn authenticated_marks_offline_tracker_connected_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            let lost =
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError);
+            block_on(test_attr.twin.handle_connection_status(lost))
+                .expect("handle Unauthenticated");
+            assert!(
+                !test_attr.twin.offline.connected_once(),
+                "Unauthenticated must not count as a connect"
+            );
+
+            block_on(
+                test_attr
+                    .twin
+                    .handle_connection_status(AuthenticationStatus::Authenticated),
+            )
+            .expect("handle Authenticated");
+            assert!(
+                test_attr.twin.offline.connected_once(),
+                "Authenticated must count as a connect"
+            );
+        };
+
+        TestCase::run(
+            test_files,
+            vec![],
+            vec![("SUPPRESS_FACTORY_RESET", "true")],
+            expect,
+            test,
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn only_bad_credential_restarts_client_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 

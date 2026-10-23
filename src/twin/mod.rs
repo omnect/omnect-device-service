@@ -537,14 +537,6 @@ impl Twin {
                     Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
                         return Self::handle_fs_watcher_exit(result);
                     },
-                    Some(()) = &mut boot_warning, if boot_warning_pending => {
-                        boot_warning_pending = false;
-                        if !twin.offline.connected_once()
-                            && let Some(limit) = limit
-                        {
-                            warn!("{}", offline::boot_message(limit));
-                        }
-                    },
                     // before rx_connection_status: the SDK can queue a status of
                     // the new client before the client is returned
                     result = &mut client_created, if twin.client.is_none() => {
@@ -572,6 +564,15 @@ impl Twin {
                             ).await;
                             client_created.set(Self::connect_iothub_client(builder));
                         };
+                    },
+                    // after rx_connection_status: a queued Authenticated comes first
+                    Some(()) = &mut boot_warning, if boot_warning_pending => {
+                        boot_warning_pending = false;
+                        if !twin.offline.connected_once()
+                            && let Some(limit) = limit
+                        {
+                            warn!("{}", offline::boot_message(limit));
+                        }
                     },
                     // the SDK callback thread blocks until a direct method is answered
                     Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
