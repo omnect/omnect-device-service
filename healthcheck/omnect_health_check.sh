@@ -18,7 +18,11 @@ function verify_check_names() {
 
     # a config file that cannot be read tells nothing about the check names,
     # so it is reported as what it is instead of as an unknown name
-    rawknown=$(jq -r 'def flat: tostring | gsub("[\n\r]"; " ");
+    # NOTE:
+    #   the line breaks are replaced without a regular expression, because
+    #   omnect OS builds jq without oniguruma and the regex builtins are not
+    #   available there
+    rawknown=$(jq -r 'def flat: tostring | split("\n") | join(" ") | split("\r") | join(" ");
                       [ .[] | (.name // empty), (.type // empty) ]
                       | unique | .[] | flat' "$cfgfile") \
 	|| { error "config file \"$cfgfile\" could not be read"; return 2; }
@@ -64,7 +68,7 @@ function do__cmd() {
     #   available: on a malformed config file jq prints the entries it could
     #   read before giving up, and checking only those would rate a device
     #   whose remaining checks never ran
-    rawentries=$(jq -r 'def flat: tostring | gsub("[\n\r]"; " "); .[] | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
+    rawentries=$(jq -r 'def flat: tostring | split("\n") | join(" ") | split("\r") | join(" "); .[] | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
 	|| { error "config file \"$cfgfile\" could not be read"; do_rate 2; return 2; }
 
     if [ "$rawentries" ]; then

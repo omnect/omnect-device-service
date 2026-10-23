@@ -374,6 +374,28 @@ exec "{jq}" "$@"
         counter
     }
 
+    /// Installs a `jq` that refuses the regex builtins, the way the one on the
+    /// device does: meta-omnect sets `PACKAGECONFIG:pn-jq = ""`, which makes
+    /// the meta-oe recipe configure jq `--without-oniguruma`.
+    fn stub_jq_without_regex(&self) {
+        self.stub(
+            "jq",
+            &format!(
+                r#"for arg in "$@"; do
+    case "$arg" in
+        *"test("*|*"match("*|*"capture("*|*"scan("*|*"splits("*|*"sub("*)
+            echo "jq: error: jq was compiled without ONIGURUMA regex library" >&2
+            exit 3
+            ;;
+    esac
+done
+exec "{jq}" "$@"
+"#,
+                jq = real_jq().display()
+            ),
+        );
+    }
+
     fn command(&self, script: &str) -> Command {
         let mut command = Command::new(self.lib().join(script));
         self.set_env(&mut command);
@@ -1187,5 +1209,31 @@ fn get_infos_rates_a_core_dump_red() {
         "get-infos must report the core dump it found:\n{}{}",
         report.stdout,
         report.stderr
+    );
+}
+
+#[test]
+fn the_checks_run_on_a_jq_without_regex_support() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.stub_jq_without_regex();
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[GREEN]", "coredumps")],
+        "reading the check configuration must not need the regex builtins:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+
+    let named = sandbox.run_script("omnect_health_check.sh", &["check", "coredumps"]);
+
+    assert_eq!(
+        named.ratings(),
+        [("[GREEN]", "coredumps")],
+        "verifying a check name must not need the regex builtins either:\n{}{}",
+        named.stdout,
+        named.stderr
     );
 }
