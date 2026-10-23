@@ -1,48 +1,45 @@
 #!/bin/bash
 #
 
-. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
-function checkit() {
-    local up now rating since sinces cores
+# prints core dumps of the current system run to stdout
+function find_coredumps() {
+    local up now since sinces
 
     # at first find out time span we want to have core dumps for as we inly want
     # to consider those that happened during this system run
-    rating=0
     now=$(date +%s)
     up=$(set -- $(cat /proc/uptime); echo ${1%.*})
     sinces=$((now - up))
     since="$(date -d '@'"$sinces" +"%Y-%m-%d %H:%M:%S")"
 
-    # cores=$(coredumpctl -q --json pretty --since "$since" | jq -r '. | map(.exe) | unique | join(",\n")')
-    cores=$(coredumpctl -q --since "$since")
-
-    if [ "${cores}" ]; then
-        rating=2
-    fi
-    echo "${cores}"
-    do_rate $rating
-    return $rating
+    coredumpctl -q --since "$since"
 }
 
 function do_check() {
-    checkit > /dev/null
-    print_rating "" "coredumps" "$ME"
-    return $overall_rating
+    local cores rating=0
+
+    cores=$(find_coredumps)
+    [ -z "${cores}" ] || rating=2
+
+    print_rating ${rating} "coredumps" "$ME"
+    do_rate ${rating}
+
+    return ${rating}
 }
 
 function do_get_infos() {
-    local cores retval
+    local cores rating=0
 
-    cores=$(checkit)
-    retval=$?
+    cores=$(find_coredumps)
+    [ -z "${cores}" ] || rating=2
+    do_rate ${rating}
 
-    print_info_header
-    if [ $retval != 0 ]; then
-        echo "$cores"
-    fi
+    print_info_header "${ME}" "${rating}"
+    [ -z "${cores}" ] || echo "${cores}"
 
-    return $retval
+    return ${rating}
 }
 
 command="${1:-check}"
@@ -57,7 +54,8 @@ case "$command" in
         ;;
     get-infos)
         do_get_infos "$@"
+        retval=$?
         ;;
 esac
 
-exit $overall_rating
+exit $retval

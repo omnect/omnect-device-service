@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 
-. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
 # prints crash-looping services to stdout; returns 1 if they cannot be determined
 function find_crash_loops() {
