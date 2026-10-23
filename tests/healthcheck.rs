@@ -1294,3 +1294,30 @@ fn get_infos_shows_the_exit_info_of_a_rated_service() {
         report.stderr
     );
 }
+
+#[test]
+fn a_service_config_that_cannot_be_read_names_the_services_it_fails() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(r#"{ "default-ratings": ["#);
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check", "picky", "choosy"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky"), ("[RED]", "choosy")],
+        "a run that rates red has to say which services it is talking \
+         about:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+
+    let infos = sandbox.run_script("omnect_health__services.sh", &["get-infos", "picky"]);
+
+    assert!(
+        infos.stdout.contains("(picky):RED"),
+        "get-infos has to report the failure just as check does:\n{}{}",
+        infos.stdout,
+        infos.stderr
+    );
+}
+

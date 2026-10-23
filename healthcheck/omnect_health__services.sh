@@ -131,6 +131,27 @@ function report_infos() {
     return 0
 }
 
+# reports the given rating for every service the caller asked for, for the
+# cases in which the configuration does not allow rating them one by one
+#
+# NOTE:
+#   a rating nobody is named in is of no use to the reader: the dispatcher
+#   prints what a check wrote and counts it as run, so returning a rating
+#   without a line of its own leaves an empty line behind and an overall
+#   rating that names no culprit, with the reason on stderr at best
+function report_all() {
+    local report="$1" rating="$2" service
+
+    if [ ${#check_services[@]} -eq 0 ]; then
+        "$report" "$ME" "$rating"
+        return 0
+    fi
+
+    for service in "${check_services[@]}"; do
+        "$report" "$service" "$rating"
+    done
+}
+
 # rates every configured service the caller asked for, plus every service the
 # caller asked for that the configuration does not know, and reports each one
 # through the given report function
@@ -143,7 +164,7 @@ function do__cmd() {
     local report="$1"
     local service rating servicelog services=() known unknown=()
 
-    known=$(configured_services) || { do_rate 2; return 2; }
+    known=$(configured_services) || { do_rate 2; report_all "$report" 2; return 2; }
     [ "$known" ] && mapfile -t services <<<"$known"
 
     for service in "${services[@]}"; do
