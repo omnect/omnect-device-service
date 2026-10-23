@@ -123,10 +123,10 @@ function report_check() {
 # prints what "get-infos" has to say about one service
 function report_infos() {
     local service="$1" rating="$2"
+    local exitinfo="$LOGDIR/${service}.exit-info"
 
     print_info_header "${ME}(${service})" "$rating"
-    [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ] \
-        && cat /var/run/omnect_health_log/${service}.exit-info
+    [ "$rating" != 0 -a -r "$exitinfo" ] && cat "$exitinfo"
 
     return 0
 }

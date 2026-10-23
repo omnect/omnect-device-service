@@ -1272,3 +1272,25 @@ fn a_rating_the_rules_misname_is_not_green() {
         report.stderr
     );
 }
+
+#[test]
+fn get_infos_shows_the_exit_info_of_a_rated_service() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.write_exit_log("picky", "SEGV");
+    fs::write(
+        sandbox.run().join("picky.exit-info"),
+        "picky died of SEGV\n",
+    )
+    .expect("write exit info");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["get-infos"]);
+
+    assert!(
+        report.stdout.contains("picky died of SEGV"),
+        "get-infos has to show the exit info beside the rating it belongs \
+         to:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
