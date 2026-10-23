@@ -27,7 +27,7 @@ The following checks must be passed in order to successfully validate an update:
   - saves current state of update validation, such as restart count and validation timeout/deadline
   - the file is removed as a result of a positive validation
 - /run/omnect-device-service/omnect_validate_update_failed:
-  - created by [initramfs](https://github.com/omnect/meta-omnect/blob/bcaac3baa2948e71a494a958f3db37593031f690/recipes-omnect/initrdscripts/omnect-os-initramfs/omnect-device-service-setup#L80) in case the device boots after the update validation failed
+  - created by [initramfs](https://github.com/omnect/omnect-os-init/blob/main/docs/usage.md#update-validation) in case the device boots after the update validation failed
   - signals that the device was recovered by booting the old rootfs
 - [omnect-device-service.exec_stop_post.sh](../../../systemd/omnect-device-service.exec_stop_post.sh):
   - observes omnect-device-service restarts while update validation is in progress

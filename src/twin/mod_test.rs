@@ -331,7 +331,7 @@ pub mod mod_test {
             mock.expect_twin_report()
                 .with(eq(json!({
                     "device_update_consent": {"version": 1},
-                    "factory_reset": {"version": 3},
+                    "factory_reset": {"version": 4},
                     "firmware_update": {"version": 1},
                     "modem_info": null,
                     "network_status": {"version": 3},
@@ -435,7 +435,9 @@ pub mod mod_test {
                     "factory_reset": {
                         "keys": vec!["certificates", "firewall", "network"],
                         "result": {
-                            "error": "-",
+                            "context": null,
+                            "data_wiped": true,
+                            "error": null,
                             "paths": [],
                             "status": 0,
                         },
