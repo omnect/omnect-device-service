@@ -240,7 +240,14 @@ impl Sandbox {
       if [ "$STALL" = 1 ]; then
           content=$(cat "${{@: -1}}")
           touch "{signal}"
-          while [ ! -e "{release}" ]; do sleep 0.02; done
+          # never wait forever: a test that fails before releasing this
+          # stub would otherwise leave it polling for a file in a sandbox
+          # that has already been taken away
+          waited=0
+          while [ ! -e "{release}" ] && [ $waited -lt 3000 ]; do
+              sleep 0.02
+              waited=$((waited + 1))
+          done
           printf '%s' "$content" | "{jq}" "${{@:1:$#-1}}"
           exit $?
       fi
@@ -934,6 +941,14 @@ fn a_rating_that_was_overtaken_is_not_believed() {
     )
     .expect("record the crash");
     let crash = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    // only now the first rater gets to publish what it saw before the crash;
+    // it is let go before anything is asserted, because a failing assertion
+    // takes the sandbox with it and would leave the rater waiting for a file
+    // in a directory that is no longer there
+    fs::write(&release, "").expect("release the stalled rater");
+    stalled.wait().expect("await stalled rater");
+
     assert_eq!(
         crash.ratings(),
         [("[RED]", "picky")],
@@ -941,10 +956,6 @@ fn a_rating_that_was_overtaken_is_not_believed() {
         crash.stdout,
         crash.stderr
     );
-
-    // only now the first rater gets to publish what it saw before the crash
-    fs::write(&release, "").expect("release the stalled rater");
-    stalled.wait().expect("await stalled rater");
 
     let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
 
