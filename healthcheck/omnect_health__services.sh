@@ -62,17 +62,10 @@ function rate_servicelog() {
     # a service may bring its own ratings, otherwise the defaults apply;
     # either way an entry no rule matched is rated red rather than being left
     # unrated, which would make it count as green
-    #
-    # ratings an older version of this script left in the log are dropped
-    # first, because they were derived from rules that may have been changed
-    # or removed since: keeping them would let a rating survive that the
-    # current rules do not justify anymore, and shield the entry from the red
-    # fallback
     jquery=$(jq -r --arg service "$service" '
         ( first(.services[]? | select(.service == $service))
           // error("no rules for service \($service)") ) as $rules
-        | [ "del(.infos[].rating)" ]
-        + [ ( if ($rules | has("ratings"))
+        | [ ( if ($rules | has("ratings"))
               then $rules.ratings[]?
               else ."default-ratings"[]?
               end
