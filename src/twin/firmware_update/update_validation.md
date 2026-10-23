@@ -88,3 +88,5 @@ In `/var/lib/omnect-device-service/update_validation_conf.json` it can be config
   "local": true
 }
 ```
+
+ods removes the file when it starts and no validated boot is pending (`omnect_validate_update_part` is empty), so an old config does not affect a later update.

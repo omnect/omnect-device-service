@@ -147,14 +147,37 @@ impl UpdateValidation {
     pub async fn new() -> Result<Self> {
         let new_self = match UpdateValidationStatus::init() {
             UpdateValidationStatus::ValidatingTrial(trial) => Self::start_validation(trial == 0)?,
-            status => UpdateValidation {
-                status: Arc::new(RwLock::new(status)),
-                ..Default::default()
-            },
+            status => {
+                Self::remove_stale_config();
+                UpdateValidation {
+                    status: Arc::new(RwLock::new(status)),
+                    ..Default::default()
+                }
+            }
         };
         info!("update validation status: {:?}", new_self.status);
         new_self.report().await;
         Ok(new_self)
+    }
+
+    // the config is only valid while a validated boot is pending, which is
+    // marked by omnect_validate_update_part; u-boot fails to read an unset key,
+    // so a read error counts as empty
+    fn remove_stale_config() {
+        let config_path = update_validation_config_path!();
+        if !matches!(Path::new(&config_path).try_exists(), Ok(true)) {
+            return;
+        }
+
+        if bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART)
+            .unwrap_or_default()
+            .is_empty()
+        {
+            info!("remove stale update validation config");
+            if let Err(e) = fs::remove_file(&config_path) {
+                warn!("failed to remove {config_path}: {e:#}");
+            }
+        }
     }
 
     fn start_validation(first_start: bool) -> Result<Self> {
@@ -497,6 +520,51 @@ mod tests {
                 "deadline for {secs}s remaining is not shorter than the remaining time"
             );
         }
+    }
+
+    fn write_config(dir: &Path) -> std::path::PathBuf {
+        let config_path = dir.join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+        config_path
+    }
+
+    #[test]
+    fn stale_config_is_removed_without_pending_validation() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = write_config(tmp.path());
+
+        UpdateValidation::remove_stale_config();
+
+        assert!(!config_path.exists(), "expected stale config to be removed");
+    }
+
+    #[test]
+    fn config_is_kept_while_validation_is_pending() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = write_config(tmp.path());
+        bootloader_env::set(OMNECT_VALIDATE_UPDATE_PART, "2").expect("set validate part");
+
+        UpdateValidation::remove_stale_config();
+
+        assert!(config_path.exists(), "expected pending config to be kept");
+    }
+
+    #[test]
+    fn missing_config_is_ignored() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = tmp.path().join("update_validation_conf.json");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+
+        UpdateValidation::remove_stale_config();
+
+        assert!(!config_path.exists(), "expected no config to be created");
     }
 
     #[test]
