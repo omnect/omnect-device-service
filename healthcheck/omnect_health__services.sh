@@ -113,7 +113,34 @@ function rate_servicelog() {
     return 2
 }
 
-function do_check() {
+# prints what "check" has to say about one service
+function report_check() {
+    local service="$1" rating="$2"
+
+    print_rating "$rating" "$service" "$ME"
+}
+
+# prints what "get-infos" has to say about one service
+function report_infos() {
+    local service="$1" rating="$2"
+
+    print_info_header "${ME}(${service})" "$rating"
+    [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ] \
+        && cat /var/run/omnect_health_log/${service}.exit-info
+
+    return 0
+}
+
+# rates every configured service the caller asked for, plus every service the
+# caller asked for that the configuration does not know, and reports each one
+# through the given report function
+#
+# NOTE:
+#   both commands share this loop rather than keeping one of their own,
+#   because they differ only in how a service is reported: as long as they
+#   were written out twice, a fix to one of them kept missing the other
+function do__cmd() {
+    local report="$1"
     local service rating servicelog services=() known unknown=()
 
     known=$(configured_services) || { do_rate 2; return 2; }
@@ -130,50 +157,26 @@ function do_check() {
             rating=$?
         fi
 
-        print_rating $rating "$service" "$ME"
         do_rate "$rating"
+        "$report" "$service" "$rating"
     done
 
     mapfile -t unknown < <(unknown_services "${services[@]}")
     for service in "${unknown[@]}"; do
         warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
-        print_rating 1 "$service" "$ME"
         do_rate 1
+        "$report" "$service" 1
     done
-    return $overall_rating
+
+    get_overall_rating
+}
+
+function do_check() {
+    do__cmd report_check
 }
 
 function do_get_infos() {
-    local service rating servicelog services=() known unknown=()
-
-    known=$(configured_services) || { do_rate 2; return 2; }
-    [ "$known" ] && mapfile -t services <<<"$known"
-
-    for service in "${services[@]}"; do
-        rating=0
-
-        [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
-
-        servicelog="$LOGDIR/${service}.exit-log"
-        if [ -r "$servicelog" ]; then
-            rate_servicelog "$service" "$servicelog"
-            rating=$?
-        fi
-
-        do_rate "$rating"
-        print_info_header "${ME}(${service})" "$rating"
-        if [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ]; then
-                cat /var/run/omnect_health_log/${service}.exit-info
-        fi
-    done
-
-    mapfile -t unknown < <(unknown_services "${services[@]}")
-    for service in "${unknown[@]}"; do
-        warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
-        do_rate 1
-        print_info_header "${ME}(${service})" 1
-    done
-    get_overall_rating
+    do__cmd report_infos
 }
 
 if [ ! -r "$CFGFILEPATH" ]; then
