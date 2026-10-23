@@ -8,6 +8,7 @@ mod firmware_update;
 mod mod_test;
 mod modem_info;
 mod network;
+mod offline;
 mod provisioning_config;
 mod reboot;
 mod ssh_tunnel;
@@ -63,33 +64,6 @@ enum TwinState {
     Authenticated,
 }
 
-// A short disconnect after boot is normal, because the network often comes up
-// after this service, so it is logged at info. A disconnect that lasts gets one
-// warning, so a severity filter on the journal still shows an offline device.
-const OFFLINE_WARN_AFTER: time::Duration = time::Duration::from_secs(120);
-
-#[derive(Default)]
-struct OfflineTracker {
-    since: Option<time::Instant>,
-    warned: bool,
-}
-
-impl OfflineTracker {
-    fn connected(&mut self) {
-        *self = Self::default();
-    }
-
-    /// Returns how long the device has been offline, once, when that passes `OFFLINE_WARN_AFTER`.
-    fn disconnected(&mut self, now: time::Instant) -> Option<time::Duration> {
-        let offline = now.duration_since(*self.since.get_or_insert(now));
-        if self.warned || offline < OFFLINE_WARN_AFTER {
-            return None;
-        }
-        self.warned = true;
-        Some(offline)
-    }
-}
-
 pub struct Twin {
     client: Option<IotHubClient>,
     web_service: Option<web_service::WebService>,
@@ -100,7 +74,7 @@ pub struct Twin {
     waiting_for_reboot: bool,
     cancel: CancellationToken,
     fs_watcher_handle: Option<JoinHandle<()>>,
-    offline: OfflineTracker,
+    offline: offline::OfflineTracker,
 }
 
 impl Twin {
@@ -172,7 +146,7 @@ impl Twin {
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
-            offline: OfflineTracker::default(),
+            offline: offline::OfflineTracker::new(time::Instant::now(), false),
             cancel,
             fs_watcher_handle,
         };
@@ -286,11 +260,13 @@ impl Twin {
                     }
                 }
 
-                if let Some(offline) = self.offline.disconnected(time::Instant::now()) {
-                    warn!(
-                        "still not connected to iothub after {} s: {reason:?}",
-                        offline.as_secs()
-                    );
+                let limit =
+                    offline::offline_limit(systemd::networkd::networkd_wait_online_timeout());
+                if let Some(msg) = self
+                    .offline
+                    .disconnected(time::Instant::now(), limit, reason)
+                {
+                    warn!("{msg}");
                 }
             }
         }
@@ -513,6 +489,15 @@ impl Twin {
         )
         .await?;
 
+        let limit = offline::offline_limit(systemd::networkd::networkd_wait_online_timeout());
+        let boot_warning_delay = offline::boot_warning_delay(
+            limit,
+            time::Duration::from_secs(sysinfo::System::uptime()),
+        );
+        twin.offline =
+            offline::OfflineTracker::new(time::Instant::now(), boot_warning_delay.is_some());
+        let mut boot_warning_pending = boot_warning_delay.is_some();
+
         let (client_builder, mut observers) = ClientObservers::builder();
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
@@ -531,6 +516,7 @@ impl Twin {
                 Some(interval) => IntervalStream::new(interval).boxed(),
             };
             let command_requests = Self::select_command_requests(command_requests);
+            let boot_warning = OptionFuture::from(boot_warning_delay.map(tokio::time::sleep));
         };
 
         // `?`, `return` and a panic only leave this block, so every exit runs
@@ -550,6 +536,14 @@ impl Twin {
                     },
                     Some(result) = OptionFuture::from(fs_watcher_handle.as_mut()) => {
                         return Self::handle_fs_watcher_exit(result);
+                    },
+                    Some(()) = &mut boot_warning, if boot_warning_pending => {
+                        boot_warning_pending = false;
+                        if !twin.offline.connected_once()
+                            && let Some(limit) = limit
+                        {
+                            warn!("{}", offline::boot_message(limit));
+                        }
                     },
                     // before rx_connection_status: the SDK can queue a status of
                     // the new client before the client is returned
@@ -639,46 +633,5 @@ impl Twin {
         builder.build_module_client(
             &env::var("CONNECTION_STRING").context("connection string missing")?,
         )
-    }
-}
-
-#[cfg(test)]
-mod offline_tracker_test {
-    use super::*;
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn short_disconnect_does_not_warn() {
-        let start = Instant::now();
-        let mut t = OfflineTracker::default();
-        assert_eq!(t.disconnected(start), None);
-        assert_eq!(t.disconnected(start + Duration::from_secs(60)), None);
-    }
-
-    #[test]
-    fn lasting_disconnect_warns_once() {
-        let start = Instant::now();
-        let mut t = OfflineTracker::default();
-        assert_eq!(t.disconnected(start), None);
-        assert_eq!(
-            t.disconnected(start + OFFLINE_WARN_AFTER),
-            Some(OFFLINE_WARN_AFTER)
-        );
-        assert_eq!(t.disconnected(start + OFFLINE_WARN_AFTER * 3), None);
-    }
-
-    #[test]
-    fn reconnect_starts_over() {
-        let start = Instant::now();
-        let mut t = OfflineTracker::default();
-        t.disconnected(start);
-        t.disconnected(start + OFFLINE_WARN_AFTER);
-        t.connected();
-        let again = start + OFFLINE_WARN_AFTER * 2;
-        assert_eq!(t.disconnected(again), None);
-        assert_eq!(
-            t.disconnected(again + OFFLINE_WARN_AFTER),
-            Some(OFFLINE_WARN_AFTER)
-        );
     }
 }
