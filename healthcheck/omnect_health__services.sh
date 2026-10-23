@@ -89,7 +89,14 @@ function rate_servicelog() {
     #   result at all, which an empty one does -- omnect_service_log.sh
     #   creates a log by redirecting into it, so a check may well meet it
     #   between the truncation and the first entry
-    rating=$(jq -er "$jquery"' | [ ( .infos | map(select(.rating == "red"))    | length ),
+    #
+    # NOTE:
+    #   everything that is not plainly green or yellow counts as red, rather
+    #   than only the literal "red": a rule may name a rating this script does
+    #   not know -- "Red" instead of "red", or no rating attribute at all,
+    #   which leaves the entry with an empty one -- and such an entry has been
+    #   matched by a rule precisely because it is worth reporting
+    rating=$(jq -er "$jquery"' | [ ( .infos | map(select(.rating != "green" and .rating != "yellow")) | length ),
                                    ( .infos | map(select(.rating == "yellow")) | length ) ]
                                | if   .[0] > 0 then 2
                                  elif .[1] > 0 then 1

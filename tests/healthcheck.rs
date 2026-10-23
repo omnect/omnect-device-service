@@ -74,6 +74,22 @@ const PER_SERVICE_RATINGS: &str = r#"{
     ]
 }"#;
 
+/// Two services whose rules name a rating the script cannot know: one gets it
+/// wrong by a capital letter, the other leaves the attribute out altogether.
+const MISNAMED_RATINGS: &str = r#"{
+    "default-ratings": [],
+    "services": [
+        {
+            "service": "typo",
+            "ratings": [ { "condition": ".exitstatus == \"SEGV\"", "rating": "Red" } ]
+        },
+        {
+            "service": "nameless",
+            "ratings": [ { "condition": ".exitstatus == \"SEGV\"" } ]
+        }
+    ]
+}"#;
+
 /// A service whose own rules cover only one condition, so an entry that none of
 /// them matches has to fall back to the unrated default.
 const UNMATCHED_SERVICE_RATING: &str = r#"{
@@ -1235,5 +1251,24 @@ fn the_checks_run_on_a_jq_without_regex_support() {
         "verifying a check name must not need the regex builtins either:\n{}{}",
         named.stdout,
         named.stderr
+    );
+}
+
+#[test]
+fn a_rating_the_rules_misname_is_not_green() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(MISNAMED_RATINGS);
+    sandbox.write_exit_log("typo", "SEGV");
+    sandbox.write_exit_log("nameless", "SEGV");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "typo"), ("[RED]", "nameless")],
+        "a rule that names no rating this script knows must not pass the \
+         entry it matched as healthy:\n{}{}",
+        report.stdout,
+        report.stderr
     );
 }
