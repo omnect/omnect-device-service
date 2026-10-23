@@ -1011,6 +1011,10 @@ pub mod mod_test {
             const LIMIT: Duration = Duration::from_secs(300);
             test_attr.twin.offline =
                 offline::OfflineTracker::new(std::time::Instant::now(), Some(LIMIT), LIMIT);
+            assert!(
+                test_attr.twin.offline.deadline().is_some(),
+                "a process start must start the offline deadline"
+            );
 
             block_on(
                 test_attr

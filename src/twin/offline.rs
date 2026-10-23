@@ -1,13 +1,24 @@
-use crate::systemd::networkd::DEFAULT_WAIT_ONLINE_TIMEOUT;
+use crate::systemd::networkd::{DEFAULT_WAIT_ONLINE_TIMEOUT, networkd_wait_online_timeout};
 use azure_iot_sdk::client::UnauthenticatedReason;
+use log::warn;
 use std::time::{Duration, Instant};
 
 // systemd-networkd-wait-online reboots a device that is not online when its
 // timeout ends at boot, so the boot warning must come before that.
 const BOOT_WARNING_DIVISOR: u32 = 2;
 
-pub fn offline_limit(wait_online_timeout: anyhow::Result<Option<Duration>>) -> Option<Duration> {
-    wait_online_timeout.unwrap_or(Some(DEFAULT_WAIT_ONLINE_TIMEOUT))
+pub fn read_offline_limit() -> Option<Duration> {
+    offline_limit(networkd_wait_online_timeout())
+}
+
+fn offline_limit(wait_online_timeout: anyhow::Result<Option<Duration>>) -> Option<Duration> {
+    wait_online_timeout.unwrap_or_else(|e| {
+        let default = DEFAULT_WAIT_ONLINE_TIMEOUT.as_secs();
+        warn!(
+            "cannot read the wait-online timeout, use {default} s for the offline warning: {e:#}"
+        );
+        Some(DEFAULT_WAIT_ONLINE_TIMEOUT)
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -19,7 +30,8 @@ enum Since {
 
 pub struct OfflineTracker {
     limit: Option<Duration>,
-    deadline: Option<(Instant, Since)>,
+    // the limit is kept with its deadline, so a new limit applies to the next outage only
+    deadline: Option<(Instant, Since, Duration)>,
     reason: Option<UnauthenticatedReason>,
 }
 
@@ -32,7 +44,7 @@ impl OfflineTracker {
                 Some(delay) if !delay.is_zero() => (delay, Since::Boot),
                 _ => (limit, Since::ProcessStart),
             };
-            Some((now.checked_add(delay)?, since))
+            Some((now.checked_add(delay)?, since, limit))
         });
         Self {
             limit,
@@ -42,7 +54,7 @@ impl OfflineTracker {
     }
 
     pub fn deadline(&self) -> Option<Instant> {
-        self.deadline.map(|(at, _)| at)
+        self.deadline.map(|(at, ..)| at)
     }
 
     pub fn set_limit(&mut self, limit: Option<Duration>) {
@@ -59,15 +71,14 @@ impl OfflineTracker {
         if was_online {
             self.deadline = self
                 .limit
-                .and_then(|limit| Some((now.checked_add(limit)?, Since::ConnectionLost)));
+                .and_then(|limit| Some((now.checked_add(limit)?, Since::ConnectionLost, limit)));
         }
     }
 
     /// The warning of a passed deadline. There is one deadline per outage.
     pub fn expired(&mut self, now: Instant) -> Option<String> {
-        let (_, since) = self.deadline.filter(|(at, _)| *at <= now)?;
+        let (_, since, limit) = self.deadline.filter(|(at, ..)| *at <= now)?;
         self.deadline = None;
-        let limit = self.limit?;
         let reason = self
             .reason
             .map(|r| format!(" (last reason: {r:?})"))
@@ -227,5 +238,21 @@ mod tests {
         t.set_limit(Some(LATE));
         t.disconnected(start, NoNetwork, true);
         assert_eq!(t.deadline(), Some(start + LATE));
+    }
+
+    #[test]
+    fn new_limit_keeps_the_running_outage() {
+        let start = Instant::now();
+        let mut t = OfflineTracker::new(start, Some(T), EARLY);
+        t.connected();
+        t.disconnected(start, NoNetwork, true);
+        t.set_limit(None);
+        assert_eq!(t.deadline(), Some(start + T));
+        assert_eq!(
+            t.expired(start + T).as_deref(),
+            Some(
+                "runtime: failed to connect to iothub for 300 s since the connection was lost (last reason: NoNetwork)"
+            )
+        );
     }
 }

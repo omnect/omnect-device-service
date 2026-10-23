@@ -148,7 +148,7 @@ impl Twin {
             waiting_for_reboot: false,
             offline: offline::OfflineTracker::new(
                 time::Instant::now(),
-                offline::offline_limit(systemd::networkd::networkd_wait_online_timeout()),
+                offline::read_offline_limit(),
                 time::Duration::from_secs(sysinfo::System::uptime()),
             ),
             cancel,
@@ -328,10 +328,9 @@ impl Twin {
             Err(e) => error!("handle_request: {cmd_string} returned error: {e:#}"),
         }
 
-        if result.is_ok() && matches!(cmd, Command::SetWaitOnlineTimeout(_)) {
-            self.offline.set_limit(offline::offline_limit(
-                systemd::networkd::networkd_wait_online_timeout(),
-            ));
+        // also after an error: the env file may be written before a later step fails
+        if matches!(cmd, Command::SetWaitOnlineTimeout(_)) {
+            self.offline.set_limit(offline::read_offline_limit());
         }
 
         // a failed command doesn't reboot, so further requests must be handled
