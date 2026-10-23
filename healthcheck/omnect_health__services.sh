@@ -51,7 +51,7 @@ function unknown_services() {
 #   save by keeping one.
 function rate_servicelog() {
     local service="$1" servicelog="$2"
-    local jquery counts red yellow
+    local jquery rating
 
     # NOTE:
     #   the rules are looked up by the name of the service, not by the place
@@ -83,17 +83,27 @@ function rate_servicelog() {
         || { error "rating rules for service \"$service\" could not be read"; return 2; }
 
     # NOTE:
-    #   the entries are rated and counted in a single pass, and a log jq
-    #   cannot read through is an error rather than a log without findings
-    counts=$(jq -r "$jquery"' | [ ( .infos | map(select(.rating == "red")) | length ),
-                                  ( .infos | map(select(.rating == "yellow")) | length )
-                                ] | join(" ")' "$servicelog") \
+    #   the entries are rated and counted in a single pass, and the rating is
+    #   worked out where the entries are, so that the only thing left to do
+    #   here is to recognise it; "-e" makes jq say so when a log yielded no
+    #   result at all, which an empty one does -- omnect_service_log.sh
+    #   creates a log by redirecting into it, so a check may well meet it
+    #   between the truncation and the first entry
+    rating=$(jq -er "$jquery"' | [ ( .infos | map(select(.rating == "red"))    | length ),
+                                   ( .infos | map(select(.rating == "yellow")) | length ) ]
+                               | if   .[0] > 0 then 2
+                                 elif .[1] > 0 then 1
+                                 else 0
+                                 end' "$servicelog") \
         || { error "exit log \"$servicelog\" could not be rated"; return 2; }
-    read -r red yellow <<<"$counts"
 
-    [ "$red" -gt 0 ] && return 2
-    [ "$yellow" -gt 0 ] && return 1
-    return 0
+    # a log that did not yield one of the three ratings has not been rated at
+    # all, and an unrated log must not pass as a healthy one
+    case "$rating" in
+        0|1|2) return "$rating" ;;
+    esac
+    error "exit log \"$servicelog\" was rated \"$rating\""
+    return 2
 }
 
 function do_check() {

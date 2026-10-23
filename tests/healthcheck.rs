@@ -1053,6 +1053,26 @@ fn a_rule_rewritten_within_the_second_is_not_missed() {
 }
 
 #[test]
+fn an_empty_exit_log_is_not_rated_green() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    // omnect_service_log.sh creates a log by redirecting into it, so a check
+    // running at that very moment finds it readable and empty
+    fs::write(sandbox.run().join("picky.exit-log"), "").expect("write empty exit log");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "picky")],
+        "a log that yielded no rating at all must not pass as a healthy \
+         one:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
 fn a_service_is_rated_by_its_own_rules_after_a_reordering() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(PER_SERVICE_RATINGS);
