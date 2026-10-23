@@ -164,6 +164,18 @@ function do__cmd() {
     local report="$1"
     local service rating servicelog services=() known unknown=()
 
+    # NOTE:
+    #   a missing configuration is reported here rather than before the
+    #   command is known, because what it means depends on what was asked
+    #   for: the services named on the command line are then of unknown
+    #   health, which is yellow, not green
+    if [ ! -r "$CFGFILEPATH" ]; then
+        warn "no configuration file (${CFGFILEPATH}) found, don't know what to do."
+        do_rate 1
+        report_all "$report" 1
+        return 1
+    fi
+
     known=$(configured_services) || { do_rate 2; report_all "$report" 2; return 2; }
     [ "$known" ] && mapfile -t services <<<"$known"
 
@@ -199,11 +211,6 @@ function do_check() {
 function do_get_infos() {
     do__cmd report_infos
 }
-
-if [ ! -r "$CFGFILEPATH" ]; then
-    warn "no configuration file (${CFGFILEPATH}) found, don't know what to do."
-    exit 0
-fi
 
 command="${1:-check}"
 [ "$1" ] && shift

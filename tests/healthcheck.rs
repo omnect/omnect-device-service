@@ -1320,4 +1320,25 @@ fn a_service_config_that_cannot_be_read_names_the_services_it_fails() {
         infos.stderr
     );
 }
+#[test]
+fn a_missing_service_config_is_not_rated_green() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    fs::remove_file(sandbox.etc().join("omnect_service_log_analysis.json"))
+        .expect("remove service log config");
 
+    let report = sandbox.run_script("omnect_health__services.sh", &["check", "picky"]);
+
+    assert_eq!(
+        report.rating, RATING_YELLOW,
+        "a service nothing is known about is of unknown health, not of good \
+         health:\n{}{}",
+        report.stdout, report.stderr
+    );
+    assert_eq!(
+        report.ratings(),
+        [("[YELLOW]", "picky")],
+        "the service nothing is known about has to be named:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
