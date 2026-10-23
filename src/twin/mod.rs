@@ -49,7 +49,7 @@ use std::{
     path::Path,
     time,
 };
-use tokio::{select, sync::mpsc, task::JoinHandle};
+use tokio::{select, sync::mpsc, task::JoinHandle, time::sleep_until};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::sync::CancellationToken;
 
@@ -231,7 +231,8 @@ impl Twin {
                 }
             }
             AuthenticationStatus::Unauthenticated(reason) => {
-                if self.state == TwinState::Authenticated {
+                let was_online = self.state == TwinState::Authenticated;
+                if was_online {
                     self.state = TwinState::Initialized;
                 }
 
@@ -264,7 +265,8 @@ impl Twin {
                     }
                 }
 
-                self.offline.disconnected(time::Instant::now(), reason);
+                self.offline
+                    .disconnected(time::Instant::now(), reason, was_online);
             }
         }
 
@@ -324,6 +326,12 @@ impl Twin {
                 info!("handle_request: {cmd_string} succeeded with result: {inner_result:?}")
             }
             Err(e) => error!("handle_request: {cmd_string} returned error: {e:#}"),
+        }
+
+        if result.is_ok() && matches!(cmd, Command::SetWaitOnlineTimeout(_)) {
+            self.offline.set_limit(offline::offline_limit(
+                systemd::networkd::networkd_wait_online_timeout(),
+            ));
         }
 
         // a failed command doesn't reboot, so further requests must be handled
@@ -553,9 +561,9 @@ impl Twin {
                         };
                     },
                     // after rx_connection_status: a queued Authenticated comes first
-                    Some(()) = OptionFuture::from(twin.offline.deadline().map(|at| {
-                        tokio::time::sleep_until(tokio::time::Instant::from_std(at))
-                    })) => {
+                    Some(()) = OptionFuture::from(
+                        twin.offline.deadline().map(|at| sleep_until(at.into()))
+                    ) => {
                         if let Some(msg) = twin.offline.expired(time::Instant::now()) {
                             warn!("{msg}");
                         }

@@ -10,7 +10,7 @@ pub fn offline_limit(wait_online_timeout: anyhow::Result<Option<Duration>>) -> O
     wait_online_timeout.unwrap_or(Some(DEFAULT_WAIT_ONLINE_TIMEOUT))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy)]
 enum Since {
     Boot,
     ProcessStart,
@@ -19,7 +19,6 @@ enum Since {
 
 pub struct OfflineTracker {
     limit: Option<Duration>,
-    online: bool,
     deadline: Option<(Instant, Since)>,
     reason: Option<UnauthenticatedReason>,
 }
@@ -37,7 +36,6 @@ impl OfflineTracker {
         });
         Self {
             limit,
-            online: false,
             deadline,
             reason: None,
         }
@@ -47,16 +45,18 @@ impl OfflineTracker {
         self.deadline.map(|(at, _)| at)
     }
 
+    pub fn set_limit(&mut self, limit: Option<Duration>) {
+        self.limit = limit;
+    }
+
     pub fn connected(&mut self) {
-        self.online = true;
         self.deadline = None;
         self.reason = None;
     }
 
-    pub fn disconnected(&mut self, now: Instant, reason: UnauthenticatedReason) {
+    pub fn disconnected(&mut self, now: Instant, reason: UnauthenticatedReason, was_online: bool) {
         self.reason = Some(reason);
-        if self.online {
-            self.online = false;
+        if was_online {
             self.deadline = self
                 .limit
                 .and_then(|limit| Some((now.checked_add(limit)?, Since::ConnectionLost)));
@@ -74,9 +74,8 @@ impl OfflineTracker {
             .unwrap_or_default();
         Some(match since {
             Since::Boot => format!(
-                "boot: failed to connect to iothub within {} s after boot{reason}; systemd-networkd-wait-online reboots the device if the network is not online within its timeout ({} s, OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS)",
-                (limit / BOOT_WARNING_DIVISOR).as_secs(),
-                limit.as_secs()
+                "boot: failed to connect to iothub within {} s after boot{reason}",
+                (limit / BOOT_WARNING_DIVISOR).as_secs()
             ),
             Since::ProcessStart => format!(
                 "runtime: failed to connect to iothub for {} s since this process started{reason}",
@@ -139,7 +138,7 @@ mod tests {
         let mut t = OfflineTracker::new(start, None, EARLY);
         assert_eq!(t.deadline(), None);
         t.connected();
-        t.disconnected(start, NoNetwork);
+        t.disconnected(start, NoNetwork, true);
         assert_eq!(t.deadline(), None);
         assert_eq!(t.expired(start + LATE), None);
     }
@@ -151,7 +150,7 @@ mod tests {
         let mut t = OfflineTracker::new(start, huge, EARLY);
         assert_eq!(t.deadline(), None);
         t.connected();
-        t.disconnected(start, NoNetwork);
+        t.disconnected(start, NoNetwork, true);
         assert_eq!(t.deadline(), None);
     }
 
@@ -159,16 +158,16 @@ mod tests {
     fn boot_warning_once_without_a_connect() {
         let start = Instant::now();
         let mut t = OfflineTracker::new(start, Some(T), EARLY);
-        t.disconnected(start, NoNetwork);
+        t.disconnected(start, NoNetwork, false);
         let at = t.deadline().expect("boot deadline");
         assert_eq!(t.expired(at - EARLY), None);
         assert_eq!(
             t.expired(at).as_deref(),
             Some(
-                "boot: failed to connect to iothub within 150 s after boot (last reason: NoNetwork); systemd-networkd-wait-online reboots the device if the network is not online within its timeout (300 s, OMNECT_WAIT_ONLINE_TIMEOUT_IN_SECS)"
+                "boot: failed to connect to iothub within 150 s after boot (last reason: NoNetwork)"
             )
         );
-        t.disconnected(at, NoNetwork);
+        t.disconnected(at, NoNetwork, false);
         assert_eq!(t.deadline(), None);
     }
 
@@ -197,8 +196,8 @@ mod tests {
         let mut t = OfflineTracker::new(start, Some(T), EARLY);
         t.connected();
         let lost = start + T;
-        t.disconnected(lost, NoNetwork);
-        t.disconnected(lost + EARLY, NoNetwork);
+        t.disconnected(lost, NoNetwork, true);
+        t.disconnected(lost + EARLY, NoNetwork, false);
         assert_eq!(t.deadline(), Some(lost + T));
         assert_eq!(
             t.expired(lost + T).as_deref(),
@@ -206,12 +205,27 @@ mod tests {
                 "runtime: failed to connect to iothub for 300 s since the connection was lost (last reason: NoNetwork)"
             )
         );
-        t.disconnected(lost + T * 2, NoNetwork);
+        t.disconnected(lost + T * 2, NoNetwork, false);
         assert_eq!(t.deadline(), None);
 
         t.connected();
         let again = lost + T * 4;
-        t.disconnected(again, NoNetwork);
+        t.disconnected(again, NoNetwork, true);
         assert_eq!(t.deadline(), Some(again + T));
+    }
+
+    #[test]
+    fn new_limit_applies_to_the_next_outage() {
+        let start = Instant::now();
+        let mut t = OfflineTracker::new(start, Some(T), EARLY);
+        t.connected();
+        t.set_limit(None);
+        t.disconnected(start, NoNetwork, true);
+        assert_eq!(t.deadline(), None);
+
+        t.connected();
+        t.set_limit(Some(LATE));
+        t.disconnected(start, NoNetwork, true);
+        assert_eq!(t.deadline(), Some(start + LATE));
     }
 }
