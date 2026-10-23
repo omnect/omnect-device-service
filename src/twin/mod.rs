@@ -63,6 +63,33 @@ enum TwinState {
     Authenticated,
 }
 
+// A short disconnect after boot is normal, because the network often comes up
+// after this service, so it is logged at info. A disconnect that lasts gets one
+// warning, so a severity filter on the journal still shows an offline device.
+const OFFLINE_WARN_AFTER: time::Duration = time::Duration::from_secs(120);
+
+#[derive(Default)]
+struct OfflineTracker {
+    since: Option<time::Instant>,
+    warned: bool,
+}
+
+impl OfflineTracker {
+    fn connected(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Returns how long the device has been offline, once, when that passes `OFFLINE_WARN_AFTER`.
+    fn disconnected(&mut self, now: time::Instant) -> Option<time::Duration> {
+        let offline = now.duration_since(*self.since.get_or_insert(now));
+        if self.warned || offline < OFFLINE_WARN_AFTER {
+            return None;
+        }
+        self.warned = true;
+        Some(offline)
+    }
+}
+
 pub struct Twin {
     client: Option<IotHubClient>,
     web_service: Option<web_service::WebService>,
@@ -73,6 +100,7 @@ pub struct Twin {
     waiting_for_reboot: bool,
     cancel: CancellationToken,
     fs_watcher_handle: Option<JoinHandle<()>>,
+    offline: OfflineTracker,
 }
 
 impl Twin {
@@ -144,6 +172,7 @@ impl Twin {
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
+            offline: OfflineTracker::default(),
             cancel,
             fs_watcher_handle,
         };
@@ -216,6 +245,7 @@ impl Twin {
             AuthenticationStatus::Authenticated => {
                 if self.state != TwinState::Authenticated {
                     info!("Succeeded to connect to iothub");
+                    self.offline.connected();
 
                     self.connect_twin().await?;
 
@@ -254,6 +284,13 @@ impl Twin {
                     UnauthenticatedReason::DeviceDisabled => {
                         warn!("Failed to connect to iothub: {reason:?}")
                     }
+                }
+
+                if let Some(offline) = self.offline.disconnected(time::Instant::now()) {
+                    warn!(
+                        "still not connected to iothub after {} s: {reason:?}",
+                        offline.as_secs()
+                    );
                 }
             }
         }
@@ -602,5 +639,46 @@ impl Twin {
         builder.build_module_client(
             &env::var("CONNECTION_STRING").context("connection string missing")?,
         )
+    }
+}
+
+#[cfg(test)]
+mod offline_tracker_test {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn short_disconnect_does_not_warn() {
+        let start = Instant::now();
+        let mut t = OfflineTracker::default();
+        assert_eq!(t.disconnected(start), None);
+        assert_eq!(t.disconnected(start + Duration::from_secs(60)), None);
+    }
+
+    #[test]
+    fn lasting_disconnect_warns_once() {
+        let start = Instant::now();
+        let mut t = OfflineTracker::default();
+        assert_eq!(t.disconnected(start), None);
+        assert_eq!(
+            t.disconnected(start + OFFLINE_WARN_AFTER),
+            Some(OFFLINE_WARN_AFTER)
+        );
+        assert_eq!(t.disconnected(start + OFFLINE_WARN_AFTER * 3), None);
+    }
+
+    #[test]
+    fn reconnect_starts_over() {
+        let start = Instant::now();
+        let mut t = OfflineTracker::default();
+        t.disconnected(start);
+        t.disconnected(start + OFFLINE_WARN_AFTER);
+        t.connected();
+        let again = start + OFFLINE_WARN_AFTER * 2;
+        assert_eq!(t.disconnected(again), None);
+        assert_eq!(
+            t.disconnected(again + OFFLINE_WARN_AFTER),
+            Some(OFFLINE_WARN_AFTER)
+        );
     }
 }
