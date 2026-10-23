@@ -46,14 +46,27 @@ function output_logentry() {
     local exitcode="$5"
     local exitstatus="$6"
     
+    # NOTE: a check may read this log at any moment, so every version of it
+    #	    is assembled under a temporary name and moved into place in one
+    #	    step. Writing to the log itself would expose it empty, then half
+    #	    written, and a reader cannot tell either from a log of a service
+    #	    that simply has nothing to report.
+    local failed=0
     if [ -r "${outputfile}" ]; then
 	# append new entry in existing file
-	jq '.infos += [{ timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' }]' < "$outputfile" > "${outputfile}.tmp"
-	mv  "${outputfile}.tmp" "${outputfile}"
+	jq '.infos += [{ timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' }]' < "$outputfile" > "${outputfile}.tmp" || failed=1
     else
 	# create new file
-	jq -n '{ service: "'"$service"'", infos: [ { timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' } ] }' > "$outputfile"
+	jq -n '{ service: "'"$service"'", infos: [ { timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' } ] }' > "${outputfile}.tmp" || failed=1
     fi
+
+    if [ $failed -ne 0 ]; then
+	rm -f "${outputfile}.tmp"
+	fatal "couldn't write a log entry for service \"$service\""
+	return 1
+    fi
+
+    mv "${outputfile}.tmp" "${outputfile}"
 }
 
 function output_exitinfo() {
@@ -75,7 +88,9 @@ Timestamp:   $timestamp
 ----------------------------------------
 EOF
 	journalctl -b0 --no-pager -l -u "$service"
-    } > "$outputfile"
+    } > "${outputfile}.tmp"
+
+    mv "${outputfile}.tmp" "${outputfile}"
 }
 
 case "$1" in

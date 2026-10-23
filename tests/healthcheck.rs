@@ -14,6 +14,7 @@ use tempfile::TempDir;
 const HEALTHCHECK_SRC: &str = "healthcheck";
 const HEALTHCHECK_DIR_ASSIGNMENT: &str = "HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck";
 const CFGFILEDIR_ASSIGNMENT: &str = "CFGFILEDIR=/etc/omnect/health_check";
+const SERVICE_EXITLOGDIR_ASSIGNMENT: &str = "SERVICE_EXITLOGDIR=/var/run/${SERVICE_EXITLOGDIRNAME}";
 
 /// meta-omnect installs the check scripts executable and the library readable.
 const EXECUTABLE_MODE: u32 = 0o755;
@@ -286,6 +287,57 @@ impl Sandbox {
             &self.lib().join("omnect_health_check.sh"),
             &redirected,
             EXECUTABLE_MODE,
+        );
+    }
+
+    /// Installs `omnect_service_log.sh`, the StopPost hook that writes the
+    /// exit logs these checks read, with its deployment paths redirected at
+    /// the sandbox.
+    fn install_service_log(&self) {
+        let source = read_script("omnect_service_log.sh");
+        for assignment in [HEALTHCHECK_DIR_ASSIGNMENT, SERVICE_EXITLOGDIR_ASSIGNMENT] {
+            assert!(
+                source.contains(assignment),
+                "omnect_service_log.sh no longer contains \"{assignment}\""
+            );
+        }
+
+        let redirected = source
+            .replace(
+                HEALTHCHECK_DIR_ASSIGNMENT,
+                &format!("HEALTHCHECK_DIR={}", self.lib().display()),
+            )
+            .replace(
+                SERVICE_EXITLOGDIR_ASSIGNMENT,
+                &format!("SERVICE_EXITLOGDIR={}", self.run().display()),
+            );
+        write_with_mode(
+            &self.lib().join("omnect_service_log.sh"),
+            &redirected,
+            EXECUTABLE_MODE,
+        );
+        self.stub("journalctl", "echo \"stub journal\"\n");
+    }
+
+    /// Installs a `jq` that records what a check would have found at the exit
+    /// log's own path at the moment the first entry is being written.
+    fn stub_jq_watching_the_exit_log(&self, service: &str, observed: &Path) {
+        self.stub(
+            "jq",
+            &format!(
+                r#"if [ "$1" = "-n" ]; then
+    if [ -e "{log}" ]; then
+        printf 'present with %s bytes\n' "$(wc -c < "{log}")" >>"{observed}"
+    else
+        printf 'absent\n' >>"{observed}"
+    fi
+fi
+exec "{jq}" "$@"
+"#,
+                log = self.run().join(format!("{service}.exit-log")).display(),
+                observed = observed.display(),
+                jq = real_jq().display()
+            ),
         );
     }
 
@@ -1160,5 +1212,33 @@ fn a_missing_service_config_is_not_rated_green() {
         "the service nothing is known about has to be named:\n{}{}",
         report.stdout,
         report.stderr
+    );
+}
+
+/// The service check reads the exit logs while services are being stopped, so
+/// a log must not turn up under its final name before it holds an entry.
+#[test]
+fn an_exit_log_turns_up_only_once_its_first_entry_is_in_it() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.install_service_log();
+    let observed = sandbox.root().join("seen-while-writing");
+    sandbox.stub_jq_watching_the_exit_log("picky", &observed);
+
+    sandbox.run_script(
+        "omnect_service_log.sh",
+        &["stop", "picky", "exit-code", "exited", "SEGV"],
+    );
+
+    let seen = fs::read_to_string(&observed).expect("the first entry was never written");
+    assert_eq!(
+        seen.trim(),
+        "absent",
+        "a check reading the exit log while it was created would have found it {}",
+        seen.trim()
+    );
+    assert!(
+        sandbox.run().join("picky.exit-log").exists(),
+        "the exit log never turned up at all"
     );
 }
