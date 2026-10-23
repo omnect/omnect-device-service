@@ -146,7 +146,11 @@ impl Twin {
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
-            offline: offline::OfflineTracker::new(time::Instant::now(), false),
+            offline: offline::OfflineTracker::new(
+                time::Instant::now(),
+                offline::offline_limit(systemd::networkd::networkd_wait_online_timeout()),
+                time::Duration::from_secs(sysinfo::System::uptime()),
+            ),
             cancel,
             fs_watcher_handle,
         };
@@ -260,14 +264,7 @@ impl Twin {
                     }
                 }
 
-                let limit =
-                    offline::offline_limit(systemd::networkd::networkd_wait_online_timeout());
-                if let Some(msg) = self
-                    .offline
-                    .disconnected(time::Instant::now(), limit, reason)
-                {
-                    warn!("{msg}");
-                }
+                self.offline.disconnected(time::Instant::now(), reason);
             }
         }
 
@@ -489,15 +486,6 @@ impl Twin {
         )
         .await?;
 
-        let limit = offline::offline_limit(systemd::networkd::networkd_wait_online_timeout());
-        let boot_warning_delay = offline::boot_warning_delay(
-            limit,
-            time::Duration::from_secs(sysinfo::System::uptime()),
-        );
-        twin.offline =
-            offline::OfflineTracker::new(time::Instant::now(), boot_warning_delay.is_some());
-        let mut boot_warning_pending = boot_warning_delay.is_some();
-
         let (client_builder, mut observers) = ClientObservers::builder();
 
         let mut signals = Signals::new(TERM_SIGNALS)?;
@@ -516,7 +504,6 @@ impl Twin {
                 Some(interval) => IntervalStream::new(interval).boxed(),
             };
             let command_requests = Self::select_command_requests(command_requests);
-            let boot_warning = OptionFuture::from(boot_warning_delay.map(tokio::time::sleep));
         };
 
         // `?`, `return` and a panic only leave this block, so every exit runs
@@ -566,12 +553,11 @@ impl Twin {
                         };
                     },
                     // after rx_connection_status: a queued Authenticated comes first
-                    Some(()) = &mut boot_warning, if boot_warning_pending => {
-                        boot_warning_pending = false;
-                        if !twin.offline.connected_once()
-                            && let Some(limit) = limit
-                        {
-                            warn!("{}", offline::boot_message(limit));
+                    Some(()) = OptionFuture::from(twin.offline.deadline().map(|at| {
+                        tokio::time::sleep_until(tokio::time::Instant::from_std(at))
+                    })) => {
+                        if let Some(msg) = twin.offline.expired(time::Instant::now()) {
+                            warn!("{msg}");
                         }
                     },
                     // the SDK callback thread blocks until a direct method is answered

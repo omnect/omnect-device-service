@@ -994,7 +994,7 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn authenticated_marks_offline_tracker_connected_test() {
+    async fn connection_status_drives_offline_deadline_test() {
         let test_files = vec![
             "testfiles/positive/os-release",
             "testfiles/positive/consent_conf.json",
@@ -1007,14 +1007,10 @@ pub mod mod_test {
         };
 
         let test = |test_attr: &mut TestConfig| {
-            let lost =
-                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError);
-            block_on(test_attr.twin.handle_connection_status(lost))
-                .expect("handle Unauthenticated");
-            assert!(
-                !test_attr.twin.offline.connected_once(),
-                "Unauthenticated must not count as a connect"
-            );
+            // a fixed limit: a parallel test may point the wait-online env file at timeout 0
+            const LIMIT: Duration = Duration::from_secs(300);
+            test_attr.twin.offline =
+                offline::OfflineTracker::new(std::time::Instant::now(), Some(LIMIT), LIMIT);
 
             block_on(
                 test_attr
@@ -1023,8 +1019,17 @@ pub mod mod_test {
             )
             .expect("handle Authenticated");
             assert!(
-                test_attr.twin.offline.connected_once(),
-                "Authenticated must count as a connect"
+                test_attr.twin.offline.deadline().is_none(),
+                "Authenticated must stop the offline deadline"
+            );
+
+            let lost =
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError);
+            block_on(test_attr.twin.handle_connection_status(lost))
+                .expect("handle Unauthenticated");
+            assert!(
+                test_attr.twin.offline.deadline().is_some(),
+                "a lost connection must start the offline deadline"
             );
         };
 
