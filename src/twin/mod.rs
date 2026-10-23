@@ -8,6 +8,7 @@ mod firmware_update;
 mod mod_test;
 mod modem_info;
 mod network;
+mod offline;
 mod provisioning_config;
 mod reboot;
 mod ssh_tunnel;
@@ -48,7 +49,7 @@ use std::{
     path::Path,
     time,
 };
-use tokio::{select, sync::mpsc, task::JoinHandle};
+use tokio::{select, sync::mpsc, task::JoinHandle, time::sleep_until};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::sync::CancellationToken;
 
@@ -73,6 +74,7 @@ pub struct Twin {
     waiting_for_reboot: bool,
     cancel: CancellationToken,
     fs_watcher_handle: Option<JoinHandle<()>>,
+    offline: offline::OfflineTracker,
 }
 
 impl Twin {
@@ -144,6 +146,11 @@ impl Twin {
             state: TwinState::Uninitialized,
             features,
             waiting_for_reboot: false,
+            offline: offline::OfflineTracker::new(
+                time::Instant::now(),
+                offline::read_offline_limit(),
+                time::Duration::from_secs(sysinfo::System::uptime()),
+            ),
             cancel,
             fs_watcher_handle,
         };
@@ -216,6 +223,7 @@ impl Twin {
             AuthenticationStatus::Authenticated => {
                 if self.state != TwinState::Authenticated {
                     info!("Succeeded to connect to iothub");
+                    self.offline.connected();
 
                     self.connect_twin().await?;
 
@@ -223,7 +231,8 @@ impl Twin {
                 }
             }
             AuthenticationStatus::Unauthenticated(reason) => {
-                if self.state == TwinState::Authenticated {
+                let was_online = self.state == TwinState::Authenticated;
+                if was_online {
                     self.state = TwinState::Initialized;
                 }
 
@@ -255,6 +264,9 @@ impl Twin {
                         warn!("Failed to connect to iothub: {reason:?}")
                     }
                 }
+
+                self.offline
+                    .disconnected(time::Instant::now(), reason, was_online);
             }
         }
 
@@ -314,6 +326,11 @@ impl Twin {
                 info!("handle_request: {cmd_string} succeeded with result: {inner_result:?}")
             }
             Err(e) => error!("handle_request: {cmd_string} returned error: {e:#}"),
+        }
+
+        // also after an error: the env file may be written before a later step fails
+        if matches!(cmd, Command::SetWaitOnlineTimeout(_)) {
+            self.offline.set_limit(offline::read_offline_limit());
         }
 
         // a failed command doesn't reboot, so further requests must be handled
@@ -541,6 +558,14 @@ impl Twin {
                             ).await;
                             client_created.set(Self::connect_iothub_client(builder));
                         };
+                    },
+                    // after rx_connection_status: a queued Authenticated comes first
+                    Some(()) = OptionFuture::from(
+                        twin.offline.deadline().map(|at| sleep_until(at.into()))
+                    ) => {
+                        if let Some(msg) = twin.offline.expired(time::Instant::now()) {
+                            warn!("{msg}");
+                        }
                     },
                     // the SDK callback thread blocks until a direct method is answered
                     Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {

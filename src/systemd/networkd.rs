@@ -3,6 +3,8 @@ use freedesktop_entry_parser::parse_entry;
 use regex_lite::RegexBuilder;
 use std::{env, time::Duration};
 
+pub const DEFAULT_WAIT_ONLINE_TIMEOUT: Duration = Duration::from_secs(300);
+
 macro_rules! service_file_path {
     () => {
         env::var("WAIT_ONLINE_SERVICE_FILE_PATH")
@@ -97,7 +99,7 @@ pub fn networkd_wait_online_timeout() -> Result<Option<Duration>> {
         "unexpected path in EnvironmentFile: {env_file_entry}"
     );
 
-    let default_result = Ok(Some(Duration::from_secs(300)));
+    let default_result = Ok(Some(DEFAULT_WAIT_ONLINE_TIMEOUT));
 
     let Ok(env) = std::fs::read_to_string(env_file_path) else {
         return default_result;

@@ -538,6 +538,8 @@ Direct Method Name: `set_wait_online_timeout`
 Payload:\
 The timeout is defined in seconds. A "timeout_secs" value of 0 means no timeout. An empty payload also means no timeout to be set at all.
 
+The timeout is also the limit for the offline warning in the journal: omnect-device-service logs a warning when the iothub connection is lost for that long. A process started early in the boot warns at half of it after boot instead. A new timeout applies from the next lost connection. With no timeout, there is no warning.
+
 ```json
 {
   "timeout_secs": <secs>

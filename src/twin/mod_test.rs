@@ -994,6 +994,59 @@ pub mod mod_test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn connection_status_drives_offline_deadline_test() {
+        let test_files = vec![
+            "testfiles/positive/os-release",
+            "testfiles/positive/consent_conf.json",
+            "testfiles/positive/request_consent.json",
+            "testfiles/positive/history_consent.json",
+        ];
+
+        let expect = |mock: &mut MockMyIotHub| {
+            mock.expect_twin_report().returning(|_| Ok(()));
+        };
+
+        let test = |test_attr: &mut TestConfig| {
+            // a fixed limit: a parallel test may point the wait-online env file at timeout 0
+            const LIMIT: Duration = Duration::from_secs(300);
+            test_attr.twin.offline =
+                offline::OfflineTracker::new(std::time::Instant::now(), Some(LIMIT), LIMIT);
+            assert!(
+                test_attr.twin.offline.deadline().is_some(),
+                "a process start must start the offline deadline"
+            );
+
+            block_on(
+                test_attr
+                    .twin
+                    .handle_connection_status(AuthenticationStatus::Authenticated),
+            )
+            .expect("handle Authenticated");
+            assert!(
+                test_attr.twin.offline.deadline().is_none(),
+                "Authenticated must stop the offline deadline"
+            );
+
+            let lost =
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::CommunicationError);
+            block_on(test_attr.twin.handle_connection_status(lost))
+                .expect("handle Unauthenticated");
+            assert!(
+                test_attr.twin.offline.deadline().is_some(),
+                "a lost connection must start the offline deadline"
+            );
+        };
+
+        TestCase::run(
+            test_files,
+            vec![],
+            vec![("SUPPRESS_FACTORY_RESET", "true")],
+            expect,
+            test,
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn only_bad_credential_restarts_client_test() {
         let test_files = vec!["testfiles/positive/os-release"];
 
