@@ -446,8 +446,6 @@ impl FirmwareUpdate {
             no_bootloader_updated_file_path!()
         };
 
-        guard.bootloader_updated = bootloader_updated;
-
         #[cfg(not(feature = "mock"))]
         ensure!(
             Path::new(&_expected_file).try_exists().is_ok_and(|r| r),
@@ -455,6 +453,8 @@ impl FirmwareUpdate {
             _expected_file,
             log_file_path!()
         );
+
+        guard.bootloader_updated = bootloader_updated;
 
         Self::activate_update(&mut guard, &target_partition, validate_iothub_connection)?;
 
@@ -465,8 +465,6 @@ impl FirmwareUpdate {
         Ok(None)
     }
 
-    // finalize right after the boot partition is switched: a rollback must never
-    // run once the next boot selects the new partition
     fn activate_update(
         guard: &mut RunUpdateGuard,
         target_partition: &RootPartition,
@@ -480,15 +478,13 @@ impl FirmwareUpdate {
             validate_iothub_connection,
         )?;
 
-        // explicitly finalize even if reboot fails
-        // we don't want to rollback if the reboot call fails, but a system reboot is actually triggered
+        // finalize right after the boot partition is switched: once the next boot
+        // selects the new partition no rollback may run, even if the reboot call fails
         guard.finalize();
 
         Ok(())
     }
 
-    // with a bootloader update the new partition is booted without validation,
-    // so the update validation config is only written for a validated boot
     fn set_boot_partition(
         target_partition: &RootPartition,
         bootloader_updated: bool,
@@ -500,6 +496,8 @@ impl FirmwareUpdate {
             bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
             bootloader_env::set(OMNECT_OS_BOOTPART, &index)
         } else {
+            // only the update validation removes this config again, and a boot
+            // after a bootloader update is not validated
             to_json_file(
                 &UpdateValidationConfig {
                     local: !validate_iothub_connection,
@@ -1111,8 +1109,6 @@ mod tests {
         );
     }
 
-    // returns the paths of the omnect bootargs file and its backup, with the
-    // state right after a kernelargs swupdate on the bootloader-updated path
     fn setup_bootloader_updated_files(tmp: &tempfile::TempDir) -> (PathBuf, PathBuf) {
         let (omnect_path, backup_path) = setup_rollback_files(tmp, "original_arg", "custom_arg");
         fs::write(&omnect_path, "new_arg").expect("write omnect file");
