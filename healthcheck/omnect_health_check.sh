@@ -63,11 +63,9 @@ function do__cmd() {
     #   turn the remainder of the attribute into an entry of its own
     #
     # NOTE:
-    #   the output is assigned rather than piped or read from a process
-    #   substitution, because only an assignment makes jq's exit status
-    #   available: on a malformed config file jq prints the entries it could
-    #   read before giving up, and checking only those would rate a device
-    #   whose remaining checks never ran
+    #   jq's exit status decides here: on a malformed config file it prints
+    #   the entries it could read before giving up, and checking only those
+    #   would rate a device whose remaining checks never ran
     rawentries=$(jq -r 'def flat: tostring | split("\n") | join(" ") | split("\r") | join(" "); .[] | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
 	|| { error "config file \"$cfgfile\" could not be read"; do_rate 2; return 2; }
 

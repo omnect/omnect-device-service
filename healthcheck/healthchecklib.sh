@@ -28,8 +28,8 @@ function fatal() {
 #
 # NOTE:
 #   the list is passed as separate arguments rather than as one string,
-#   because a check or service name may contain a blank, which splitting a
-#   string would turn into two names
+#   because a check name may contain a blank, which splitting a string would
+#   turn into two names
 function in_list() {
     local needle="$1" item
     shift

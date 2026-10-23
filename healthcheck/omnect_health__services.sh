@@ -38,26 +38,14 @@ function unknown_services() {
 # rates the entries of a service exit log by the current rules and reports
 # the resulting rating as exit status
 #
-# NOTE:
-#   the rating is worked out afresh on every run and never written down.
-#   Keeping it would mean deciding when it stops being true, and the exit
-#   log and the rules it is derived from are both changed by others while a
-#   check runs: omnect_service_log.sh appends from a systemd StopPost hook,
-#   and the rules are a configuration file anyone may edit.  A rating
-#   believed a moment too long buries the crash recorded after it, which is
-#   the one thing this log exists to surface, and no amount of comparing
-#   timestamps or stamping identities makes that reliable.  Nothing outside
-#   this function ever read such a rating anyway, so there is nothing to
-#   save by keeping one.
+# the rating is worked out on every call, because the log and the rules can
+# both change while a check runs
 function rate_servicelog() {
     local service="$1" servicelog="$2"
     local jquery rating
 
-    # NOTE:
-    #   the rules are looked up by the name of the service, not by the place
-    #   it had when the names were read: the configuration may be replaced in
-    #   between, and a service that moved would then be rated by the rules of
-    #   whoever took its place -- a lenient neighbour would report it healthy
+    # the rules are looked up by the service's name, because the
+    # configuration may be replaced while a check runs
     #
     # a service may bring its own ratings, otherwise the defaults apply;
     # either way an entry no rule matched is rated red rather than being left
@@ -79,15 +67,12 @@ function rate_servicelog() {
     #   the entries are rated and counted in a single pass, and the rating is
     #   worked out where the entries are, so that the only thing left to do
     #   here is to recognise it; "-e" makes jq say so when a log yielded no
-    #   result at all, which an empty one does -- omnect_service_log.sh
-    #   creates a log by redirecting into it, so a check may well meet it
-    #   between the truncation and the first entry
+    #   result at all, which an empty log does
     #
     # NOTE:
-    #   everything that is not plainly green or yellow counts as red, rather
-    #   than only the literal "red": a rule may name a rating this script does
-    #   not know -- "Red" instead of "red", or no rating attribute at all,
-    #   which leaves the entry with an empty one -- and such an entry has been
+    #   everything that is not plainly green or yellow counts as red: a rule
+    #   may name a rating this script does not know, or none at all, which
+    #   leaves the entry with an empty one, and such an entry has been
     #   matched by a rule precisely because it is worth reporting
     rating=$(jq -er "$jquery"' | [ ( .infos | map(select(.rating != "green" and .rating != "yellow")) | length ),
                                    ( .infos | map(select(.rating == "yellow")) | length ) ]
