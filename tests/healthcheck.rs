@@ -88,6 +88,24 @@ const UNMATCHED_SERVICE_RATING: &str = r#"{
     ]
 }"#;
 
+/// The very same rules as PER_SERVICE_RATINGS, with the two services swapped,
+/// as a configuration update reordering them would leave them.
+const PER_SERVICE_RATINGS_SWAPPED: &str = r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"HUP\"", "rating": "yellow" }
+    ],
+    "services": [
+        {
+            "service": "strict",
+            "ratings": [ { "condition": ".exitstatus == \"HUP\"", "rating": "red" } ]
+        },
+        {
+            "service": "lenient",
+            "ratings": [ { "condition": ".exitstatus == \"HUP\"", "rating": "green" } ]
+        }
+    ]
+}"#;
+
 /// A service that tells a clean exit from a crash, so a rating taken before a
 /// crash is green and one taken after it is red.
 const CRASH_RATED_SERVICE: &str = r#"{
@@ -1029,6 +1047,52 @@ fn a_rule_rewritten_within_the_second_is_not_missed() {
         [("[RED]", "picky")],
         "a rule rewritten without a trace in its metadata still has to be \
          applied:\n{}{}",
+        report.stdout,
+        report.stderr
+    );
+}
+
+#[test]
+fn a_service_is_rated_by_its_own_rules_after_a_reordering() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(PER_SERVICE_RATINGS);
+    sandbox.write_exit_log("strict", "HUP");
+
+    // an update reorders the services right after their names were read, so
+    // the position a name had is no longer the position its rules are at
+    let policy = sandbox.etc().join("omnect_service_log_analysis.json");
+    let swapped = sandbox.etc().join("swapped.json");
+    fs::write(&swapped, PER_SERVICE_RATINGS_SWAPPED).expect("write swapped policy");
+    sandbox.stub(
+        "jq",
+        &format!(
+            r#"case "$*" in
+  *".services[].service"*)
+      "{jq}" "$@"
+      status=$?
+      if [ ! -e "{marker}" ]; then
+          touch "{marker}"
+          cp "{swapped}" "{policy}"
+      fi
+      exit $status
+      ;;
+esac
+exec "{jq}" "$@"
+"#,
+            jq = real_jq().display(),
+            marker = sandbox.root().join("reordered").display(),
+            swapped = swapped.display(),
+            policy = policy.display(),
+        ),
+    );
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check", "strict"]);
+
+    assert_eq!(
+        report.ratings(),
+        [("[RED]", "strict")],
+        "a service has to be rated by the rules carrying its name, whatever \
+         place they are in:\n{}{}",
         report.stdout,
         report.stderr
     );

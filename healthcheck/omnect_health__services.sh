@@ -50,9 +50,15 @@ function unknown_services() {
 #   this function ever read such a rating anyway, so there is nothing to
 #   save by keeping one.
 function rate_servicelog() {
-    local n="$1" servicelog="$2"
+    local service="$1" servicelog="$2"
     local jquery counts red yellow
 
+    # NOTE:
+    #   the rules are looked up by the name of the service, not by the place
+    #   it had when the names were read: the configuration may be replaced in
+    #   between, and a service that moved would then be rated by the rules of
+    #   whoever took its place -- a lenient neighbour would report it healthy
+    #
     # a service may bring its own ratings, otherwise the defaults apply;
     # either way an entry no rule matched is rated red rather than being left
     # unrated, which would make it count as green
@@ -62,17 +68,19 @@ function rate_servicelog() {
     # or removed since: keeping them would let a rating survive that the
     # current rules do not justify anymore, and shield the entry from the red
     # fallback
-    jquery=$(jq -r --argjson n "$n" '
-        [ "del(.infos[].rating)" ]
-        + [ ( if (.services[$n] | has("ratings"))
-              then .services[$n].ratings[]?
+    jquery=$(jq -r --arg service "$service" '
+        ( first(.services[]? | select(.service == $service))
+          // error("no rules for service \($service)") ) as $rules
+        | [ "del(.infos[].rating)" ]
+        + [ ( if ($rules | has("ratings"))
+              then $rules.ratings[]?
               else ."default-ratings"[]?
               end
             ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
           ]
         + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
         | join(" | ")' "$CFGFILEPATH") \
-        || { error "rating rules for \"$servicelog\" could not be read"; return 2; }
+        || { error "rating rules for service \"$service\" could not be read"; return 2; }
 
     # NOTE:
     #   the entries are rated and counted in a single pass, and a log jq
@@ -89,20 +97,19 @@ function rate_servicelog() {
 }
 
 function do_check() {
-    local service rating servicelog services=() known unknown=() n
+    local service rating servicelog services=() known unknown=()
 
     known=$(configured_services) || { do_rate 2; return 2; }
     [ "$known" ] && mapfile -t services <<<"$known"
 
-    for ((n=0; n < ${#services[@]}; n++)); do
+    for service in "${services[@]}"; do
         rating=0
-        service="${services[$n]}"
 
         [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -r "$servicelog" ]; then
-            rate_servicelog "$n" "$servicelog"
+            rate_servicelog "$service" "$servicelog"
             rating=$?
         fi
 
@@ -120,20 +127,19 @@ function do_check() {
 }
 
 function do_get_infos() {
-    local service rating servicelog services=() known unknown=() n
+    local service rating servicelog services=() known unknown=()
 
     known=$(configured_services) || { do_rate 2; return 2; }
     [ "$known" ] && mapfile -t services <<<"$known"
 
-    for ((n=0; n < ${#services[@]}; n++)); do
+    for service in "${services[@]}"; do
         rating=0
-        service="${services[$n]}"
 
         [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
 
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -r "$servicelog" ]; then
-            rate_servicelog "$n" "$servicelog"
+            rate_servicelog "$service" "$servicelog"
             rating=$?
         fi
 
