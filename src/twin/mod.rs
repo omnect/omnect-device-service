@@ -352,7 +352,7 @@ impl Twin {
 
         self.cancel.cancel();
 
-        self.drain_observers(observers);
+        drop(observers);
 
         if let Some(client) = self.client.as_ref() {
             // report remaining properties
@@ -378,12 +378,6 @@ impl Twin {
         info!("twin shutdown complete");
     }
 
-    fn drain_observers(&self, observers: ClientObservers) {
-        if self.client.is_some() {
-            observers.drain();
-        }
-    }
-
     async fn destroy_client(&mut self) {
         if let Some(client) = self.client.as_mut() {
             info!("shutdown iotclient");
@@ -398,9 +392,7 @@ impl Twin {
         timeout: Option<time::Duration>,
     ) -> IotHubClientBuilder {
         let (builder, new_observers) = ClientObservers::builder();
-        let old_observers = std::mem::replace(observers, new_observers);
-
-        self.drain_observers(old_observers);
+        *observers = new_observers;
         self.destroy_client().await;
 
         if let Some(t) = timeout {
@@ -497,7 +489,7 @@ impl Twin {
         };
 
         // `?`, `return` and a panic only leave this block, so every exit runs
-        // `shutdown`, which drains the observers before the client is destroyed.
+        // `shutdown`, which drops the observers before the client is destroyed.
         let result = AssertUnwindSafe(async {
             loop {
                 select! (
@@ -533,7 +525,10 @@ impl Twin {
                             }
                         }
                     },
-                    Some(status) = observers.rx_connection_status.recv() => {
+                    // a closed observer channel loses all further events of the
+                    // client; exit, so that systemd restarts the service
+                    status = observers.rx_connection_status.recv() => {
+                        let status = status.context("connection status channel closed")?;
                         if twin.handle_connection_status(status).await? {
                             let builder = twin.reset_client_with_delay(
                                 &mut observers,
@@ -543,12 +538,14 @@ impl Twin {
                         };
                     },
                     // the SDK callback thread blocks until a direct method is answered
-                    Some(dm) = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
+                    dm = observers.rx_direct_method.recv(), if !twin.waiting_for_reboot => {
+                        let dm = dm.context("direct method channel closed")?;
                         if let Some(request) = direct_method_request(dm) {
                             twin.handle_request(request).await?
                         }
                     },
-                    Some(desired) = observers.rx_twin_desired.recv(), if !twin.waiting_for_reboot => {
+                    desired = observers.rx_twin_desired.recv(), if !twin.waiting_for_reboot => {
+                        let desired = desired.context("desired properties channel closed")?;
                         for request in desired_property_requests(desired) {
                             twin.handle_request(request).await?
                         }

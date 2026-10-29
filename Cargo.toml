@@ -14,7 +14,7 @@ version = "0.45.10"
 actix-server = { version = "2.9", default-features = false }
 actix-web = { version = "4.15", default-features = false }
 anyhow = { version = "1.0", default-features = false }
-azure-iot-sdk = { git = "https://github.com/omnect/azure-iot-sdk.git", tag = "0.14.2", default-features = false, features = [
+azure-iot-sdk = { path = "../azure-iot-sdk", default-features = false, features = [
   "module_client",
 ] }
 base64 = { version = "0.23", default-features = false }
