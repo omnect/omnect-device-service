@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use serde::{Serialize, de::DeserializeOwned};
 
+#[derive(Clone, Copy)]
 pub enum RootPartition {
     A,
     B,
