@@ -22,7 +22,8 @@ CFGFILEPATH="${CFGDIR}/${CFGFILE}"
 
 # prints the services the configuration file knows, one per line
 function configured_services() {
-    jq -r '.services[].service' "$CFGFILEPATH" \
+    jq -r '.services[] | .service // error("an entry has no service name")' \
+        "$CFGFILEPATH" \
         || { error "configuration file \"$CFGFILEPATH\" could not be read"; return 2; }
 }
 

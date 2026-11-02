@@ -1197,6 +1197,31 @@ fn a_service_config_that_cannot_be_read_is_rated_red() {
     );
 }
 
+/// An entry without a `service` key used to make `jq` print the literal
+/// string `null`, which then passed as a service of that name with nothing
+/// to rate.
+#[test]
+fn a_service_entry_without_a_name_is_rated_red() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(
+        r#"{
+    "default-ratings": [
+        { "condition": ".exitstatus == \"clean\"", "rating": "green" }
+    ],
+    "services": [ { "service": "picky" }, { "rules": [] } ]
+}"#,
+    );
+    sandbox.write_exit_log("picky", "clean");
+
+    let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "a service entry without a name must not pass as green:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
 #[test]
 fn a_requested_service_without_rules_is_rated_yellow() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
