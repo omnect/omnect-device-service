@@ -3,9 +3,12 @@
 
 . "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
-# the journal entry systemd-coredump writes for every core dump
-# (SD_MESSAGE_COREDUMP)
+# the journal entries systemd-coredump writes for a crashed process: one for
+# the core dump it stored (SD_MESSAGE_COREDUMP), and one for the backtrace it
+# took, which is all that is left when no core dump could be stored
+# (SD_MESSAGE_BACKTRACE)
 COREDUMP_MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1
+BACKTRACE_MESSAGE_ID=1f4e0a44a88649939aaea34fc6da8c95
 
 # the core dumps of the current system run, what kept them from being looked
 # up, and which parts of the journal could not be searched
@@ -42,7 +45,8 @@ function find_coredumps() {
     sinces=$((now - up))
     since="$(date -d '@'"$sinces" +"%Y-%m-%d %H:%M:%S")"
 
-    jargs=(--since "${since}" "MESSAGE_ID=${COREDUMP_MESSAGE_ID}")
+    jargs=(--since "${since}"
+           "MESSAGE_ID=${COREDUMP_MESSAGE_ID}" + "MESSAGE_ID=${BACKTRACE_MESSAGE_ID}")
 
     coredumps=$(journalctl -q "${jargs[@]}" 2>/dev/null) || rc=$?
     coredump_skipped=$(journalctl "${jargs[@]}" 2>&1 1>/dev/null)

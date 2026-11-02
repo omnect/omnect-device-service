@@ -755,6 +755,33 @@ fn check_rates_a_core_dump_red() {
     );
 }
 
+/// systemd-coredump logs a backtrace under its own message id, and a crash
+/// the kernel could not dump leaves only that entry behind.
+#[test]
+fn a_backtrace_without_a_core_dump_is_rated_red() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.stub(
+        "journalctl",
+        &format!(
+            "for arg in \"$@\"; do\n\
+             \x20   case \"$arg\" in\n\
+             \x20       MESSAGE_ID=1f4e0a44a88649939aaea34fc6da8c95)\n\
+             \x20           echo '{CORE_DUMP_ENTRY}'\n\
+             \x20           ;;\n\
+             \x20   esac\n\
+             done\n"
+        ),
+    );
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "a backtrace of a crashed process must not be rated green:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
 #[test]
 fn a_core_dump_lookup_that_failed_is_not_green() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
