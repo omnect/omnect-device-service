@@ -1596,15 +1596,41 @@ fn an_exit_log_turns_up_only_once_its_first_entry_is_in_it() {
     );
 }
 
-/// The exit info is the only record of what the journal held when a service
-/// died, so a truncated one must not be installed, let alone kept as the
-/// first failure of that service.
+/// The header holds the exit status of the service, so a journal that cannot
+/// be read must not take it down with it.
 #[test]
-fn a_truncated_exit_info_is_not_installed() {
+fn an_exit_info_keeps_its_header_when_the_journal_cannot_be_read() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(CRASH_RATED_SERVICE);
     sandbox.install_service_log();
-    sandbox.stub("journalctl", "echo 'half an entry'\nexit 1\n");
+    sandbox.stub("journalctl", "echo 'Failed to open journal.' >&2\nexit 1\n");
+
+    sandbox.run_script(
+        "omnect_service_log.sh",
+        &["stop", "picky", "exit-code", "exited", "SEGV"],
+    );
+
+    let info = fs::read_to_string(sandbox.run().join("picky.exit-info"))
+        .expect("the exit info of a service whose journal could not be read");
+    assert!(
+        info.contains("Exitstatus:  SEGV"),
+        "the exit info must keep the exit status of the service:\n{info}"
+    );
+    assert!(
+        info.contains("journal"),
+        "the exit info must say that the journal is missing from it:\n{info}"
+    );
+}
+
+/// The exit info is the only record of what the journal held when a service
+/// died, so one that could not be written must not be installed, let alone
+/// kept as the first failure of that service.
+#[test]
+fn an_exit_info_that_could_not_be_written_is_not_installed() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.install_service_log();
+    write_with_mode(&sandbox.run().join("picky.exit-info.tmp"), "", 0o000);
 
     sandbox.run_script(
         "omnect_service_log.sh",
@@ -1612,13 +1638,13 @@ fn a_truncated_exit_info_is_not_installed() {
     );
 
     assert!(
-        !sandbox.run().join("picky.1st.exit-info").exists(),
-        "an exit info that was never written completely was kept as the \
-         first failure of this service"
+        !sandbox.run().join("picky.exit-info").exists(),
+        "an exit info that could not be written was installed"
     );
     assert!(
-        !sandbox.run().join("picky.exit-info").exists(),
-        "an exit info that was never written completely was installed"
+        !sandbox.run().join("picky.1st.exit-info").exists(),
+        "an exit info that could not be written was kept as the first \
+         failure of this service"
     );
 }
 

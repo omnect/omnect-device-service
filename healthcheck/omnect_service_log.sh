@@ -86,7 +86,8 @@ Exitstatus:  $exitstatus
 Timestamp:   $timestamp
 ----------------------------------------
 EOF
-	journalctl -b0 --no-pager -l -u "$service"
+	journalctl -b0 --no-pager -l -u "$service" \
+	    || echo "the journal of this service could not be read"
     } > "${outputfile}.tmp" || failed=1
 
     if [ $failed -ne 0 ]; then
