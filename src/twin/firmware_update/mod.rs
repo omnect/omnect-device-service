@@ -113,14 +113,15 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    /// Rollback only logs errors and doesn't return them. Extracted as a
-    /// free-standing associated function so `Drop` can move the fields into
-    /// `spawn_blocking` without borrowing `self`.
+    /// Rollback only logs errors and doesn't return them. Returns whether the
+    /// update partition may still be selected. Extracted as a free-standing
+    /// associated function so `Drop` can move the fields into `spawn_blocking`
+    /// without borrowing `self`.
     fn do_rollback(
         bootloader_updated: bool,
         target_partition: RootPartition,
         bootargs_omnect_backup: Option<PathBuf>,
-    ) {
+    ) -> bool {
         if bootloader_updated {
             // the flashed bootloader cannot be rolled back and must not boot the current rootfs
             // again, and rootfs and kernelargs are already installed: complete the switch
@@ -129,15 +130,18 @@ impl RunUpdateGuard {
                 error!("failed to switch to the new rootfs: {e:#}");
             }
             let _ = fs::remove_file(update_validation_config_path!());
+            true
         } else if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART) {
             // the bootargs and the config must stay as long as the update partition may still be
             // selected for a validated boot
             error!("failed to unset {OMNECT_VALIDATE_UPDATE_PART}: {e:#}");
+            true
         } else {
             let _ = fs::remove_file(update_validation_config_path!());
             if let Err(e) = Self::restore_bootargs(bootargs_omnect_backup) {
                 error!("failed to restore bootargs: {e:#}");
             }
+            false
         }
     }
 
@@ -163,16 +167,17 @@ impl Drop for RunUpdateGuard {
             let bootloader_updated = self.bootloader_updated;
             let bootargs_backup = self.bootargs_omnect_backup.take();
 
-            debug!(
-                "run update failed: restore old wdt ({wdt:?}) and restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}"
-            );
+            debug!("run update failed: roll back and restore old wdt ({wdt:?})");
 
             tokio::spawn(async move {
-                tokio::task::spawn_blocking(move || {
-                    Self::do_rollback(bootloader_updated, target_partition, bootargs_backup);
+                let update_part_selected = tokio::task::spawn_blocking(move || {
+                    Self::do_rollback(bootloader_updated, target_partition, bootargs_backup)
                 })
                 .await
-                .unwrap_or_else(|e| error!("rollback task panicked: {e:#}"));
+                .unwrap_or_else(|e| {
+                    error!("rollback task panicked: {e:#}");
+                    true
+                });
 
                 if let Some(wdt) = wdt
                     && let Err(e) = WatchdogManager::interval(wdt).await
@@ -180,13 +185,17 @@ impl Drop for RunUpdateGuard {
                     error!("failed to restore wdt interval: {e:#}")
                 }
 
-                // an ADU update would write the rootfs the new bootloader has to boot
-                if bootloader_updated {
+                // an ADU update would write the partition the next boot may select
+                if update_part_selected {
                     warn!(
-                        "bootloader was updated: {IOT_HUB_DEVICE_UPDATE_SERVICE} stays stopped until reboot"
+                        "update partition may be selected: {IOT_HUB_DEVICE_UPDATE_SERVICE} stays stopped until reboot"
                     );
                     return;
                 }
+
+                debug!(
+                    "restart {IOT_HUB_DEVICE_UPDATE_SERVICE} and {IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER}"
+                );
 
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
@@ -994,12 +1003,12 @@ mod tests {
         }
     }
 
-    fn rollback(guard: &mut RunUpdateGuard) {
+    fn rollback(guard: &mut RunUpdateGuard) -> bool {
         RunUpdateGuard::do_rollback(
             guard.bootloader_updated,
             guard.target_partition,
             guard.bootargs_omnect_backup.take(),
-        );
+        )
     }
 
     fn setup_rollback_files(
@@ -1041,7 +1050,10 @@ mod tests {
         fs::write(&omnect_path, "corrupted").expect("write omnect file");
         setup_validation_env();
 
-        rollback(&mut make_guard(true, false, Some(backup_path.clone())));
+        assert!(
+            !rollback(&mut make_guard(true, false, Some(backup_path.clone()))),
+            "expected no selected update partition after the revert"
+        );
 
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
@@ -1109,7 +1121,10 @@ mod tests {
         setup_validation_env();
         crate::bootloader_env::fail_unset_mock(OMNECT_VALIDATE_UPDATE_PART);
 
-        rollback(&mut make_guard(true, false, Some(backup_path)));
+        assert!(
+            rollback(&mut make_guard(true, false, Some(backup_path))),
+            "expected the update partition to count as selected"
+        );
 
         assert!(
             config_path.exists(),
@@ -1277,7 +1292,10 @@ mod tests {
         fs::write(&config_path, r#"{"local":true}"#).expect("write config");
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
-        rollback(&mut make_guard(true, true, Some(backup_path)));
+        assert!(
+            rollback(&mut make_guard(true, true, Some(backup_path))),
+            "expected the update partition to be selected"
+        );
 
         assert_switched_to_new_rootfs(&omnect_path);
         assert!(
