@@ -126,7 +126,12 @@ impl RunUpdateGuard {
             // the flashed bootloader cannot be rolled back and must not boot the current rootfs
             // again, and rootfs and kernelargs are already installed: complete the switch
             warn!("bootloader was updated: rollback not possible, switching to the new rootfs");
-            if let Err(e) = FirmwareUpdate::switch_to_update_part(target_partition) {
+            // unlike switch_to_update_part, select the partition even if the bootargs fail: the
+            // new rootfs with the old args is the lesser failure
+            if let Err(e) = FirmwareUpdate::apply_bootargs(true) {
+                error!("failed to apply the bootargs of the new rootfs: {e:#}");
+            }
+            if let Err(e) = FirmwareUpdate::set_boot_partition(target_partition, true, false) {
                 error!("failed to switch to the new rootfs: {e:#}");
             }
             let _ = fs::remove_file(update_validation_config_path!());
@@ -1415,6 +1420,27 @@ mod tests {
         assert_eq!(
             bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
             "1"
+        );
+    }
+
+    #[test]
+    fn failed_bootargs_in_rollback_after_bootloader_update_still_switches() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (_, backup_path) = setup_bootloader_updated_files(&tmp);
+        crate::bootloader_env::fail_set_mock(OMNECT_EXTRA_BOOTARGS);
+
+        rollback(&mut make_guard(true, true, Some(backup_path)));
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_OS_BOOTPART).expect("get bootpart"),
+            RootPartition::B.index().to_string(),
+            "expected the new rootfs to be selected"
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
+            "original_arg custom_arg"
         );
     }
 
