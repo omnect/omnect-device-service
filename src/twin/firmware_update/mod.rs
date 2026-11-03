@@ -634,6 +634,10 @@ impl FirmwareUpdate {
                     bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, &new_bootargs)?
                 }
             }
+        } else if !bootloader_updated {
+            // a value staged by an earlier attempt, e.g. left by a failed rollback, would
+            // otherwise be applied on the trial boot
+            bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)?;
         }
         Ok(())
     }
@@ -964,6 +968,26 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "omnect_validate_extra_bootargs was unexpectedly set"
+        );
+    }
+
+    #[test]
+    fn bootargs_unchanged_unsets_stale_validate_key() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        setup_bootargs_files(&tmp, "stable_arg", "");
+
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "stable_arg").expect("set extra bootargs");
+        bootloader_env::set(OMNECT_VALIDATE_EXTRA_BOOTARGS, "stale")
+            .expect("set validate extra bootargs");
+        FirmwareUpdate::apply_bootargs(false).expect("apply bootargs");
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
+                .expect("get validate extra bootargs"),
+            "",
+            "expected the stale staged bootargs to be unset"
         );
     }
 
