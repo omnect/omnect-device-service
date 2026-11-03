@@ -181,6 +181,14 @@ impl Drop for RunUpdateGuard {
                     error!("failed to restore wdt interval: {e:#}")
                 }
 
+                // an ADU update would write the rootfs the new bootloader has to boot
+                if bootloader_updated {
+                    warn!(
+                        "bootloader was updated: {IOT_HUB_DEVICE_UPDATE_SERVICE} stays stopped until reboot"
+                    );
+                    return;
+                }
+
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
                     UnitAction::Start,
