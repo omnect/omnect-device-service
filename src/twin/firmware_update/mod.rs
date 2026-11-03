@@ -138,24 +138,23 @@ impl RunUpdateGuard {
             true
         } else {
             let _ = fs::remove_file(update_validation_config_path!());
-            if let Err(e) = Self::restore_bootargs(bootargs_omnect_backup) {
-                error!("failed to restore bootargs: {e:#}");
-            }
+            Self::restore_bootargs(bootargs_omnect_backup);
             false
         }
     }
 
-    /// The backup is kept: it is taken once per boot and holds the args of the current rootfs.
-    fn restore_bootargs(bootargs_omnect_backup: Option<PathBuf>) -> Result<()> {
-        bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)
-            .context(format!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}"))?;
-
-        if let Some(backup) = bootargs_omnect_backup {
-            fs::copy(&backup, bootargs_omnect_file_path!())
-                .context("failed to restore omnect bootargs file from backup")?;
+    /// Both steps run even if the other one fails. The backup is kept: it is taken once per boot
+    /// and holds the args of the current rootfs.
+    fn restore_bootargs(bootargs_omnect_backup: Option<PathBuf>) {
+        if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS) {
+            error!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}: {e:#}");
         }
 
-        Ok(())
+        if let Some(backup) = bootargs_omnect_backup
+            && let Err(e) = fs::copy(&backup, bootargs_omnect_file_path!())
+        {
+            error!("failed to restore omnect bootargs file from backup: {e:#}");
+        }
     }
 }
 
@@ -1155,11 +1154,12 @@ mod tests {
     }
 
     #[test]
-    fn rollback_failed_bootargs_restore_removes_update_validation_config() {
+    fn rollback_failed_unset_of_validate_bootargs_still_restores_bootargs_file() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().expect("tempdir");
-        let (_, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+        let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+        fs::write(&omnect_path, "new_arg").expect("write omnect file");
         let config_path = tmp.path().join("update_validation_conf.json");
         fs::write(&config_path, r#"{"local":true}"#).expect("write config");
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
@@ -1176,6 +1176,11 @@ mod tests {
         assert!(
             !config_path.exists(),
             "expected the persistent config to be removed once the update partition is deselected"
+        );
+        assert_eq!(
+            fs::read_to_string(&omnect_path).expect("read omnect file"),
+            "original_arg",
+            "expected the omnect file to be restored from backup"
         );
     }
 
