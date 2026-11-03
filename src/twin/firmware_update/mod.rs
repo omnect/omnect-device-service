@@ -156,10 +156,27 @@ impl RunUpdateGuard {
         }
 
         if let Some(backup) = bootargs_omnect_backup
-            && let Err(e) = fs::copy(&backup, bootargs_omnect_file_path!())
+            && let Err(e) = Self::restore_omnect_file(&backup)
         {
             error!("failed to restore omnect bootargs file from backup: {e:#}");
         }
+    }
+
+    fn restore_omnect_file(backup: &Path) -> std::io::Result<()> {
+        let omnect_file = bootargs_omnect_file_path!();
+        let saved = fs::read(backup)?;
+
+        // leave /boot untouched if the run failed before changing it; a missing file was backed
+        // up as an empty one
+        match fs::read(&omnect_file) {
+            Ok(current) if current == saved => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && saved.is_empty() => {
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        fs::write(omnect_file, saved)
     }
 }
 
@@ -1242,6 +1259,23 @@ mod tests {
             fs::read_to_string(&omnect_path).expect("read omnect file"),
             "original_arg",
             "expected the omnect file to be restored from backup"
+        );
+    }
+
+    #[test]
+    fn rollback_does_not_create_a_missing_omnect_file() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (omnect_path, backup_path) = setup_rollback_files(&tmp, "", "");
+        fs::remove_file(&omnect_path).expect("remove omnect file");
+        setup_validation_env();
+
+        rollback(&mut make_guard(true, false, Some(backup_path)));
+
+        assert!(
+            !omnect_path.exists(),
+            "expected the missing omnect file not to be created"
         );
     }
 
