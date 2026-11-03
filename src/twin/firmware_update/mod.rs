@@ -511,7 +511,11 @@ impl FirmwareUpdate {
         // writing the target partition again after it was selected or after a bootloader update
         // (marker owned by adu, it stays until reboot even if the write failed) could leave no
         // complete rootfs to boot, and stale env of the first activation could be picked up
-        let bootloader_updated = Self::bootloader_marker_exists();
+        ensure!(
+            !Self::bootloader_marker_exists(),
+            "bootloader update in this boot: reboot before installing another update"
+        );
+
         let target_index = target_partition.index().to_string();
         // fw_printenv fails for an unset variable, which means no switch is pending
         let selected = [OMNECT_OS_BOOTPART, OMNECT_VALIDATE_UPDATE_PART]
@@ -519,7 +523,7 @@ impl FirmwareUpdate {
             .any(|key| bootloader_env::get(key).is_ok_and(|part| part == target_index));
 
         ensure!(
-            !bootloader_updated && !selected,
+            !selected,
             "update pending in this boot: install another update only after the pending switch or update validation has completed"
         );
 
@@ -1401,8 +1405,13 @@ mod tests {
             .expect("expected no pending switch while the current partition is selected");
 
         fs::write(&marker, "").expect("write marker");
-        FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
+        let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the bootloader marker to block the run");
+        // the marker also stays after a failed write, which leaves nothing pending to wait for
+        assert!(
+            err.to_string().contains("reboot"),
+            "expected advice to reboot: {err}"
+        );
 
         fs::remove_file(&marker).expect("remove marker");
         bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::B.index().to_string())
