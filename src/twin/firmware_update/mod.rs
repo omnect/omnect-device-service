@@ -113,10 +113,10 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    /// Rollback only logs errors and doesn't return them. Returns whether the
-    /// update partition may still be selected. Extracted as a free-standing
-    /// associated function so `Drop` can move the fields into `spawn_blocking`
-    /// without borrowing `self`.
+    /// Rollback only logs errors and doesn't return them. Returns whether deviceupdate-agent must
+    /// stay stopped: the update partition may still be selected or the bootargs may not match the
+    /// current rootfs. Extracted as a free-standing associated function so `Drop` can move the
+    /// fields into `spawn_blocking` without borrowing `self`.
     fn do_rollback(
         bootloader_updated: bool,
         target_partition: RootPartition,
@@ -138,23 +138,28 @@ impl RunUpdateGuard {
             true
         } else {
             let _ = fs::remove_file(update_validation_config_path!());
-            Self::restore_bootargs(bootargs_omnect_backup);
-            false
+            !Self::restore_bootargs(bootargs_omnect_backup)
         }
     }
 
-    /// Both steps run even if the other one fails. The backup is kept: it is taken once per boot
-    /// and holds the args of the current rootfs.
-    fn restore_bootargs(bootargs_omnect_backup: Option<PathBuf>) {
+    /// Both steps run even if the other one fails. Returns whether both succeeded. The backup is
+    /// kept: it is taken once per boot and holds the args of the current rootfs.
+    fn restore_bootargs(bootargs_omnect_backup: Option<PathBuf>) -> bool {
+        let mut restored = true;
+
         if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS) {
             error!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}: {e:#}");
+            restored = false;
         }
 
         if let Some(backup) = bootargs_omnect_backup
             && let Err(e) = fs::copy(&backup, bootargs_omnect_file_path!())
         {
             error!("failed to restore omnect bootargs file from backup: {e:#}");
+            restored = false;
         }
+
+        restored
     }
 }
 
@@ -169,7 +174,7 @@ impl Drop for RunUpdateGuard {
             debug!("run update failed: roll back and restore old wdt ({wdt:?})");
 
             tokio::spawn(async move {
-                let update_part_selected = tokio::task::spawn_blocking(move || {
+                let keep_adu_stopped = tokio::task::spawn_blocking(move || {
                     Self::do_rollback(bootloader_updated, target_partition, bootargs_backup)
                 })
                 .await
@@ -184,10 +189,11 @@ impl Drop for RunUpdateGuard {
                     error!("failed to restore wdt interval: {e:#}")
                 }
 
-                // an ADU update would write the partition the next boot may select
-                if update_part_selected {
+                // an ADU update would write the partition the next boot may select, or apply
+                // bootargs that do not match the current rootfs
+                if keep_adu_stopped {
                     warn!(
-                        "update partition may be selected: {IOT_HUB_DEVICE_UPDATE_SERVICE} stays stopped until reboot"
+                        "rollback incomplete or update partition may be selected: {IOT_HUB_DEVICE_UPDATE_SERVICE} stays stopped until reboot"
                     );
                     return;
                 }
@@ -1177,7 +1183,10 @@ mod tests {
         setup_validation_env();
         crate::bootloader_env::fail_unset_mock(OMNECT_VALIDATE_EXTRA_BOOTARGS);
 
-        rollback(&mut make_guard(true, false, Some(backup_path)));
+        assert!(
+            rollback(&mut make_guard(true, false, Some(backup_path))),
+            "expected deviceupdate-agent to stay stopped after an incomplete restore"
+        );
 
         assert_eq!(
             bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART).expect("get validate update part"),
@@ -1192,6 +1201,26 @@ mod tests {
             fs::read_to_string(&omnect_path).expect("read omnect file"),
             "original_arg",
             "expected the omnect file to be restored from backup"
+        );
+    }
+
+    #[test]
+    fn rollback_failed_restore_of_bootargs_file_keeps_adu_stopped() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (_, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+        fs::remove_file(&backup_path).expect("remove backup");
+        setup_validation_env();
+
+        assert!(
+            rollback(&mut make_guard(true, false, Some(backup_path))),
+            "expected deviceupdate-agent to stay stopped after an incomplete restore"
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART).expect("get validate update part"),
+            "",
+            "expected update partition to be deselected"
         );
     }
 
