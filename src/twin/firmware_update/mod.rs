@@ -129,21 +129,20 @@ impl RunUpdateGuard {
                 error!("failed to switch to the new rootfs: {e:#}");
             }
             let _ = fs::remove_file(update_validation_config_path!());
-        } else if let Err(e) = Self::revert_validation(bootargs_omnect_backup) {
-            // the config must stay as long as the update partition may still be selected for a
-            // validated boot
-            error!("failed to revert update: {e:#}");
+        } else if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART) {
+            // the bootargs and the config must stay as long as the update partition may still be
+            // selected for a validated boot
+            error!("failed to unset {OMNECT_VALIDATE_UPDATE_PART}: {e:#}");
         } else {
             let _ = fs::remove_file(update_validation_config_path!());
+            if let Err(e) = Self::restore_bootargs(bootargs_omnect_backup) {
+                error!("failed to restore bootargs: {e:#}");
+            }
         }
     }
 
-    /// Deselects the update partition before the bootargs of the current rootfs are restored, so
-    /// that a failure in between never boots the new rootfs with the old args. The backup is kept:
-    /// it is taken once per boot and holds the args of the current rootfs.
-    fn revert_validation(bootargs_omnect_backup: Option<PathBuf>) -> Result<()> {
-        bootloader_env::unset(OMNECT_VALIDATE_UPDATE_PART)
-            .context(format!("failed to unset {OMNECT_VALIDATE_UPDATE_PART}"))?;
+    /// The backup is kept: it is taken once per boot and holds the args of the current rootfs.
+    fn restore_bootargs(bootargs_omnect_backup: Option<PathBuf>) -> Result<()> {
         bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS)
             .context(format!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}"))?;
 
@@ -1127,6 +1126,31 @@ mod tests {
             fs::read_to_string(&omnect_path).expect("read omnect file"),
             "new_arg",
             "expected the new omnect file to stay while the update partition is selected"
+        );
+    }
+
+    #[test]
+    fn rollback_failed_bootargs_restore_removes_update_validation_config() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (_, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+        let config_path = tmp.path().join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
+        setup_validation_env();
+        crate::bootloader_env::fail_unset_mock(OMNECT_VALIDATE_EXTRA_BOOTARGS);
+
+        rollback(&mut make_guard(true, false, Some(backup_path)));
+
+        assert_eq!(
+            bootloader_env::get(OMNECT_VALIDATE_UPDATE_PART).expect("get validate update part"),
+            "",
+            "expected update partition to be deselected"
+        );
+        assert!(
+            !config_path.exists(),
+            "expected the persistent config to be removed once the update partition is deselected"
         );
     }
 
