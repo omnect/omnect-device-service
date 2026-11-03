@@ -440,11 +440,6 @@ impl FirmwareUpdate {
         let bootloader_updated =
             Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok();
 
-        if !bootloader_updated {
-            // the sw-description hook creates the marker before the bootloader is written
-            let _ = fs::remove_file(bootloader_updated_file_path!());
-        }
-
         let _expected_file = if bootloader_updated {
             bootloader_updated_file_path!()
         } else {
