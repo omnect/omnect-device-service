@@ -128,11 +128,14 @@ impl RunUpdateGuard {
             if let Err(e) = FirmwareUpdate::switch_to_update_part(&target_partition) {
                 error!("failed to switch to the new rootfs: {e:#}");
             }
+            let _ = fs::remove_file(update_validation_config_path!());
         } else if let Err(e) = Self::revert_validation(bootargs_omnect_backup) {
+            // the config must stay as long as the update partition may still be selected for a
+            // validated boot
             error!("failed to revert update: {e:#}");
+        } else {
+            let _ = fs::remove_file(update_validation_config_path!());
         }
-
-        let _ = fs::remove_file(update_validation_config_path!());
     }
 
     /// Deselects the update partition before the bootargs of the current rootfs are restored, so
@@ -1069,10 +1072,18 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
         fs::write(&omnect_path, "new_arg").expect("write omnect file");
+        let config_path = tmp.path().join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
         setup_validation_env();
         crate::bootloader_env::fail_unset_mock(OMNECT_VALIDATE_UPDATE_PART);
 
         rollback(&mut make_guard(true, false, Some(backup_path)));
+
+        assert!(
+            config_path.exists(),
+            "expected the validation config to stay while the update partition is selected"
+        );
 
         assert_eq!(
             bootloader_env::get(OMNECT_VALIDATE_EXTRA_BOOTARGS)
@@ -1206,10 +1217,17 @@ mod tests {
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().expect("tempdir");
         let (omnect_path, backup_path) = setup_bootloader_updated_files(&tmp);
+        let config_path = tmp.path().join("update_validation_conf.json");
+        fs::write(&config_path, r#"{"local":true}"#).expect("write config");
+        crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
         rollback(&mut make_guard(true, true, Some(backup_path)));
 
         assert_switched_to_new_rootfs(&omnect_path);
+        assert!(
+            !config_path.exists(),
+            "expected no validation config after a bootloader update"
+        );
     }
 
     #[test]
