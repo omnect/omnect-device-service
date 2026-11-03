@@ -465,14 +465,8 @@ impl FirmwareUpdate {
         let swupdate_succeeded =
             Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok();
 
-        // the sw-description hook creates the marker before /boot is written, so the marker and
-        // not the exit status tells whether the bootloader may have changed, as in the ADU
-        // handler. Set before the marker check: then a failing check completes the switch
-        // instead of reverting to the current rootfs.
-        guard.bootloader_updated = Self::bootloader_marker_exists();
-
         #[cfg(not(feature = "mock"))]
-        Self::ensure_bootloader_markers(swupdate_succeeded)?;
+        Self::check_bootloader_step(&mut guard, swupdate_succeeded)?;
 
         Self::activate_update(&mut guard, target_partition, validate_iothub_connection)?;
 
@@ -553,6 +547,18 @@ impl FirmwareUpdate {
         }
 
         Ok(backup_file)
+    }
+
+    #[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
+    fn check_bootloader_step(guard: &mut RunUpdateGuard, swupdate_succeeded: bool) -> Result<()> {
+        // the sw-description hook creates the marker before /boot is written, so the marker and
+        // not the exit status tells whether the bootloader may have changed, as in the ADU
+        // handler. Set before the marker check: then a failing check completes the switch
+        // instead of reverting to the current rootfs. A marker without a written bootloader then
+        // also switches, without validation, as the ADU handler does: telling it apart from a
+        // partly written /boot is not possible, and reverting would be wrong for the latter.
+        guard.bootloader_updated = Self::bootloader_marker_exists();
+        Self::ensure_bootloader_markers(swupdate_succeeded)
     }
 
     #[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
@@ -1502,16 +1508,13 @@ mod tests {
         crate::common::set_env_var("NO_BOOTLOADER_UPDATE_PATH", &not_necessary_marker);
 
         // swupdate succeeded, but the hook never created the marker: nothing was written
-        assert!(!FirmwareUpdate::bootloader_marker_exists());
-        FirmwareUpdate::ensure_bootloader_markers(true)
+        let mut guard = make_guard(true, true, Some(backup_path.clone()));
+        FirmwareUpdate::check_bootloader_step(&mut guard, true)
             .expect_err("expected a missing bootloader marker to fail");
+        assert!(!guard.bootloader_updated, "expected no bootloader update");
         setup_validation_env();
         assert!(
-            !rollback(&mut make_guard(
-                true,
-                FirmwareUpdate::bootloader_marker_exists(),
-                Some(backup_path.clone())
-            )),
+            !rollback(&mut guard),
             "expected a revert without the marker"
         );
         assert_eq!(
@@ -1526,14 +1529,12 @@ mod tests {
             .expect("set extra bootargs");
         fs::write(&not_necessary_marker, "").expect("write not-necessary marker");
         fs::write(&updated_marker, "").expect("write bootloader marker");
-        FirmwareUpdate::ensure_bootloader_markers(false)
+        let mut guard = make_guard(true, false, Some(backup_path));
+        FirmwareUpdate::check_bootloader_step(&mut guard, false)
             .expect_err("expected the bootloader marker to reveal the failed write");
+        assert!(guard.bootloader_updated, "expected a bootloader update");
         assert!(
-            rollback(&mut make_guard(
-                true,
-                FirmwareUpdate::bootloader_marker_exists(),
-                Some(backup_path)
-            )),
+            rollback(&mut guard),
             "expected the switch to be completed with the marker"
         );
         assert_switched_to_new_rootfs(&omnect_path);
