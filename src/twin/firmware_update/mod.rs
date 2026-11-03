@@ -514,7 +514,7 @@ impl FirmwareUpdate {
 
         ensure!(
             !bootloader_updated && !selected,
-            "switch to the update partition pending: reboot before installing another update"
+            "update pending in this boot: install another update only after the pending switch or update validation has completed"
         );
 
         Ok(())
@@ -1375,8 +1375,14 @@ mod tests {
         fs::remove_file(&marker).expect("remove marker");
         bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::B.index().to_string())
             .expect("set bootpart");
-        FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+        let err = FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
             .expect_err("expected the selected update partition to block the run");
+        // during the trial boot of a validated update the saved bootpart also equals the target,
+        // and a reboot there would roll that update back
+        assert!(
+            !err.to_string().contains("reboot"),
+            "expected no advice to reboot: {err}"
+        );
 
         bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::A.index().to_string())
             .expect("set bootpart");
