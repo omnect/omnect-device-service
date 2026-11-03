@@ -504,18 +504,21 @@ impl FirmwareUpdate {
         Self::set_boot_partition(target_partition, true, false)
     }
 
-    /// Once the bootloader was updated in this boot, only the switch to the update partition is
-    /// left: writing it again would leave no complete rootfs to boot if the update fails.
     fn ensure_no_pending_switch(target_partition: &RootPartition) -> Result<()> {
+        // writing the target partition again after it was selected or after a bootloader update
+        // (marker owned by adu, it stays until reboot even if the write failed) could leave no
+        // complete rootfs to boot, and stale env of the first activation could be picked up
         let bootloader_updated = Path::new(&bootloader_updated_file_path!())
             .try_exists()
             .unwrap_or(true);
+        let target_index = target_partition.index().to_string();
         // fw_printenv fails for an unset variable, which means no switch is pending
-        let switched = bootloader_env::get(OMNECT_OS_BOOTPART)
-            .is_ok_and(|part| part == target_partition.index().to_string());
+        let selected = [OMNECT_OS_BOOTPART, OMNECT_VALIDATE_UPDATE_PART]
+            .iter()
+            .any(|key| bootloader_env::get(key).is_ok_and(|part| part == target_index));
 
         ensure!(
-            !bootloader_updated && !switched,
+            !bootloader_updated && !selected,
             "switch to the update partition pending: reboot before installing another update"
         );
 
@@ -1311,6 +1314,16 @@ mod tests {
             .expect("set bootpart");
         FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
             .expect_err("expected the selected update partition to block the run");
+
+        bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::A.index().to_string())
+            .expect("set bootpart");
+        bootloader_env::set(
+            OMNECT_VALIDATE_UPDATE_PART,
+            &RootPartition::B.index().to_string(),
+        )
+        .expect("set validate update part");
+        FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+            .expect_err("expected a pending validated switch to block the run");
     }
 
     #[test]
