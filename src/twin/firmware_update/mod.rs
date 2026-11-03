@@ -510,16 +510,26 @@ impl FirmwareUpdate {
         // writing the target partition again after it was selected or after a bootloader update
         // (marker owned by adu, it stays until reboot even if the write failed) could leave no
         // complete rootfs to boot, and stale env of the first activation could be picked up
-        ensure!(
-            !Self::bootloader_marker_exists(),
-            "bootloader update in this boot: reboot before installing another update"
-        );
-
         let target_index = target_partition.index().to_string();
         // fw_printenv fails for an unset variable, which means no switch is pending
+        let selects_target =
+            |key: &str| bootloader_env::get(key).is_ok_and(|part| part == target_index);
+
+        if Self::bootloader_marker_exists() {
+            ensure!(
+                !selects_target(OMNECT_OS_BOOTPART),
+                "bootloader update in this boot: reboot before installing another update"
+            );
+            // the rollback failed to select the new rootfs: a reboot would start the current one
+            // with the new bootloader
+            bail!(
+                "bootloader update in this boot, but the new rootfs is not selected: do not reboot, the current rootfs may not start with the new bootloader"
+            );
+        }
+
         let selected = [OMNECT_OS_BOOTPART, OMNECT_VALIDATE_UPDATE_PART]
             .iter()
-            .any(|key| bootloader_env::get(key).is_ok_and(|part| part == target_index));
+            .any(|key| selects_target(key));
 
         ensure!(
             !selected,
@@ -1463,9 +1473,18 @@ mod tests {
         fs::write(&marker, "").expect("write marker");
         let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the bootloader marker to block the run");
+        assert!(
+            err.to_string().contains("do not reboot"),
+            "expected a warning not to reboot while the current rootfs is selected: {err}"
+        );
+
+        bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::B.index().to_string())
+            .expect("set bootpart");
+        let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
+            .expect_err("expected the bootloader marker to block the run");
         // the marker also stays after a failed write, which leaves nothing pending to wait for
         assert!(
-            err.to_string().contains("reboot"),
+            err.to_string().contains("reboot before"),
             "expected advice to reboot: {err}"
         );
 
