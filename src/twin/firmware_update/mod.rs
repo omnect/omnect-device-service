@@ -1025,6 +1025,11 @@ mod tests {
         crate::common::set_env_var("BOOTARGS_OMNECT_FILE_PATH", &omnect_path);
         crate::common::set_env_var("BOOTARGS_CUSTOM_FILE_PATH", &custom_path);
         crate::common::set_env_var("BOOTARGS_OMNECT_BACKUP_FILE_PATH", &backup_path);
+        // do_rollback removes the validation config: keep it away from the host's path
+        crate::common::set_env_var(
+            "UPDATE_VALIDATION_CONFIG_PATH",
+            tmp.path().join("update_validation_conf.json"),
+        );
         (omnect_path, backup_path)
     }
 
@@ -1086,6 +1091,11 @@ mod tests {
     fn rollback_without_backup_only_unsets_validate_keys() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::common::set_env_var(
+            "UPDATE_VALIDATION_CONFIG_PATH",
+            tmp.path().join("update_validation_conf.json"),
+        );
         setup_validation_env();
 
         rollback(&mut make_guard(true, false, None));
@@ -1349,6 +1359,16 @@ mod tests {
             fs::read_to_string(&omnect_path).expect("read omnect file"),
             "new_arg",
             "expected no restore of the bootargs after a bootloader update"
+        );
+        // known limitation: without an atomic env write the old rootfs stays selected with the
+        // new args
+        assert_eq!(
+            bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
+            "new_arg custom_arg"
+        );
+        assert_eq!(
+            bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
+            "1"
         );
     }
 
