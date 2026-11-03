@@ -113,9 +113,9 @@ impl RunUpdateGuard {
         self.succeeded = true;
     }
 
-    /// Rollback only logs errors during its processing and doesn't return on
-    /// them.  Extracted as a free-standing associated function so `Drop` can
-    /// move the fields into `spawn_blocking` without borrowing `self`.
+    /// Rollback only logs errors and doesn't return them. Extracted as a
+    /// free-standing associated function so `Drop` can move the fields into
+    /// `spawn_blocking` without borrowing `self`.
     fn do_rollback(
         bootloader_updated: bool,
         target_partition: RootPartition,
@@ -497,8 +497,6 @@ impl FirmwareUpdate {
         Ok(())
     }
 
-    /// Boots the new rootfs with its bootargs from now on, without validation. Used after a
-    /// bootloader update, by the activation as well as by the rollback.
     fn switch_to_update_part(target_partition: &RootPartition) -> Result<()> {
         Self::apply_bootargs(true)?;
         Self::set_boot_partition(target_partition, true, false)
@@ -525,9 +523,9 @@ impl FirmwareUpdate {
         Ok(())
     }
 
-    /// Keeps the backup of the first attempt in this boot, also one taken by the ADU handler: it
-    /// holds the args of the current rootfs. A missing file means no args.
     fn backup_bootargs_once() -> Result<PathBuf> {
+        // an existing backup is from an earlier attempt in this boot, also by the ADU handler, and
+        // holds the args of the current rootfs
         let backup_file = PathBuf::from(bootargs_omnect_backup_file_path!());
 
         if !backup_file.try_exists()? {
