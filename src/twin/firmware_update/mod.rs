@@ -566,17 +566,18 @@ impl FirmwareUpdate {
         // instead of reverting to the current rootfs. A marker without a written bootloader then
         // also switches, without validation, as the ADU handler does: telling it apart from a
         // partly written /boot is not possible, and reverting would be wrong for the latter.
-        guard.bootloader_updated = Self::bootloader_marker_exists();
-        Self::ensure_bootloader_markers(swupdate_succeeded)
+        let bootloader_marker = Self::bootloader_marker_exists();
+        guard.bootloader_updated = bootloader_marker;
+        Self::ensure_bootloader_markers(swupdate_succeeded, bootloader_marker)
     }
 
     #[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
-    fn ensure_bootloader_markers(bootloader_updated: bool) -> Result<()> {
+    fn ensure_bootloader_markers(swupdate_succeeded: bool, bootloader_marker: bool) -> Result<()> {
         let updated_marker = bootloader_updated_file_path!();
 
-        if bootloader_updated {
+        if swupdate_succeeded {
             ensure!(
-                Path::new(&updated_marker).try_exists().is_ok_and(|r| r),
+                bootloader_marker,
                 "failed to update bootloader: expected {updated_marker} to be present. (swupdate logs at {})",
                 log_file_path!()
             );
@@ -587,7 +588,7 @@ impl FirmwareUpdate {
         // may be partly written. Checked first, as the not-necessary marker may be stale: it is
         // owned by adu and cannot be removed before the bootloader step.
         ensure!(
-            !Self::bootloader_marker_exists(),
+            !bootloader_marker,
             "failed to update bootloader: writing failed after {updated_marker} was created. (swupdate logs at {})",
             log_file_path!()
         );
@@ -1520,20 +1521,30 @@ mod tests {
         crate::common::set_env_var("BOOTLOADER_UPDATE_PATH", &updated_marker);
         crate::common::set_env_var("NO_BOOTLOADER_UPDATE_PATH", &not_necessary_marker);
 
-        FirmwareUpdate::ensure_bootloader_markers(false)
-            .expect_err("expected a missing not-necessary marker to fail");
-        FirmwareUpdate::ensure_bootloader_markers(true)
+        FirmwareUpdate::ensure_bootloader_markers(
+            false,
+            FirmwareUpdate::bootloader_marker_exists(),
+        )
+        .expect_err("expected a missing not-necessary marker to fail");
+        FirmwareUpdate::ensure_bootloader_markers(true, FirmwareUpdate::bootloader_marker_exists())
             .expect_err("expected a missing bootloader marker to fail");
 
         fs::write(&not_necessary_marker, "").expect("write not-necessary marker");
-        FirmwareUpdate::ensure_bootloader_markers(false)
-            .expect("expected no bootloader update to be necessary");
+        FirmwareUpdate::ensure_bootloader_markers(
+            false,
+            FirmwareUpdate::bootloader_marker_exists(),
+        )
+        .expect("expected no bootloader update to be necessary");
 
         // stale not-necessary marker of an earlier attempt and a failed write in this attempt
         fs::write(&updated_marker, "").expect("write bootloader marker");
-        FirmwareUpdate::ensure_bootloader_markers(false)
-            .expect_err("expected the bootloader marker to reveal the failed write");
-        FirmwareUpdate::ensure_bootloader_markers(true).expect("expected a bootloader update");
+        FirmwareUpdate::ensure_bootloader_markers(
+            false,
+            FirmwareUpdate::bootloader_marker_exists(),
+        )
+        .expect_err("expected the bootloader marker to reveal the failed write");
+        FirmwareUpdate::ensure_bootloader_markers(true, FirmwareUpdate::bootloader_marker_exists())
+            .expect("expected a bootloader update");
     }
 
     #[test]
