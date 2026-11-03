@@ -455,15 +455,18 @@ impl FirmwareUpdate {
         // a flashed bootloader cannot be rolled back, so as few steps as possible may fail after it
         let _ = fs::remove_file(no_bootloader_updated_file_path!());
 
-        let bootloader_updated =
+        #[cfg_attr(feature = "mock", allow(unused_variables))]
+        let swupdate_succeeded =
             Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok();
 
-        // set before the marker check: once the bootloader is written, a failing check must
-        // complete the switch instead of reverting to the current rootfs
-        guard.bootloader_updated = bootloader_updated;
+        // the sw-description hook creates the marker before /boot is written, so the marker and
+        // not the exit status tells whether the bootloader may have changed, as in the ADU
+        // handler. Set before the marker check: then a failing check completes the switch
+        // instead of reverting to the current rootfs.
+        guard.bootloader_updated = Self::bootloader_marker_exists();
 
         #[cfg(not(feature = "mock"))]
-        Self::ensure_bootloader_markers(bootloader_updated)?;
+        Self::ensure_bootloader_markers(swupdate_succeeded)?;
 
         Self::activate_update(&mut guard, target_partition, validate_iothub_connection)?;
 
@@ -498,13 +501,17 @@ impl FirmwareUpdate {
         Self::set_boot_partition(target_partition, true, false)
     }
 
+    fn bootloader_marker_exists() -> bool {
+        Path::new(&bootloader_updated_file_path!())
+            .try_exists()
+            .unwrap_or(true)
+    }
+
     fn ensure_no_pending_switch(target_partition: RootPartition) -> Result<()> {
         // writing the target partition again after it was selected or after a bootloader update
         // (marker owned by adu, it stays until reboot even if the write failed) could leave no
         // complete rootfs to boot, and stale env of the first activation could be picked up
-        let bootloader_updated = Path::new(&bootloader_updated_file_path!())
-            .try_exists()
-            .unwrap_or(true);
+        let bootloader_updated = Self::bootloader_marker_exists();
         let target_index = target_partition.index().to_string();
         // fw_printenv fails for an unset variable, which means no switch is pending
         let selected = [OMNECT_OS_BOOTPART, OMNECT_VALIDATE_UPDATE_PART]
@@ -555,7 +562,7 @@ impl FirmwareUpdate {
         // may be partly written. Checked first, as the not-necessary marker may be stale: it is
         // owned by adu and cannot be removed before the bootloader step.
         ensure!(
-            !Path::new(&updated_marker).try_exists().unwrap_or(true),
+            !Self::bootloader_marker_exists(),
             "failed to update bootloader: writing failed after {updated_marker} was created. (swupdate logs at {})",
             log_file_path!()
         );
@@ -1443,6 +1450,55 @@ mod tests {
         FirmwareUpdate::ensure_bootloader_markers(false)
             .expect_err("expected the bootloader marker to reveal the failed write");
         FirmwareUpdate::ensure_bootloader_markers(true).expect("expected a bootloader update");
+    }
+
+    #[test]
+    fn bootloader_marker_decides_whether_rollback_completes_the_switch() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        crate::bootloader_env::clear_mock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (omnect_path, backup_path) = setup_bootloader_updated_files(&tmp);
+        let updated_marker = tmp.path().join("omnect-bootloader-update");
+        let not_necessary_marker = tmp.path().join("omnect-bootloader-update-not-necessary");
+        crate::common::set_env_var("BOOTLOADER_UPDATE_PATH", &updated_marker);
+        crate::common::set_env_var("NO_BOOTLOADER_UPDATE_PATH", &not_necessary_marker);
+
+        // swupdate succeeded, but the hook never created the marker: nothing was written
+        assert!(!FirmwareUpdate::bootloader_marker_exists());
+        FirmwareUpdate::ensure_bootloader_markers(true)
+            .expect_err("expected a missing bootloader marker to fail");
+        setup_validation_env();
+        assert!(
+            !rollback(&mut make_guard(
+                true,
+                FirmwareUpdate::bootloader_marker_exists(),
+                Some(backup_path.clone())
+            )),
+            "expected a revert without the marker"
+        );
+        assert_eq!(
+            fs::read_to_string(&omnect_path).expect("read omnect file"),
+            "original_arg"
+        );
+
+        // swupdate failed after the hook created the marker: /boot may be partly written
+        crate::bootloader_env::clear_mock();
+        fs::write(&omnect_path, "new_arg").expect("write omnect file");
+        bootloader_env::set(OMNECT_EXTRA_BOOTARGS, "original_arg custom_arg")
+            .expect("set extra bootargs");
+        fs::write(&not_necessary_marker, "").expect("write not-necessary marker");
+        fs::write(&updated_marker, "").expect("write bootloader marker");
+        FirmwareUpdate::ensure_bootloader_markers(false)
+            .expect_err("expected the bootloader marker to reveal the failed write");
+        assert!(
+            rollback(&mut make_guard(
+                true,
+                FirmwareUpdate::bootloader_marker_exists(),
+                Some(backup_path)
+            )),
+            "expected the switch to be completed with the marker"
+        );
+        assert_switched_to_new_rootfs(&omnect_path);
     }
 
     #[test]
