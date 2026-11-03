@@ -126,7 +126,7 @@ impl RunUpdateGuard {
             // the flashed bootloader cannot be rolled back and must not boot the current rootfs
             // again, and rootfs and kernelargs are already installed: complete the switch
             warn!("bootloader was updated: rollback not possible, switching to the new rootfs");
-            if let Err(e) = FirmwareUpdate::switch_to_update_part(&target_partition) {
+            if let Err(e) = FirmwareUpdate::switch_to_update_part(target_partition) {
                 error!("failed to switch to the new rootfs: {e:#}");
             }
             let _ = fs::remove_file(update_validation_config_path!());
@@ -432,7 +432,7 @@ impl FirmwareUpdate {
 
         let target_partition = RootPartition::current()?.other();
 
-        Self::ensure_no_pending_switch(&target_partition)?;
+        Self::ensure_no_pending_switch(target_partition)?;
 
         let mut guard = RunUpdateGuard::new(target_partition).await?;
 
@@ -466,7 +466,7 @@ impl FirmwareUpdate {
         #[cfg(not(feature = "mock"))]
         Self::ensure_bootloader_markers(bootloader_updated)?;
 
-        Self::activate_update(&mut guard, &target_partition, validate_iothub_connection)?;
+        Self::activate_update(&mut guard, target_partition, validate_iothub_connection)?;
 
         systemd::reboot("swupdate", "local update").await?;
 
@@ -477,7 +477,7 @@ impl FirmwareUpdate {
 
     fn activate_update(
         guard: &mut RunUpdateGuard,
-        target_partition: &RootPartition,
+        target_partition: RootPartition,
         validate_iothub_connection: bool,
     ) -> Result<()> {
         if guard.bootloader_updated {
@@ -494,12 +494,12 @@ impl FirmwareUpdate {
         Ok(())
     }
 
-    fn switch_to_update_part(target_partition: &RootPartition) -> Result<()> {
+    fn switch_to_update_part(target_partition: RootPartition) -> Result<()> {
         Self::apply_bootargs(true)?;
         Self::set_boot_partition(target_partition, true, false)
     }
 
-    fn ensure_no_pending_switch(target_partition: &RootPartition) -> Result<()> {
+    fn ensure_no_pending_switch(target_partition: RootPartition) -> Result<()> {
         // writing the target partition again after it was selected or after a bootloader update
         // (marker owned by adu, it stays until reboot even if the write failed) could leave no
         // complete rootfs to boot, and stale env of the first activation could be picked up
@@ -574,7 +574,7 @@ impl FirmwareUpdate {
     }
 
     fn set_boot_partition(
-        target_partition: &RootPartition,
+        target_partition: RootPartition,
         bootloader_updated: bool,
         validate_iothub_connection: bool,
     ) -> Result<()> {
@@ -1205,7 +1205,7 @@ mod tests {
         let config_path = tmp.path().join("update_validation_conf.json");
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
-        FirmwareUpdate::set_boot_partition(&RootPartition::B, true, false)
+        FirmwareUpdate::set_boot_partition(RootPartition::B, true, false)
             .expect("set boot partition");
 
         assert!(
@@ -1234,7 +1234,7 @@ mod tests {
         let config_path = tmp.path().join("update_validation_conf.json");
         crate::common::set_env_var("UPDATE_VALIDATION_CONFIG_PATH", &config_path);
 
-        FirmwareUpdate::set_boot_partition(&RootPartition::B, false, false)
+        FirmwareUpdate::set_boot_partition(RootPartition::B, false, false)
             .expect("set boot partition");
 
         let config: UpdateValidationConfig =
@@ -1285,7 +1285,7 @@ mod tests {
         let (omnect_path, backup_path) = setup_bootloader_updated_files(&tmp);
         let mut guard = make_guard(false, true, Some(backup_path));
 
-        FirmwareUpdate::activate_update(&mut guard, &RootPartition::B, false)
+        FirmwareUpdate::activate_update(&mut guard, RootPartition::B, false)
             .expect("activate update");
 
         assert!(guard.succeeded, "expected no rollback after the switch");
@@ -1323,7 +1323,7 @@ mod tests {
         let mut guard = make_guard(false, true, Some(backup_path));
         crate::bootloader_env::fail_set_mock(OMNECT_OS_BOOTPART);
 
-        FirmwareUpdate::activate_update(&mut guard, &RootPartition::B, false)
+        FirmwareUpdate::activate_update(&mut guard, RootPartition::B, false)
             .expect_err("expected switch of the boot partition to fail");
 
         assert!(!guard.succeeded, "expected a rollback");
@@ -1380,22 +1380,22 @@ mod tests {
         let marker = tmp.path().join("omnect-bootloader-update");
         crate::common::set_env_var("BOOTLOADER_UPDATE_PATH", &marker);
 
-        FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+        FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect("expected no pending switch without marker and bootpart");
 
         bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::A.index().to_string())
             .expect("set bootpart");
-        FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+        FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect("expected no pending switch while the current partition is selected");
 
         fs::write(&marker, "").expect("write marker");
-        FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+        FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the bootloader marker to block the run");
 
         fs::remove_file(&marker).expect("remove marker");
         bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::B.index().to_string())
             .expect("set bootpart");
-        let err = FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+        let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the selected update partition to block the run");
         // during the trial boot of a validated update the saved bootpart also equals the target,
         // and a reboot there would roll that update back
@@ -1411,7 +1411,7 @@ mod tests {
             &RootPartition::B.index().to_string(),
         )
         .expect("set validate update part");
-        FirmwareUpdate::ensure_no_pending_switch(&RootPartition::B)
+        FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected a pending validated switch to block the run");
     }
 
