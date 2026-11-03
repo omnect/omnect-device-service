@@ -440,6 +440,10 @@ impl FirmwareUpdate {
         let bootloader_updated =
             Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok();
 
+        // set before the marker check: once the bootloader is written, a failing check must
+        // complete the switch instead of reverting to the current rootfs
+        guard.bootloader_updated = bootloader_updated;
+
         let _expected_file = if bootloader_updated {
             bootloader_updated_file_path!()
         } else {
@@ -453,8 +457,6 @@ impl FirmwareUpdate {
             _expected_file,
             log_file_path!()
         );
-
-        guard.bootloader_updated = bootloader_updated;
 
         Self::activate_update(&mut guard, &target_partition, validate_iothub_connection)?;
 
