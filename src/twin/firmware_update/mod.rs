@@ -546,10 +546,14 @@ impl FirmwareUpdate {
 
         if !backup_file.try_exists()? {
             let omnect_file = bootargs_omnect_file_path!();
-            if !Path::new(&omnect_file).try_exists()? {
-                fs::write(&omnect_file, "")?;
-            }
-            if let Err(e) = fs::copy(&omnect_file, &backup_file) {
+            // a missing omnect file has the same effect as an empty one, and /boot stays untouched
+            // until the first swupdate
+            let result = if Path::new(&omnect_file).try_exists()? {
+                fs::copy(&omnect_file, &backup_file).map(|_| ())
+            } else {
+                fs::write(&backup_file, "")
+            };
+            if let Err(e) = result {
                 let _ = fs::remove_file(&backup_file);
                 return Err(e.into());
             }
@@ -1608,7 +1612,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_bootargs_once_creates_missing_omnect_file() {
+    fn backup_bootargs_once_backs_up_missing_omnect_file_as_empty() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         let tmp = tempfile::tempdir().expect("tempdir");
         let omnect_path = tmp.path().join("bootargs_omnect");
@@ -1618,9 +1622,9 @@ mod tests {
 
         FirmwareUpdate::backup_bootargs_once().expect("back up bootargs");
 
-        assert_eq!(
-            fs::read_to_string(&omnect_path).expect("read omnect file"),
-            ""
+        assert!(
+            !omnect_path.exists(),
+            "expected no omnect file to be created before the first swupdate"
         );
         assert_eq!(fs::read_to_string(&backup_path).expect("read backup"), "");
     }
