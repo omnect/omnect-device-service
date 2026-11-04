@@ -126,13 +126,14 @@ impl RunUpdateGuard {
             // the flashed bootloader cannot be rolled back and must not boot the current rootfs
             // again, and rootfs and kernelargs are already installed: complete the switch
             warn!("bootloader was updated: rollback not possible, switching to the new rootfs");
-            // unlike switch_to_update_part, select the partition even if the bootargs fail: the
-            // new rootfs with the old args is the lesser failure
-            if let Err(e) = FirmwareUpdate::apply_bootargs(true) {
-                error!("failed to apply the bootargs of the new rootfs: {e:#}");
-            }
+            // unlike switch_to_update_part, run both steps even if one fails. The partition goes
+            // first, as in switch_to_update_part: the new rootfs with the old args is the lesser
+            // failure
             if let Err(e) = FirmwareUpdate::set_boot_partition(target_partition, true, false) {
                 error!("failed to switch to the new rootfs: {e:#}");
+            }
+            if let Err(e) = FirmwareUpdate::apply_bootargs(true) {
+                error!("failed to apply the bootargs of the new rootfs: {e:#}");
             }
             let _ = fs::remove_file(update_validation_config_path!());
             true
@@ -513,8 +514,8 @@ impl FirmwareUpdate {
     }
 
     fn switch_to_update_part(target_partition: RootPartition) -> Result<()> {
-        Self::apply_bootargs(true)?;
-        Self::set_boot_partition(target_partition, true, false)
+        Self::set_boot_partition(target_partition, true, false)?;
+        Self::apply_bootargs(true)
     }
 
     fn bootloader_marker_exists() -> bool {
@@ -634,8 +635,8 @@ impl FirmwareUpdate {
         let index = target_partition.index().to_string();
 
         if bootloader_updated {
-            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")?;
-            bootloader_env::set(OMNECT_OS_BOOTPART, &index)
+            bootloader_env::set(OMNECT_OS_BOOTPART, &index)?;
+            bootloader_env::set(OMNECT_BOOTLOADER_UPDATED, "1")
         } else {
             // only the update validation removes this config again, and a boot
             // after a bootloader update is not validated
@@ -1468,7 +1469,7 @@ mod tests {
         );
         assert_eq!(
             bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
-            "1"
+            ""
         );
     }
 
