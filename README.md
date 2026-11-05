@@ -200,7 +200,7 @@ Example of the D2C payload:
 
 The module itself does not perform a factory reset.
 It serves as an interface between the cloud and the built-in factory reset from the [omnect yocto image](https://github.com/omnect/meta-omnect).
-Read the [documentation](https://github.com/omnect/meta-omnect#factory-reset) in order to understand the concepts.
+Read the [documentation](https://github.com/omnect/omnect-os-init/blob/main/docs/usage.md#factory-reset) in order to understand the concepts.
 
 #### Feature availability
 
@@ -252,9 +252,9 @@ Result:
 }
 ```
 
-The supported reset `mode` and the documentation in general can be found in the [meta-omnect layer](https://github.com/omnect/meta-omnect#factory-reset).
+The supported reset `mode` and the documentation in general can be found in the [omnect-os-init docs](https://github.com/omnect/omnect-os-init/blob/main/docs/usage.md#factory-reset).
 
-The **optional** `preserve` array can be used to define system resp. user settings that must be restored after wiping device storage. Supported are keys from [here](https://github.com/omnect/meta-omnect/blob/main/recipes-omnect/omnect-device-service/omnect-device-service/factory-reset.json) and the key "applications" if there is a [custom configuration file](https://github.com/omnect/meta-omnect?tab=readme-ov-file#custom-factory-reset-configuration) in `/etc/omnect/factory-reset.d/`.
+The **mandatory** `preserve` array lists the settings that are restored after the device storage is wiped; an empty array keeps nothing but `/etc/omnect/factory-reset.d/`. A payload without `preserve` is rejected. Only the reported [keys](#supported-preserve-keys) are accepted: the keys of `/etc/omnect/factory-reset.json` on the device, and `applications` if `/etc/omnect/factory-reset.d/` holds a valid custom configuration. Any other key is rejected. The [preserve topics](https://github.com/omnect/omnect-os-init/blob/main/docs/usage.md#preserve-topics) describe what each key restores.
 
 In case the method was successful received by the module the return value of the method looks like this:
 
@@ -277,13 +277,15 @@ In all other cases there will be an error status and a meaningful message in the
 #### Report factory reset result
 
 Performing a factory reset also triggers a device restart. The restart duration might depend on the selected factory reset mode. After the device has been restarted, the result is reported in the module twin.
-Details about the result format can be found [here](https://github.com/omnect/meta-omnect#factory-reset).
+The result format is defined by [omnect-os-init](https://github.com/omnect/omnect-os-init/blob/main/docs/usage.md#factory-reset-result).
 
 ```json
 "factory_reset":
 {
   "result": {
-      "error": "0",
+      "context": null,
+      "data_wiped": true,
+      "error": null,
       "paths": [
           "/etc/omnect/factory-reset.d/"
       ],
@@ -291,6 +293,13 @@ Details about the result format can be found [here](https://github.com/omnect/me
   }
 }
 ```
+
+- `status`: `0` success, `1` invalid request, `2` error, `3` configuration error, `4` warning (reset succeeded, but a partition needed a second format attempt). A status code unknown to the service is reported as it is. A status that is no `u32` (e.g. `-1`) makes the whole result unusable: it is reported as `null`.
+- `error` and `context` are `null` unless the reset reported a problem.
+- `paths`: the configured paths to preserve, not the ones actually restored; empty when the reset stopped before it changed `etc` and `data`.
+- `data_wiped`: `true` once the reset started to change `etc` and `data`. With `status` `2`, `false` means nothing was changed; `true` means data may already be lost.
+
+The service reports a result only on the boot after a reset; on other boots the twin keeps the last result. So after an update from a version below feature version 4 without a reset, the twin can still hold a result in the old format, without `data_wiped`.
 
 ### iot-hub-device-update user consent
 
@@ -876,7 +885,7 @@ The web service features is enabled by default and can be explicitly deactivated
 
 ### Factory reset
 
-Description [Factory reset](#factory-reset).
+Description [Factory reset](#factory-reset). `mode` and `preserve` are checked as described in [Trigger factory reset](#trigger-factory-reset).
 
 ```bash
 curl -X POST --unix-socket /run/omnect-device-service/api.sock http://localhost/factory-reset/v1 ---data-raw '
@@ -936,7 +945,7 @@ omnect-device-service is capable to publish certain properties to a list of defi
 - online status: connection status to iothub
 - info: software versions of various components and device boot timestamp
 - timeouts: currently configured [wait-online-timeout](https://www.freedesktop.org/software/systemd/man/latest/systemd-networkd-wait-online.service.html)
-- factory-reset: if there was a factory-reset in previous boot, the result is published
+- factory-reset: the [preserve keys](#supported-preserve-keys), and the result if there was a factory-reset in previous boot. The result has the format of [Report factory reset result](#report-factory-reset-result). On a later boot no result is published, while the twin keeps the last one.
 - network status: network adapter and its current configuration (LTE modems are currently not included). The reported structure is equal to [Current reported network status](#current-reported-network-status)
 - firmware update validation status: result of a local firmware update
 - fleet id the device belongs to
