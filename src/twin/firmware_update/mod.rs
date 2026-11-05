@@ -126,14 +126,8 @@ impl RunUpdateGuard {
             // the flashed bootloader cannot be rolled back and must not boot the current rootfs
             // again, and rootfs and kernelargs are already installed: complete the switch
             warn!("bootloader was updated: rollback not possible, switching to the new rootfs");
-            // unlike switch_to_update_part, run both steps even if one fails. The partition goes
-            // first, as in switch_to_update_part: the new rootfs with the old args is the lesser
-            // failure
-            if let Err(e) = FirmwareUpdate::set_boot_partition(target_partition, true, false) {
+            if let Err(e) = FirmwareUpdate::switch_to_update_part(target_partition) {
                 error!("failed to switch to the new rootfs: {e:#}");
-            }
-            if let Err(e) = FirmwareUpdate::apply_bootargs(true) {
-                error!("failed to apply the bootargs of the new rootfs: {e:#}");
             }
             let _ = fs::remove_file(update_validation_config_path!());
             true
@@ -1443,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_switch_in_rollback_after_bootloader_update_keeps_new_bootargs() {
+    fn failed_switch_in_rollback_after_bootloader_update_keeps_old_bootargs() {
         let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
         crate::bootloader_env::clear_mock();
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1461,11 +1455,10 @@ mod tests {
             "new_arg",
             "expected no restore of the bootargs after a bootloader update"
         );
-        // known limitation: without an atomic env write the old rootfs stays selected with the
-        // new args
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
-            "new_arg custom_arg"
+            "original_arg custom_arg",
+            "expected the old rootfs to stay with its args"
         );
         assert_eq!(
             bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
