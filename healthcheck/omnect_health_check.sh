@@ -36,9 +36,9 @@ entries=()
 #   a device whose remaining checks never ran
 #
 # NOTE:
-#   the document is read through "input" rather than from jq's own input, so
-#   that an empty file - no JSON document at all, and a common result of a
-#   power loss during a write - fails instead of looking like an empty list
+#   the document is read through "input", so that an empty file - no JSON
+#   document at all, and a common result of a power loss during a write -
+#   fails instead of looking like an empty list
 function read_entries() {
     local cfgfile="$1" rawentries
 

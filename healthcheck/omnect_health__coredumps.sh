@@ -3,10 +3,9 @@
 
 . "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
-# the journal entries systemd-coredump writes for a crashed process: one for
-# the core dump it stored (SD_MESSAGE_COREDUMP), and one for the backtrace it
-# took, which is all that is left when no core dump could be stored
-# (SD_MESSAGE_BACKTRACE)
+# the journal entries systemd-coredump writes for a crashed process:
+# SD_MESSAGE_COREDUMP for a crash it handled itself, and SD_MESSAGE_BACKTRACE
+# for a backtrace passed in with --backtrace
 COREDUMP_MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1
 BACKTRACE_MESSAGE_ID=1f4e0a44a88649939aaea34fc6da8c95
 
@@ -20,11 +19,9 @@ coredump_skipped=
 # when it could look for them, and 2 when it could not
 #
 # NOTE:
-#   journalctl answers both questions on its own: it succeeds whether or not
-#   an entry matched, and fails only when it could read no journal file at
-#   all, so the rating follows its exit status instead of the wording of a
-#   diagnostic. coredumpctl cannot be used for this, because it also exits
-#   non-zero when it simply found nothing.
+#   journalctl succeeds whether or not an entry matched, and fails only when
+#   it could read no journal file at all, so the rating follows its exit
+#   status instead of the wording of a diagnostic.
 #
 # NOTE:
 #   the lookup is run twice, keeping the entries once and the diagnostics the

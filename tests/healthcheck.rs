@@ -755,10 +755,10 @@ fn check_rates_a_core_dump_red() {
     );
 }
 
-/// systemd-coredump logs a backtrace under its own message id, and a crash
-/// the kernel could not dump leaves only that entry behind.
+/// A reporter can hand systemd-coredump a backtrace with `--backtrace`, and
+/// that entry carries its own message id.
 #[test]
-fn a_backtrace_without_a_core_dump_is_rated_red() {
+fn a_backtrace_entry_is_rated_red() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.stub(
         "journalctl",
