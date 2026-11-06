@@ -147,9 +147,9 @@ impl RunUpdateGuard {
         }
     }
 
-    /// Both steps run even if the other one fails. The backup is kept: it is taken once per boot
-    /// and holds the args of the current rootfs.
     fn restore_bootargs(bootargs_omnect_backup: Option<PathBuf>) {
+        // both steps run even if the other one fails. The backup is kept: it is taken once per
+        // boot and holds the args of the current rootfs.
         if let Err(e) = bootloader_env::unset(OMNECT_VALIDATE_EXTRA_BOOTARGS) {
             error!("failed to unset {OMNECT_VALIDATE_EXTRA_BOOTARGS}: {e:#}");
         }
@@ -525,7 +525,6 @@ impl FirmwareUpdate {
             .unwrap_or(true)
     }
 
-    /// Returns whether a bootloader update may have run in this boot.
     fn complete_pending_switch(target_partition: RootPartition) -> bool {
         let marker = Path::new(&bootloader_updated_file_path!()).try_exists();
 
@@ -604,13 +603,12 @@ impl FirmwareUpdate {
         // successful swupdate wrote the bootloader even without the marker: the current rootfs
         // must not boot with it again.
         let bootloader_marker = Self::bootloader_marker_exists();
-        if !swupdate_succeeded
+        let marker_kept = !swupdate_succeeded
             && bootloader_marker
-            && let Err(e) = Self::remove_marker(&bootloader_updated_file_path!())
-        {
-            error!("failed to remove the bootloader marker: {e:#}");
-        }
-        guard.bootloader_updated = swupdate_succeeded || Self::bootloader_marker_exists();
+            && Self::remove_marker(&bootloader_updated_file_path!())
+                .inspect_err(|e| error!("failed to remove the bootloader marker: {e:#}"))
+                .is_err();
+        guard.bootloader_updated = swupdate_succeeded || marker_kept;
         Self::ensure_bootloader_markers(swupdate_succeeded, bootloader_marker)
     }
 
@@ -1439,7 +1437,7 @@ mod tests {
         );
         assert_eq!(
             bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).expect("get bootloader updated"),
-            "1"
+            BOOTLOADER_UPDATED_FLAG
         );
         assert_eq!(
             bootloader_env::get(OMNECT_EXTRA_BOOTARGS).expect("get extra bootargs"),
