@@ -802,6 +802,36 @@ fn a_core_dump_lookup_that_failed_is_not_green() {
     );
 }
 
+/// Devices without an RTC start the wall clock from the timesyncd clock file,
+/// so a crash in early boot carries a timestamp from before the device was
+/// switched off. Selecting by `now - uptime` leaves such a crash out, which
+/// is exactly the crash loop the check is there for.
+#[test]
+fn a_crash_from_early_boot_is_rated_red() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.stub(
+        "journalctl",
+        &format!(
+            "for arg in \"$@\"; do\n\
+             \x20   case \"$arg\" in\n\
+             \x20       --since) exit 0 ;;\n\
+             \x20       -b) echo '{CORE_DUMP_ENTRY}'; exit 0 ;;\n\
+             \x20   esac\n\
+             done\n\
+             exit 0\n"
+        ),
+    );
+
+    let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+    assert_eq!(
+        report.rating, RATING_RED,
+        "a crash whose timestamp predates the computed boot time must not be \
+         rated green:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
 #[test]
 fn a_system_without_core_dumps_is_green() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);

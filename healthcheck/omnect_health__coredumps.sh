@@ -36,17 +36,12 @@ coredump_skipped=
 #   "-- No entries --" where the entries are read, and with it it drops the
 #   warnings about journal files the caller may not read
 function find_coredumps() {
-    local up now since sinces jargs rc=0
+    local jargs rc=0
 
-    # at first find out time span we want to have core dumps for as we inly want
-    # to consider those that happened during this system run
-    now=$(date +%s)
-    up=$(set -- $(cat /proc/uptime); echo ${1%.*})
-    sinces=$((now - up))
-    since="$(date -d '@'"$sinces" +"%Y-%m-%d %H:%M:%S")"
-
-    jargs=(--since "${since}"
-           "MESSAGE_ID=${COREDUMP_MESSAGE_ID}" + "MESSAGE_ID=${BACKTRACE_MESSAGE_ID}")
+    # -b selects this boot, which is what the rating is about; a timestamp
+    # cannot say that on a device without an RTC, where the clock before the
+    # first time sync comes from the timesyncd clock file
+    jargs=(-b "MESSAGE_ID=${COREDUMP_MESSAGE_ID}" + "MESSAGE_ID=${BACKTRACE_MESSAGE_ID}")
 
     coredumps=$(journalctl -q "${jargs[@]}" 2>/dev/null) || rc=$?
     coredump_skipped=$(journalctl "${jargs[@]}" 2>&1 1>/dev/null)
