@@ -1582,8 +1582,11 @@ fn a_service_config_that_cannot_be_read_names_the_services_it_fails() {
         infos.stderr
     );
 }
+/// Both the checks config and this rules file ship in the image, so a missing
+/// one is a broken image and is rated like an unreadable one, as the
+/// dispatcher already does.
 #[test]
-fn a_missing_service_config_is_not_rated_green() {
+fn a_missing_service_config_is_rated_red() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     fs::remove_file(sandbox.etc().join("omnect_service_log_analysis.json"))
         .expect("remove service log config");
@@ -1591,15 +1594,14 @@ fn a_missing_service_config_is_not_rated_green() {
     let report = sandbox.run_script("omnect_health__services.sh", &["check", "picky"]);
 
     assert_eq!(
-        report.rating, RATING_YELLOW,
-        "a service nothing is known about is of unknown health, not of good \
-         health:\n{}{}",
+        report.rating, RATING_RED,
+        "a missing rules file is a broken image and must be rated as one:\n{}{}",
         report.stdout, report.stderr
     );
     assert_eq!(
         report.ratings(),
-        [("[YELLOW]", "picky")],
-        "the service nothing is known about has to be named:\n{}{}",
+        [("[RED]", "picky")],
+        "the service that could not be rated has to be named:\n{}{}",
         report.stdout,
         report.stderr
     );

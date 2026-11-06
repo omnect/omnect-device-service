@@ -137,15 +137,13 @@ function do__cmd() {
     local report="$1"
     local service rating servicelog services=() known unknown=() nrated=0
 
-    # NOTE:
-    #   what a missing configuration means depends on what was asked for, so
-    #   it is rated here: the services named on the command line are then of
-    #   unknown health, which is yellow, not green
+    # both this file and the checks config ship in the image, so a missing one
+    # is a broken image and is rated like an unreadable one
     if [ ! -r "$CFGFILEPATH" ]; then
-        warn "no configuration file (${CFGFILEPATH}) found, don't know what to do."
-        do_rate 1
-        report_all "$report" 1
-        return 1
+        error "no configuration file (${CFGFILEPATH}) found, don't know what to do."
+        do_rate 2
+        report_all "$report" 2
+        return 2
     fi
 
     known=$(configured_services) || { do_rate 2; report_all "$report" 2; return 2; }
