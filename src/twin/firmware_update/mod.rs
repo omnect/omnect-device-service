@@ -1501,7 +1501,7 @@ mod tests {
 
         crate::bootloader_env::reset_fail_mock();
         rollback(&mut guard);
-        // Drop would spawn the async rollback without a runtime
+        // without finalize(), Drop would start a second rollback that outlives the test lock
         guard.finalize();
 
         assert_switched_to_new_rootfs(&omnect_path);
