@@ -1,0 +1,8 @@
+{
+  "factory_reset": {
+    "status": 1,
+    "error": "unknown factory reset mode 7",
+    "data_wiped": false
+  },
+  "first_boot": false
+}

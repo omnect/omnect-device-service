@@ -1,0 +1,11 @@
+{
+  "factory_reset": {
+    "status": 4,
+    "context": "data reformatted twice",
+    "paths": [
+      "/etc/hostname"
+    ],
+    "data_wiped": true
+  },
+  "first_boot": false
+}

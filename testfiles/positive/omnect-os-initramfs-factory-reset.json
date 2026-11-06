@@ -1,8 +1,10 @@
 {
-    "fsck": {},
-    "factory-reset": {
+    "factory_reset": {
         "status": 0,
-        "error": "-",
-        "paths": []
-    }
+        "paths": [
+            "/etc/omnect/factory-reset.d/"
+        ],
+        "data_wiped": true
+    },
+    "first_boot": false
 }

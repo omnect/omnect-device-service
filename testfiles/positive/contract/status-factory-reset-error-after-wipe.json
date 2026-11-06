@@ -1,0 +1,12 @@
+{
+  "factory_reset": {
+    "status": 2,
+    "error": "backup missing for /etc/hostname",
+    "context": "etc/hostname:missing-backup",
+    "paths": [
+      "/etc/hostname"
+    ],
+    "data_wiped": true
+  },
+  "first_boot": false
+}

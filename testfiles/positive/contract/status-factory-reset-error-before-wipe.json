@@ -1,0 +1,8 @@
+{
+  "factory_reset": {
+    "status": 2,
+    "error": "backup of /etc/hostname failed",
+    "data_wiped": false
+  },
+  "first_boot": false
+}
