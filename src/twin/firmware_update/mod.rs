@@ -596,7 +596,9 @@ impl FirmwareUpdate {
     fn check_bootloader_step(guard: &mut RunUpdateGuard, swupdate_succeeded: bool) -> Result<()> {
         // the hook creates the marker before /boot is written. As in the ADU handler, a failed write
         // removes it, so that the rollback reverts. A marker that cannot be removed stays
-        // authoritative for the rollback, the pending-switch check and the ADU handler alike.
+        // authoritative for the rollback, the pending-switch check and the ADU handler alike. A
+        // successful swupdate wrote the bootloader even without the marker: the current rootfs
+        // must not boot with it again.
         let bootloader_marker = Self::bootloader_marker_exists();
         if !swupdate_succeeded
             && bootloader_marker
@@ -604,7 +606,7 @@ impl FirmwareUpdate {
         {
             error!("failed to remove the bootloader marker: {e:#}");
         }
-        guard.bootloader_updated = Self::bootloader_marker_exists();
+        guard.bootloader_updated = swupdate_succeeded || Self::bootloader_marker_exists();
         Self::ensure_bootloader_markers(swupdate_succeeded, bootloader_marker)
     }
 
@@ -639,11 +641,11 @@ impl FirmwareUpdate {
         let updated_marker = bootloader_updated_file_path!();
 
         if swupdate_succeeded {
-            ensure!(
-                bootloader_marker,
-                "failed to update bootloader: expected {updated_marker} to be present. (swupdate logs at {})",
-                log_file_path!()
-            );
+            if !bootloader_marker {
+                warn!(
+                    "bootloader updated, but {updated_marker} is missing: switching to the new rootfs without validation"
+                );
+            }
             return Ok(());
         }
 
@@ -1633,7 +1635,7 @@ mod tests {
         )
         .expect_err("expected a missing not-necessary marker to fail");
         FirmwareUpdate::ensure_bootloader_markers(true, FirmwareUpdate::bootloader_marker_exists())
-            .expect_err("expected a missing bootloader marker to fail");
+            .expect("expected a successful swupdate to count as a bootloader update");
 
         fs::write(&not_necessary_marker, "").expect("write not-necessary marker");
         FirmwareUpdate::ensure_bootloader_markers(
@@ -1664,20 +1666,14 @@ mod tests {
         crate::common::set_env_var("BOOTLOADER_UPDATE_PATH", &updated_marker);
         crate::common::set_env_var("NO_BOOTLOADER_UPDATE_PATH", &not_necessary_marker);
 
-        // swupdate succeeded, but the hook never created the marker: nothing was written
-        let mut guard = make_guard(true, true, Some(backup_path.clone()));
+        // swupdate succeeded, but the hook never created the marker: the bootloader was written
+        // anyway, so the activation switches without validation
+        let mut guard = make_guard(true, false, Some(backup_path.clone()));
         FirmwareUpdate::check_bootloader_step(&mut guard, true)
-            .expect_err("expected a missing bootloader marker to fail");
-        assert!(!guard.bootloader_updated, "expected no bootloader update");
-        setup_validation_env();
-        assert!(
-            !rollback(&mut guard),
-            "expected a revert without the marker"
-        );
-        assert_eq!(
-            fs::read_to_string(&omnect_path).expect("read omnect file"),
-            "original_arg"
-        );
+            .expect("expected a successful swupdate to count as a bootloader update");
+        assert!(guard.bootloader_updated, "expected a bootloader update");
+        FirmwareUpdate::activate_update(&mut guard, false).expect("activate update");
+        assert_switched_to_new_rootfs(&omnect_path);
 
         // swupdate failed after the hook created the marker: as in the ADU handler, the marker is
         // removed and the rollback reverts
