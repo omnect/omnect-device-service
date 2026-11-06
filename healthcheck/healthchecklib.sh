@@ -24,6 +24,23 @@ function fatal() {
     echo -e "${ME}: FATAL ERROR: ${@}" >&2
 }
 
+# true if $1 equals one of the remaining arguments
+#
+# NOTE:
+#   the list is passed as separate arguments rather than as one string,
+#   because a check name may contain a blank, which splitting a string would
+#   turn into two names
+function in_list() {
+    local needle="$1" item
+    shift
+
+    for item; do
+        [ "$item" = "$needle" ] && return 0
+    done
+
+    return 1
+}
+
 strrating=("GREEN" "YELLOW" "RED")
 overall_rating=0
 
