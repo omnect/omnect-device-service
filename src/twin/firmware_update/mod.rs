@@ -474,6 +474,10 @@ impl FirmwareUpdate {
             ),
         )?;
 
+        #[cfg(not(feature = "mock"))]
+        Self::remove_not_necessary_marker()
+            .context("failed to remove the not-necessary marker of an earlier attempt")?;
+
         #[cfg_attr(feature = "mock", allow(unused_variables))]
         let swupdate_succeeded =
             Self::swupdate(swu_file_path, target_partition.bootloader_update_params()).is_ok();
@@ -602,7 +606,7 @@ impl FirmwareUpdate {
         let bootloader_marker = Self::bootloader_marker_exists();
         if !swupdate_succeeded
             && bootloader_marker
-            && let Err(e) = Self::remove_bootloader_marker()
+            && let Err(e) = Self::remove_marker(&bootloader_updated_file_path!())
         {
             error!("failed to remove the bootloader marker: {e:#}");
         }
@@ -611,8 +615,14 @@ impl FirmwareUpdate {
     }
 
     #[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
-    fn remove_bootloader_marker() -> Result<()> {
-        // the hook creates the marker as adu in the sticky /tmp
+    fn remove_not_necessary_marker() -> Result<()> {
+        // as in the ADU handler, so that a stale marker cannot hide a failed bootloader step
+        Self::remove_marker(&no_bootloader_updated_file_path!())
+    }
+
+    #[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
+    fn remove_marker(marker: &str) -> Result<()> {
+        // the hook creates the markers as adu in the sticky /tmp
         #[cfg(not(feature = "mock"))]
         ensure!(
             std::process::Command::new("sudo")
@@ -620,14 +630,14 @@ impl FirmwareUpdate {
                 .arg(ADU_USER)
                 .arg(RM_BIN)
                 .arg("-f")
-                .arg(bootloader_updated_file_path!())
+                .arg(marker)
                 .status()?
                 .success(),
             "failed to run rm command"
         );
 
         #[cfg(feature = "mock")]
-        if let Err(e) = fs::remove_file(bootloader_updated_file_path!())
+        if let Err(e) = fs::remove_file(marker)
             && e.kind() != std::io::ErrorKind::NotFound
         {
             return Err(e.into());
@@ -650,8 +660,7 @@ impl FirmwareUpdate {
         }
 
         // the sw-description hook creates the marker before the bootloader is written, so /boot
-        // may be partly written. Checked first, as the not-necessary marker may be stale: ods cannot
-        // remove it before the bootloader step.
+        // may be partly written
         ensure!(
             !bootloader_marker,
             "failed to update bootloader: writing failed after {updated_marker} was created. (swupdate logs at {})",
@@ -1644,7 +1653,6 @@ mod tests {
         )
         .expect("expected no bootloader update to be necessary");
 
-        // stale not-necessary marker of an earlier attempt and a failed write in this attempt
         fs::write(&updated_marker, "").expect("write bootloader marker");
         FirmwareUpdate::ensure_bootloader_markers(
             false,
@@ -1653,6 +1661,17 @@ mod tests {
         .expect_err("expected the bootloader marker to reveal the failed write");
         FirmwareUpdate::ensure_bootloader_markers(true, FirmwareUpdate::bootloader_marker_exists())
             .expect("expected a bootloader update");
+
+        // not-necessary marker of an earlier attempt, failed step without the bootloader marker
+        fs::remove_file(&updated_marker).expect("remove bootloader marker");
+        FirmwareUpdate::remove_not_necessary_marker().expect("remove not-necessary marker");
+        FirmwareUpdate::remove_not_necessary_marker()
+            .expect("expected a missing not-necessary marker to be no error");
+        FirmwareUpdate::ensure_bootloader_markers(
+            false,
+            FirmwareUpdate::bootloader_marker_exists(),
+        )
+        .expect_err("expected the removed stale marker to reveal the failed step");
     }
 
     #[test]
