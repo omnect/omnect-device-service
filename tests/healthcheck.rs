@@ -492,7 +492,7 @@ fn an_empty_configuration_is_not_rated_green() {
         report.stdout, report.stderr
     );
     assert!(
-        report.stderr.contains("no checks defined in config file"),
+        report.stderr.contains("no check was run"),
         "the empty configuration must still be reported:\n{}{}",
         report.stdout,
         report.stderr

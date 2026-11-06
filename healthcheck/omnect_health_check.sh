@@ -82,13 +82,10 @@ function do__cmd() {
     local cfgfile="$3"
     shift 3
     local selected_checks=("$@")
-    local nchecked nchecks check i name type extra_args
+    local nchecked check i name type extra_args
     local output retval entry
 
     nchecked=0
-    nchecks=${#entries[@]}
-    [ $nchecks -gt 0 ] \
-        || warn "no checks defined in config file \"$cfgfile\""
 
     i=0
     for entry in "${entries[@]}"; do
