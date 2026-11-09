@@ -3,8 +3,7 @@ mod grub;
 #[cfg(feature = "bootloader_uboot")]
 mod uboot;
 
-#[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
-static SUDO_BIN: &str = "/usr/bin/sudo";
+pub(crate) static SUDO_BIN: &str = "/usr/bin/sudo";
 
 use anyhow::Result;
 #[cfg(feature = "bootloader_grub")]
