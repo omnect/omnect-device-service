@@ -2,7 +2,7 @@
 
 HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck
 
-. ${HEALTHCHECK_DIR}/healthchecklib.sh
+. "${HEALTHCHECK_DIR}/healthchecklib.sh"
 
 CFGFILE=omnect_health_checks.json
 CFGFILEDIR=/etc/omnect/health_check
@@ -92,7 +92,7 @@ function do__cmd() {
         i=$((i + 1))
 
         IFS=$'\037' read -r type name extra_args <<<"$entry"
-        : ${name:=$type}
+        : "${name:=$type}"
 
         # only entries the caller asked for are run and rated; an entry
         # without a type can still be selected by its name
@@ -111,17 +111,17 @@ function do__cmd() {
         if [ ! -x "$check" ]; then
             local rate=2
             error "check \"$check\" for type \"$type\" (entry $i in \"$cfgfile\") cannot be called"
-            print_rating $rate "$name" "${check##*/}"
-            do_rate $rate
+            print_rating "$rate" "$name" "${check##*/}"
+            do_rate "$rate"
             nchecked=$((nchecked + 1))
             continue
         fi
 
-        output=$($check $cmd $extra_args)
+        output=$("$check" "$cmd" $extra_args)
         retval=$?
 
         if [ -n "$output" ] \
-           && [ $output_when = 2 -o $output_when = 1 -a $retval != 0 ]; then
+           && [ "$output_when" = 2 -o "$output_when" = 1 -a "$retval" != 0 ]; then
             echo "$output"
         fi
 
@@ -132,13 +132,13 @@ function do__cmd() {
         elif [ "$retval" -ne 0 -a -z "$output" ]; then
             print_rating "$retval" "$name" "${check##*/}"
         fi
-        do_rate $retval "${check##*/}"
+        do_rate "$retval" "${check##*/}"
         nchecked=$((nchecked + 1))
 
     done
 
     # a device nothing was checked on is not healthy, it is unknown
-    [ $nchecked -gt 0 ] \
+    [ "$nchecked" -gt 0 ] \
         || { error "no check was run, health of this device is unknown"; print_rating 1 "${cfgfile##*/}" "${ME}"; do_rate 1; }
 }
 
@@ -201,4 +201,4 @@ ret=$?
 
 [ "$command" = check ] && echo -e "\nOVERALL: $(print_rating)"
 
-exit $ret
+exit "$ret"

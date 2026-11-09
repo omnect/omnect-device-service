@@ -14,7 +14,8 @@ use tempfile::TempDir;
 const HEALTHCHECK_SRC: &str = "healthcheck";
 const HEALTHCHECK_DIR_ASSIGNMENT: &str = "HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck";
 const CFGFILEDIR_ASSIGNMENT: &str = "CFGFILEDIR=/etc/omnect/health_check";
-const SERVICE_EXITLOGDIR_ASSIGNMENT: &str = "SERVICE_EXITLOGDIR=/var/run/${SERVICE_EXITLOGDIRNAME}";
+const SERVICE_EXITLOGDIR_ASSIGNMENT: &str =
+    "SERVICE_EXITLOGDIR=\"/var/run/${SERVICE_EXITLOGDIRNAME}\"";
 
 /// meta-omnect installs the check scripts executable and the library readable.
 const EXECUTABLE_MODE: u32 = 0o755;

@@ -14,7 +14,7 @@ function checkit() {
 
     retval=$?
 
-    if [ $retval -eq 0 ]; then
+    if [ "$retval" -eq 0 ]; then
         if [ "$NTP" = yes ]; then
             if [ "$NTPSynchronized" != yes ]; then
                 retval=1
@@ -23,8 +23,8 @@ function checkit() {
             retval=2
         fi
     fi
-    do_rate $retval
-    return $retval
+    do_rate "$retval"
+    return "$retval"
 }
 
 function do_check() {
@@ -35,7 +35,7 @@ function do_check() {
 
     print_rating "" "timesync" "$ME"
 
-    return $retval
+    return "$retval"
 }
 
 function do_get_infos() {
@@ -46,11 +46,11 @@ function do_get_infos() {
     rating=$(get_overall_rating)
 
     print_info_header
-    if [ $retval != 0 ]; then
+    if [ "$retval" != 0 ]; then
         journalctl -b0 --no-pager -l -u systemd-timesyncd.service
     fi
 
-    return $retval
+    return "$retval"
 }
 
 command="${1:-check}"
@@ -68,4 +68,4 @@ case "$command" in
         ;;
 esac
 
-exit $retval
+exit "$retval"

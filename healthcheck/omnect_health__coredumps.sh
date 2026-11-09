@@ -46,7 +46,7 @@ function find_coredumps() {
 
     # a skipped journal file leaves a blind spot, but the other files were
     # searched, so it is kept apart from a lookup that yielded nothing
-    if [ ${rc} -ne 0 ]; then
+    if [ "${rc}" -ne 0 ]; then
         coredump_errors="${coredump_skipped:-the journal could not be read}"
         coredump_skipped=
         coredumps=
@@ -72,7 +72,7 @@ function rate_coredumps() {
         rating=1
     fi
 
-    return ${rating}
+    return "${rating}"
 }
 
 function do_check() {
@@ -80,9 +80,9 @@ function do_check() {
 
     rate_coredumps || rating=$?
 
-    print_rating ${rating} "coredumps" "$ME"
+    print_rating "${rating}" "coredumps" "$ME"
 
-    return ${rating}
+    return "${rating}"
 }
 
 function do_get_infos() {
@@ -95,7 +95,7 @@ function do_get_infos() {
     [ -z "${coredump_errors}" ] || echo "${coredump_errors}"
     [ -z "${coredump_skipped}" ] || echo "${coredump_skipped}"
 
-    return ${rating}
+    return "${rating}"
 }
 
 command="${1:-check}"
@@ -114,4 +114,4 @@ case "$command" in
         ;;
 esac
 
-exit $retval
+exit "$retval"

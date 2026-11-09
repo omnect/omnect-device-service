@@ -13,12 +13,12 @@
 
 . "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
-: ${CFGDIR:=/etc/omnect/health_check}
-: ${CFGFILE:=omnect_service_log_analysis.json}
+: "${CFGDIR:=/etc/omnect/health_check}"
+: "${CFGFILE:=omnect_service_log_analysis.json}"
 CFGFILEPATH="${CFGDIR}/${CFGFILE}"
 
-: ${LOGDIR:=/run/omnect_health_log}
-: ${ANALYSISDIR:=/run/omnect_health_log}
+: "${LOGDIR:=/run/omnect_health_log}"
+: "${ANALYSISDIR:=/run/omnect_health_log}"
 
 # prints the services the configuration file knows, one per line
 function configured_services() {
@@ -177,7 +177,7 @@ function do__cmd() {
 
     # a configuration naming no service leaves nothing to rate, which tells
     # as little about this device as a check that never ran
-    if [ $nrated -eq 0 ]; then
+    if [ "$nrated" -eq 0 ]; then
         warn "no service to rate in \"$CFGFILEPATH\""
         do_rate 1
         report_all "$report" 1
@@ -215,4 +215,4 @@ esac
 
 # print_rating "" "omnect_service_log_analyze" "$ME"
 
-exit $overall_rating
+exit "$overall_rating"

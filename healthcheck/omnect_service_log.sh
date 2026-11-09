@@ -7,10 +7,10 @@
 
 HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck
 
-. ${HEALTHCHECK_DIR}/healthchecklib.sh
+. "${HEALTHCHECK_DIR}/healthchecklib.sh"
 
 SERVICE_EXITLOGDIRNAME=omnect_health_log
-SERVICE_EXITLOGDIR=/var/run/${SERVICE_EXITLOGDIRNAME}
+SERVICE_EXITLOGDIR="/var/run/${SERVICE_EXITLOGDIRNAME}"
 
 STOP_POSTFIX=".exit-log"
 STOP_INFOPOSTFIX=".exit-info"
@@ -35,7 +35,7 @@ function usage() {
 	    ${SERVICE_EXITLOGDIR}/<service-name>.$START_POSTFIX
 EOF
 
-    [ $do_exit -ge 0 ] && exit $do_exit
+    [ "$do_exit" -ge 0 ] && exit "$do_exit"
 }
 
 function output_logentry() {
@@ -58,7 +58,7 @@ function output_logentry() {
 	jq -n '{ service: "'"$service"'", infos: [ { timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' } ] }' > "${outputfile}.tmp" || failed=1
     fi
 
-    if [ $failed -ne 0 ]; then
+    if [ "$failed" -ne 0 ]; then
 	rm -f "${outputfile}.tmp"
 	fatal "couldn't write a log entry for service \"$service\""
 	return 1
@@ -90,7 +90,7 @@ EOF
 	    || echo "the journal of this service could not be read"
     } > "${outputfile}.tmp" || failed=1
 
-    if [ $failed -ne 0 ]; then
+    if [ "$failed" -ne 0 ]; then
 	rm -f "${outputfile}.tmp"
 	fatal "couldn't write the exit info of service \"$service\""
 	return 1
@@ -111,8 +111,8 @@ case "$1" in
     ;;
 esac
 
-[ $# -lt $EXPECTED_PARAMS ] && fatal "too few parameters ($# < $EXPECTED_PARAMS)" && usage 1
-[ $# -gt $EXPECTED_PARAMS ] && warn "additional parameters ignored"
+[ $# -lt "$EXPECTED_PARAMS" ] && fatal "too few parameters ($# < $EXPECTED_PARAMS)" && usage 1
+[ $# -gt "$EXPECTED_PARAMS" ] && warn "additional parameters ignored"
 
 SERVICE="$2"
 
@@ -158,4 +158,4 @@ case "$1" in
     ;;
 esac
 
-exit $retval
+exit "$retval"

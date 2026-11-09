@@ -40,8 +40,8 @@ function do_check() {
     found=$(find_crash_loops) || rating=2
     [ -z "${found}" ] || rating=2
     print_rating ${rating} crash_loop "$ME"
-    do_rate ${rating}
-    return ${rating}
+    do_rate "${rating}"
+    return "${rating}"
 }
 
 function do_get_infos() {
@@ -52,7 +52,7 @@ function do_get_infos() {
     print_info_header "${ME}" "${rating}"
     [ -z "${error}" ] || echo "${error}"
     [ -z "${found}" ] || echo "crash-looping services:${found}"
-    return ${rating}
+    return "${rating}"
 }
 
 command="${1:-check}"
@@ -70,4 +70,4 @@ case "$command" in
         ;;
 esac
 
-exit $retval
+exit "$retval"
