@@ -49,8 +49,7 @@ function rate_servicelog() {
     # configuration may be replaced while a check runs
     #
     # a service may bring its own ratings, otherwise the defaults apply;
-    # either way an entry no rule matched is rated red rather than being left
-    # unrated, which would make it count as green
+    # either way an entry no rule matched is rated red
     jquery=$(jq -r --arg service "$service" '
         ( first(.services[]? | select(.service == $service))
           // error("no rules for service \($service)") ) as $rules
@@ -92,14 +91,12 @@ function rate_servicelog() {
     return 2
 }
 
-# prints what "check" has to say about one service
 function report_check() {
     local service="$1" rating="$2"
 
     print_rating "$rating" "$service" "$ME"
 }
 
-# prints what "get-infos" has to say about one service
 function report_infos() {
     local service="$1" rating="$2"
     local exitinfo="$LOGDIR/${service}.exit-info"
@@ -129,10 +126,6 @@ function report_all() {
 # rates every configured service the caller asked for, plus every service the
 # caller asked for that the configuration does not know, and reports each one
 # through the given report function
-#
-# NOTE:
-#   both commands share this loop, because they differ only in how a service
-#   is reported
 function do__cmd() {
     local report="$1"
     local service rating servicelog services=() known unknown=() nrated=0
@@ -155,7 +148,7 @@ function do__cmd() {
         [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
 
         # an exit log that is there but cannot be read says nothing about
-        # its service, and the rating has to say so instead of skipping it
+        # its service, and the rating has to say so
         servicelog="$LOGDIR/${service}.exit-log"
         if [ -e "$servicelog" ]; then
             rate_servicelog "$service" "$servicelog"

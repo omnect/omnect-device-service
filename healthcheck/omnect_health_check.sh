@@ -38,7 +38,7 @@ entries=()
 # NOTE:
 #   the document is read through "input", so that an empty file - no JSON
 #   document at all, and a common result of a power loss during a write -
-#   fails instead of looking like an empty list
+#   is an error
 function read_entries() {
     local cfgfile="$1" rawentries
 
@@ -55,7 +55,6 @@ function read_entries() {
 function verify_check_names() {
     local check entry type name known=()
 
-    # nothing to verify
     [ $# -gt 0 ] || return 0
 
     for entry in "${entries[@]}"; do
@@ -69,7 +68,6 @@ function verify_check_names() {
         in_list "$check" "${known[@]}" || unknown_checks+=("$check")
     done
 
-    # one name per line, so a name containing a blank stays one name
     [ ${#unknown_checks[@]} -gt 0 ] || return 0
     printf '%s\n' "${unknown_checks[@]}"
 

@@ -27,9 +27,8 @@ function fatal() {
 # true if $1 equals one of the remaining arguments
 #
 # NOTE:
-#   the list is passed as separate arguments rather than as one string,
-#   because a check name may contain a blank, which splitting a string would
-#   turn into two names
+#   a check name may contain a blank, so the list comes as separate
+#   arguments
 function in_list() {
     local needle="$1" item
     shift

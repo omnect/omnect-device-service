@@ -21,7 +21,7 @@ coredump_skipped=
 # NOTE:
 #   journalctl succeeds whether or not an entry matched, and fails only when
 #   it could read no journal file at all, so the rating follows its exit
-#   status instead of the wording of a diagnostic.
+#   status
 #
 # NOTE:
 #   the lookup is run twice, keeping the entries once and the diagnostics the
@@ -35,9 +35,7 @@ coredump_skipped=
 function find_coredumps() {
     local jargs rc=0
 
-    # -b selects this boot, which is what the rating is about; a timestamp
-    # cannot say that on a device without an RTC, where the clock before the
-    # first time sync comes from the timesyncd clock file
+    # -b selects this boot, which is what the rating is about
     jargs=(-b "MESSAGE_ID=${COREDUMP_MESSAGE_ID}" + "MESSAGE_ID=${BACKTRACE_MESSAGE_ID}")
 
     coredumps=$(journalctl -q "${jargs[@]}" 2>/dev/null) || rc=$?
