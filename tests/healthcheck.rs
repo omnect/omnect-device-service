@@ -186,6 +186,13 @@ fn read_script(name: &str) -> String {
     fs::read_to_string(Path::new(HEALTHCHECK_SRC).join(name)).expect("read healthcheck script")
 }
 
+/// Puts a directory where a file is expected. Reading or writing it fails
+/// with `EISDIR`, which permission bits cannot stand in for, because the
+/// suite may run as a user who is allowed to ignore them.
+fn block_path(path: &Path) {
+    fs::create_dir(path).expect("create the directory that blocks the path");
+}
+
 /// The number of calls the counting `jq` wrapper recorded.
 fn jq_calls(counter: &Path) -> usize {
     fs::read_to_string(counter)
@@ -1637,8 +1644,7 @@ fn a_check_that_rated_no_service_at_all_is_rated_yellow() {
 fn an_unreadable_exit_log_is_rated_red() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(CRASH_RATED_SERVICE);
-    sandbox.write_exit_log("picky", "exited");
-    write_with_mode(&sandbox.run().join("picky.exit-log"), "", 0o000);
+    block_path(&sandbox.run().join("picky.exit-log"));
 
     let report = sandbox.run_script("omnect_health__services.sh", &["check"]);
 
@@ -1714,7 +1720,7 @@ fn an_exit_info_that_could_not_be_written_is_not_installed() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(CRASH_RATED_SERVICE);
     sandbox.install_service_log();
-    write_with_mode(&sandbox.run().join("picky.exit-info.tmp"), "", 0o000);
+    block_path(&sandbox.run().join("picky.exit-info.tmp"));
 
     sandbox.run_script(
         "omnect_service_log.sh",
