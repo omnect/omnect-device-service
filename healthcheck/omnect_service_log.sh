@@ -129,19 +129,33 @@ SERVICE_STARTLOGFILE_1ST="$SERVICE_EXITLOGDIR/$SERVICE$START_1ST_POSTFIX"
 
 timestamp=$(date +%Y-%m-%dT%H:%M:%SZ)
 
+# a service whose exit log is missing is rated green, so a record that was
+# not written has to leave the hook, and with it the stop or the start of the
+# service, in a failed state
+retval=0
+
 case "$1" in
     start)
-	output_logentry "$SERVICE_STARTLOGFILE" "$timestamp" "$SERVICE"
-	if [ ! -r "$SERVICE_STARTLOGFILE_1ST" ]; then
-	    cp -a "$SERVICE_STARTLOGFILE" "$SERVICE_STARTLOGFILE_1ST"
+	if output_logentry "$SERVICE_STARTLOGFILE" "$timestamp" "$SERVICE"; then
+	    if [ ! -r "$SERVICE_STARTLOGFILE_1ST" ]; then
+		cp -a "$SERVICE_STARTLOGFILE" "$SERVICE_STARTLOGFILE_1ST" || retval=1
+	    fi
+	else
+	    retval=1
 	fi
     ;;
     stop)
 	# FIXME: do we need to take care of log file rotation or removal?
-	output_logentry "$SERVICE_EXITLOGFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
-	if output_exitinfo "$SERVICE_EXITINFOFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5" \
-	    && [ ! -r "$SERVICE_EXITINFOFILE_1ST" ]; then
-	    cp -a "$SERVICE_EXITINFOFILE" "$SERVICE_EXITINFOFILE_1ST"
+	output_logentry "$SERVICE_EXITLOGFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5" \
+	    || retval=1
+	if output_exitinfo "$SERVICE_EXITINFOFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"; then
+	    if [ ! -r "$SERVICE_EXITINFOFILE_1ST" ]; then
+		cp -a "$SERVICE_EXITINFOFILE" "$SERVICE_EXITINFOFILE_1ST" || retval=1
+	    fi
+	else
+	    retval=1
 	fi
     ;;
 esac
+
+exit $retval

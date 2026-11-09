@@ -1722,11 +1722,17 @@ fn an_exit_info_that_could_not_be_written_is_not_installed() {
     sandbox.install_service_log();
     block_path(&sandbox.run().join("picky.exit-info.tmp"));
 
-    sandbox.run_script(
+    let report = sandbox.run_script(
         "omnect_service_log.sh",
         &["stop", "picky", "exit-code", "exited", "SEGV"],
     );
 
+    assert_ne!(
+        report.rating, 0,
+        "an exit info that could not be written was reported as \
+         written:\n{}{}",
+        report.stdout, report.stderr
+    );
     assert!(
         !sandbox.run().join("picky.exit-info").exists(),
         "an exit info that could not be written was installed"
@@ -1735,6 +1741,52 @@ fn an_exit_info_that_could_not_be_written_is_not_installed() {
         !sandbox.run().join("picky.1st.exit-info").exists(),
         "an exit info that could not be written was kept as the first \
          failure of this service"
+    );
+}
+
+/// A service that could not log its stop is rated green, because the check
+/// finds no exit log, so a log entry that could not be written has to be
+/// reported instead of being passed over.
+#[test]
+fn a_stop_that_could_not_be_logged_is_reported() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.install_service_log();
+    block_path(&sandbox.run().join("picky.exit-log.tmp"));
+
+    let report = sandbox.run_script(
+        "omnect_service_log.sh",
+        &["stop", "picky", "exit-code", "exited", "SEGV"],
+    );
+
+    assert_ne!(
+        report.rating, 0,
+        "a stop whose exit log could not be written was reported as \
+         logged:\n{}{}",
+        report.stdout, report.stderr
+    );
+}
+
+/// The first start of a service is kept as the record of when it last came
+/// up for the first time, so it must not be taken from an entry that was
+/// never written.
+#[test]
+fn a_start_that_could_not_be_logged_is_reported() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.install_service_log();
+    block_path(&sandbox.run().join("picky.last-start.tmp"));
+
+    let report = sandbox.run_script("omnect_service_log.sh", &["start", "picky"]);
+
+    assert_ne!(
+        report.rating, 0,
+        "a start that could not be logged was reported as logged:\n{}{}",
+        report.stdout, report.stderr
+    );
+    assert!(
+        !sandbox.run().join("picky.1st-start").exists(),
+        "a start that was never logged was kept as the first start"
     );
 }
 
