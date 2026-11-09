@@ -511,10 +511,8 @@ impl FirmwareUpdate {
         flagged
     }
 
-    fn bootloader_marker_exists() -> bool {
-        Path::new(&bootloader_updated_file_path!())
-            .try_exists()
-            .unwrap_or(true)
+    fn bootloader_marker() -> std::io::Result<bool> {
+        Path::new(&bootloader_updated_file_path!()).try_exists()
     }
 
     fn ensure_no_pending_switch(target_partition: RootPartition) -> Result<()> {
@@ -522,14 +520,14 @@ impl FirmwareUpdate {
         // could leave no complete rootfs to boot, and stale env of the first activation could be
         // picked up
         let target_index = target_partition.index().to_string();
-        // fw_printenv fails for an unset variable, which means no switch is pending
+        // a failed read counts as not selected
         let selects_target =
             |key: &str| bootloader_env::get(key).is_ok_and(|part| part == target_index);
 
-        let marker = bootloader_updated_file_path!();
-        let bootloader_updated = Path::new(&marker).try_exists().with_context(|| {
+        let bootloader_updated = Self::bootloader_marker().with_context(|| {
             format!(
-                "failed to check {marker}: cannot tell whether a bootloader update ran in this boot"
+                "failed to check {}: cannot tell whether a bootloader update ran in this boot",
+                bootloader_updated_file_path!()
             )
         })?;
 
@@ -560,8 +558,8 @@ impl FirmwareUpdate {
     }
 
     fn backup_bootargs_once() -> Result<PathBuf> {
-        // an existing backup is from an earlier attempt in this boot, also by the ADU handler, and
-        // holds the args of the current rootfs
+        // an existing backup is from an earlier attempt in this boot and holds the args of the
+        // current rootfs
         let backup_file = PathBuf::from(bootargs_omnect_backup_file_path!());
 
         if !backup_file.try_exists()? {
@@ -591,10 +589,14 @@ impl FirmwareUpdate {
         Self::remove_marker(&no_bootloader_updated_file_path!())
             .context("failed to remove the not-necessary marker of an earlier attempt")?;
 
-        let swupdate_succeeded = swupdate().is_ok();
+        let swupdate_succeeded = swupdate()
+            .inspect_err(|e| info!("bootloader swupdate failed: {e:#}"))
+            .is_ok();
 
-        // success counts as flashed even without the marker, failure only if the marker cannot be removed
-        let bootloader_marker = Self::bootloader_marker_exists();
+        // an unknown marker is left to the removal below
+        let bootloader_marker = Self::bootloader_marker()
+            .inspect_err(|e| error!("failed to check the bootloader marker: {e:#}"))
+            .unwrap_or(true);
         let marker_kept = !swupdate_succeeded
             && bootloader_marker
             && Self::remove_marker(&bootloader_updated_file_path!())
@@ -1650,27 +1652,33 @@ mod tests {
 
         FirmwareUpdate::ensure_bootloader_markers(
             false,
-            FirmwareUpdate::bootloader_marker_exists(),
+            FirmwareUpdate::bootloader_marker().expect("check marker"),
         )
         .expect_err("expected a missing not-necessary marker to fail");
-        FirmwareUpdate::ensure_bootloader_markers(true, FirmwareUpdate::bootloader_marker_exists())
-            .expect("expected a successful swupdate to count as a bootloader update");
+        FirmwareUpdate::ensure_bootloader_markers(
+            true,
+            FirmwareUpdate::bootloader_marker().expect("check marker"),
+        )
+        .expect("expected a successful swupdate to count as a bootloader update");
 
         fs::write(&not_necessary_marker, "").expect("write not-necessary marker");
         FirmwareUpdate::ensure_bootloader_markers(
             false,
-            FirmwareUpdate::bootloader_marker_exists(),
+            FirmwareUpdate::bootloader_marker().expect("check marker"),
         )
         .expect("expected no bootloader update to be necessary");
 
         fs::write(&updated_marker, "").expect("write bootloader marker");
         FirmwareUpdate::ensure_bootloader_markers(
             false,
-            FirmwareUpdate::bootloader_marker_exists(),
+            FirmwareUpdate::bootloader_marker().expect("check marker"),
         )
         .expect_err("expected the bootloader marker to reveal the failed write");
-        FirmwareUpdate::ensure_bootloader_markers(true, FirmwareUpdate::bootloader_marker_exists())
-            .expect("expected a bootloader update");
+        FirmwareUpdate::ensure_bootloader_markers(
+            true,
+            FirmwareUpdate::bootloader_marker().expect("check marker"),
+        )
+        .expect("expected a bootloader update");
     }
 
     #[test]
