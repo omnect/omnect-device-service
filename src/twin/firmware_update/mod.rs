@@ -511,8 +511,8 @@ impl FirmwareUpdate {
         flagged
     }
 
-    fn bootloader_marker() -> std::io::Result<bool> {
-        Path::new(&bootloader_updated_file_path!()).try_exists()
+    fn marker_exists(marker: &str) -> std::io::Result<bool> {
+        Path::new(marker).try_exists()
     }
 
     fn ensure_no_pending_switch(target_partition: RootPartition) -> Result<()> {
@@ -524,12 +524,13 @@ impl FirmwareUpdate {
         let selects_target =
             |key: &str| bootloader_env::get(key).is_ok_and(|part| part == target_index);
 
-        let bootloader_updated = Self::bootloader_marker().with_context(|| {
-            format!(
-                "failed to check {}: cannot tell whether a bootloader update ran in this boot",
-                bootloader_updated_file_path!()
-            )
-        })?;
+        let bootloader_updated = Self::marker_exists(&bootloader_updated_file_path!())
+            .with_context(|| {
+                format!(
+                    "failed to check {}: cannot tell whether a bootloader update ran in this boot",
+                    bootloader_updated_file_path!()
+                )
+            })?;
 
         if bootloader_updated {
             // the marker is created in the bootloader step, after rootfs and kernelargs were
@@ -590,15 +591,17 @@ impl FirmwareUpdate {
             .context("failed to remove the not-necessary marker of an earlier attempt")?;
 
         let swupdate_succeeded = swupdate()
-            .inspect_err(|e| info!("bootloader swupdate failed: {e:#}"))
+            .inspect_err(|e| {
+                info!(
+                    "bootloader swupdate failed: {e:#} (swupdate logs at {})",
+                    log_file_path!()
+                )
+            })
             .is_ok();
 
-        // an unknown marker is left to the removal below
-        let bootloader_marker = Self::bootloader_marker()
-            .inspect_err(|e| error!("failed to check the bootloader marker: {e:#}"))
-            .unwrap_or(true);
+        let bootloader_marker = Self::marker_exists(&bootloader_updated_file_path!());
         let marker_kept = !swupdate_succeeded
-            && bootloader_marker
+            && !matches!(bootloader_marker, Ok(false))
             && Self::remove_marker(&bootloader_updated_file_path!())
                 .inspect_err(|e| error!("failed to remove the bootloader marker: {e:#}"))
                 .is_err();
@@ -630,17 +633,29 @@ impl FirmwareUpdate {
     }
 
     #[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
-    fn ensure_bootloader_markers(swupdate_succeeded: bool, bootloader_marker: bool) -> Result<()> {
+    fn ensure_bootloader_markers(
+        swupdate_succeeded: bool,
+        bootloader_marker: std::io::Result<bool>,
+    ) -> Result<()> {
         let updated_marker = bootloader_updated_file_path!();
 
         if swupdate_succeeded {
-            if !bootloader_marker {
-                warn!(
+            match bootloader_marker {
+                Ok(true) => {}
+                Ok(false) => warn!(
                     "bootloader updated, but {updated_marker} is missing: switching to the new rootfs without validation"
-                );
+                ),
+                Err(e) => warn!("bootloader updated, but checking {updated_marker} failed: {e:#}"),
             }
             return Ok(());
         }
+
+        let bootloader_marker = bootloader_marker.with_context(|| {
+            format!(
+                "failed to update bootloader: cannot tell whether the bootloader was written, checking {updated_marker} failed. (swupdate logs at {})",
+                log_file_path!()
+            )
+        })?;
 
         // the sw-description hook creates the marker before the bootloader is written, so /boot
         // may be partly written
@@ -652,9 +667,8 @@ impl FirmwareUpdate {
 
         let not_necessary_marker = no_bootloader_updated_file_path!();
         ensure!(
-            Path::new(&not_necessary_marker)
-                .try_exists()
-                .is_ok_and(|r| r),
+            Self::marker_exists(&not_necessary_marker)
+                .with_context(|| format!("failed to check {not_necessary_marker}"))?,
             "failed to update bootloader: expected {not_necessary_marker} to be present. (swupdate logs at {})",
             log_file_path!()
         );
@@ -1652,31 +1666,31 @@ mod tests {
 
         FirmwareUpdate::ensure_bootloader_markers(
             false,
-            FirmwareUpdate::bootloader_marker().expect("check marker"),
+            FirmwareUpdate::marker_exists(&bootloader_updated_file_path!()),
         )
         .expect_err("expected a missing not-necessary marker to fail");
         FirmwareUpdate::ensure_bootloader_markers(
             true,
-            FirmwareUpdate::bootloader_marker().expect("check marker"),
+            FirmwareUpdate::marker_exists(&bootloader_updated_file_path!()),
         )
         .expect("expected a successful swupdate to count as a bootloader update");
 
         fs::write(&not_necessary_marker, "").expect("write not-necessary marker");
         FirmwareUpdate::ensure_bootloader_markers(
             false,
-            FirmwareUpdate::bootloader_marker().expect("check marker"),
+            FirmwareUpdate::marker_exists(&bootloader_updated_file_path!()),
         )
         .expect("expected no bootloader update to be necessary");
 
         fs::write(&updated_marker, "").expect("write bootloader marker");
         FirmwareUpdate::ensure_bootloader_markers(
             false,
-            FirmwareUpdate::bootloader_marker().expect("check marker"),
+            FirmwareUpdate::marker_exists(&bootloader_updated_file_path!()),
         )
         .expect_err("expected the bootloader marker to reveal the failed write");
         FirmwareUpdate::ensure_bootloader_markers(
             true,
-            FirmwareUpdate::bootloader_marker().expect("check marker"),
+            FirmwareUpdate::marker_exists(&bootloader_updated_file_path!()),
         )
         .expect("expected a bootloader update");
     }
@@ -1710,6 +1724,37 @@ mod tests {
         })
         .expect_err("expected a not-necessary marker that cannot be removed to abort");
         assert!(!swupdate_called, "expected no bootloader swupdate");
+    }
+
+    #[test]
+    fn bootloader_step_reports_a_failed_marker_check() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let not_a_dir = tmp.path().join("file");
+        fs::write(&not_a_dir, "").expect("write file");
+        crate::common::set_env_var("BOOTLOADER_UPDATE_PATH", not_a_dir.join("marker"));
+        crate::common::set_env_var(
+            "NO_BOOTLOADER_UPDATE_PATH",
+            tmp.path().join("omnect-bootloader-update-not-necessary"),
+        );
+        let mut guard = make_guard(true, false, None);
+
+        FirmwareUpdate::bootloader_step(&mut guard, || Ok(()))
+            .expect("expected a successful swupdate to count as a bootloader update");
+        assert!(guard.bootloader_updated, "expected a bootloader update");
+
+        guard.bootloader_updated = false;
+        let err =
+            FirmwareUpdate::bootloader_step(&mut guard, || bail!("bootloader swupdate failed"))
+                .expect_err("expected a failed marker check to fail the step");
+        assert!(
+            err.to_string().contains("cannot tell"),
+            "expected the unknown bootloader state to be reported: {err}"
+        );
+        assert!(
+            guard.bootloader_updated,
+            "expected a marker that cannot be checked or removed to count as a bootloader update"
+        );
     }
 
     #[test]
