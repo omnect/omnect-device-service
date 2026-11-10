@@ -39,11 +39,10 @@ function do_check() {
 }
 
 function do_get_infos() {
-    local retval rating
+    local retval
 
     checkit
     retval=$?
-    rating=$(get_overall_rating)
 
     print_info_header
     if [ "$retval" != 0 ]; then
@@ -65,6 +64,7 @@ case "$command" in
         ;;
     get-infos)
         do_get_infos "$@"
+        retval=$?
         ;;
 esac
 

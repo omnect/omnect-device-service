@@ -1504,6 +1504,44 @@ fn check_rates_an_undisturbed_system_green() {
     );
 }
 
+/// Both commands are rated, so both have to say green on a healthy device.
+/// The stock configuration runs every check, which is where a check that
+/// rates itself green but exits non-zero shows up.
+#[test]
+fn both_commands_rate_an_undisturbed_system_green() {
+    for command in ["check", "get-infos"] {
+        let sandbox = Sandbox::new(&stock_config());
+
+        let report = sandbox.run_script("omnect_health_check.sh", &[command]);
+
+        assert_eq!(
+            report.rating, RATING_GREEN,
+            "\"{command}\" must rate a healthy device green:\n{}{}",
+            report.stdout, report.stderr
+        );
+    }
+}
+
+/// Every check script carries its own command dispatch, so each one has to
+/// return the rating it printed, for both commands.
+#[test]
+fn every_check_rates_an_undisturbed_system_green_on_its_own() {
+    for script in CHECK_SCRIPTS {
+        for command in ["check", "get-infos"] {
+            let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+
+            let report = sandbox.run_script(script, &[command]);
+
+            assert_eq!(
+                report.rating, RATING_GREEN,
+                "{script} \"{command}\" must rate a healthy device \
+                 green:\n{}{}",
+                report.stdout, report.stderr
+            );
+        }
+    }
+}
+
 #[test]
 fn get_infos_rates_a_core_dump_red() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
