@@ -1783,9 +1783,9 @@ fn an_exit_info_that_could_not_be_written_is_not_installed() {
     );
 }
 
-/// A service that could not log its stop is rated green, because the check
-/// finds no exit log, so a log entry that could not be written has to be
-/// reported instead of being passed over.
+/// The hook says in its exit status whether the entry was written. No unit
+/// acts on that today, because they all run the hook with "-", so this
+/// covers the status itself and not what systemd makes of it.
 #[test]
 fn a_stop_that_could_not_be_logged_is_reported() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
@@ -1808,7 +1808,7 @@ fn a_stop_that_could_not_be_logged_is_reported() {
 
 /// The first start of a service is kept as the record of when it last came
 /// up for the first time, so it must not be taken from an entry that was
-/// never written.
+/// never written. The exit status carries the same caveat as the stop case.
 #[test]
 fn a_start_that_could_not_be_logged_is_reported() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);

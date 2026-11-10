@@ -129,9 +129,10 @@ SERVICE_STARTLOGFILE_1ST="$SERVICE_EXITLOGDIR/$SERVICE$START_1ST_POSTFIX"
 
 timestamp=$(date +%Y-%m-%dT%H:%M:%SZ)
 
-# a service whose exit log is missing is rated green, so a record that was
-# not written has to leave the hook, and with it the stop or the start of the
-# service, in a failed state
+# NOTE:
+#   every unit runs this hook as "ExecStartPre=+-" or "ExecStopPost=+-", and
+#   the "-" makes systemd discard the status, so this says what happened
+#   without any caller acting on it today
 retval=0
 
 case "$1" in
