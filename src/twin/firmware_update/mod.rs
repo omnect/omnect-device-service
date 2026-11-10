@@ -534,14 +534,14 @@ impl FirmwareUpdate {
         if bootloader_updated {
             // the marker is created in the bootloader step, after rootfs and kernelargs were
             // installed: finish a switch the rollback may have failed to do
-            if let Err(e) = Self::switch_to_update_part(target_partition) {
-                error!("failed to switch to the new rootfs: {e:#}");
-            }
-            ensure!(
-                selects_target(OMNECT_OS_BOOTPART),
+            let switched = Self::switch_to_update_part(target_partition);
+            let message = if selects_target(OMNECT_OS_BOOTPART) {
+                "bootloader update in this boot: reboot before installing another update"
+            } else {
                 "bootloader update in this boot, but the new rootfs is not selected: do not reboot, the current rootfs may not start with the new bootloader"
-            );
-            bail!("bootloader update in this boot: reboot before installing another update");
+            };
+            switched.context(message)?;
+            bail!(message);
         }
 
         ensure!(
@@ -601,10 +601,14 @@ impl FirmwareUpdate {
         let updated_marker = bootloader_updated_file_path!();
         let bootloader_marker = Self::marker_exists(&updated_marker);
         let marker_kept = !swupdate_succeeded
-            && !matches!(bootloader_marker, Ok(false))
-            && Self::remove_marker(&updated_marker)
-                .inspect_err(|e| error!("failed to remove the bootloader marker: {e:#}"))
-                .is_err();
+            && match bootloader_marker {
+                Ok(false) => false,
+                Ok(true) => Self::remove_marker(&updated_marker)
+                    .inspect_err(|e| error!("failed to remove the bootloader marker: {e:#}"))
+                    .is_err(),
+                // when it is unclear whether the bootloader was written, the new rootfs is selected
+                Err(_) => true,
+            };
         guard.bootloader_updated = swupdate_succeeded || marker_kept;
         Self::ensure_bootloader_markers(swupdate_succeeded, bootloader_marker)
     }
@@ -640,10 +644,14 @@ impl FirmwareUpdate {
         let updated_marker = bootloader_updated_file_path!();
 
         if swupdate_succeeded {
-            if !matches!(bootloader_marker, Ok(true)) {
-                warn!(
-                    "bootloader updated, but {updated_marker} is missing or cannot be checked: switching to the new rootfs without validation"
-                );
+            match &bootloader_marker {
+                Ok(true) => {}
+                Ok(false) => warn!(
+                    "bootloader updated, but {updated_marker} is missing: switching to the new rootfs without validation"
+                ),
+                Err(e) => warn!(
+                    "bootloader updated, but {updated_marker} cannot be checked ({e:#}): switching to the new rootfs without validation"
+                ),
             }
             return Ok(());
         }
@@ -659,7 +667,7 @@ impl FirmwareUpdate {
         // may be partly written
         ensure!(
             !bootloader_marker,
-            "failed to update bootloader: writing failed after {updated_marker} was created. (swupdate logs at {})",
+            "failed to update bootloader: writing failed after {updated_marker} was created (swupdate logs at {})",
             log_file_path!()
         );
 
@@ -671,7 +679,7 @@ impl FirmwareUpdate {
                     log_file_path!()
                 )
             })?,
-            "failed to update bootloader: expected {not_necessary_marker} to be present. (swupdate logs at {})",
+            "failed to update bootloader: expected {not_necessary_marker} to be present (swupdate logs at {})",
             log_file_path!()
         );
 
@@ -1591,6 +1599,19 @@ mod tests {
 
         crate::bootloader_env::reset_fail_mock();
         let omnect_path = setup_bootloader_updated_files(&tmp).0;
+        crate::bootloader_env::fail_mock(crate::bootloader_env::MockOp::Set, OMNECT_EXTRA_BOOTARGS);
+        let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
+            .expect_err("expected the bootloader marker to block the run");
+        assert!(
+            err.to_string().contains("reboot before"),
+            "expected advice to reboot: {err}"
+        );
+        assert!(
+            format!("{err:#}").contains(OMNECT_EXTRA_BOOTARGS),
+            "expected the failed switch to be reported: {err:#}"
+        );
+
+        crate::bootloader_env::reset_fail_mock();
         let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the bootloader marker to block the run");
         assert!(
@@ -1745,12 +1766,18 @@ mod tests {
             .expect("expected a successful swupdate to count as a bootloader update");
         assert!(guard.bootloader_updated, "expected a bootloader update");
 
+        guard.bootloader_updated = false;
         let err =
             FirmwareUpdate::bootloader_step(&mut guard, || bail!("bootloader swupdate failed"))
                 .expect_err("expected a failed marker check to fail the step");
         assert!(
-            err.to_string().contains("cannot tell"),
+            err.to_string()
+                .contains("cannot tell whether the bootloader was written"),
             "expected the unknown bootloader state to be reported: {err}"
+        );
+        assert!(
+            guard.bootloader_updated,
+            "expected an unknown bootloader state to switch to the new rootfs"
         );
     }
 
@@ -1760,10 +1787,6 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let not_a_dir = tmp.path().join("file");
         fs::write(&not_a_dir, "").expect("write file");
-        crate::common::set_env_var(
-            "BOOTLOADER_UPDATE_PATH",
-            tmp.path().join("omnect-bootloader-update"),
-        );
         crate::common::set_env_var("NO_BOOTLOADER_UPDATE_PATH", not_a_dir.join("marker"));
 
         let err = FirmwareUpdate::ensure_bootloader_markers(false, Ok(false))

@@ -105,7 +105,7 @@ pub(crate) fn clear_mock() {
     reset_fail_mock();
 }
 
-/// Makes every following `op` of `key` fail, until the next `clear_mock`.
+/// Makes every following `op` of `key` fail, until `reset_fail_mock` or `clear_mock`.
 #[cfg(all(
     not(any(feature = "bootloader_grub", feature = "bootloader_uboot")),
     test
