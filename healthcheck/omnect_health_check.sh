@@ -135,7 +135,6 @@ function do__cmd() {
 
     done
 
-    # a device nothing was checked on is not healthy, it is unknown
     [ "$nchecked" -gt 0 ] \
         || { error "no check was run, health of this device is unknown"; print_rating "$RATING_YELLOW" "${cfgfile##*/}" "${ME}"; do_rate "$RATING_YELLOW"; }
 }
@@ -182,7 +181,7 @@ elif read_entries "${CFGFILEPATH}"; then
         printf -v unknown_list '%s, ' "${unknown_checks[@]}"
         error "unknown check name(s) [${unknown_list%, }]"
         # the caller named checks this device does not have, so nothing was
-        # checked and the health of the device is unknown rather than bad
+        # checked and the health of the device is unknown
         print_rating "$RATING_YELLOW" "${CFGFILE}" "${ME}"
         do_rate "$RATING_YELLOW"
     fi
