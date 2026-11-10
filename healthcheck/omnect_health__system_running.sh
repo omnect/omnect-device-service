@@ -11,7 +11,7 @@ function do_check() {
     local ret
     checkit
     ret=$?
-    print_rating $ret system-running "$ME"
+    print_rating "$ret" system-running "$ME"
     return "$ret"
 }
 

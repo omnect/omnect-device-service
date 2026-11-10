@@ -82,7 +82,7 @@ function do_rate_cmd() {
 
     "$@"
     ret=$?
-    do_rate $ret "$1"
+    do_rate "$ret" "$1"
     return "$ret"
 }
 

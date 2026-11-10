@@ -39,7 +39,7 @@ function do_check() {
 
     found=$(find_crash_loops) || rating=2
     [ -z "${found}" ] || rating=2
-    print_rating ${rating} crash_loop "$ME"
+    print_rating "${rating}" crash_loop "$ME"
     do_rate "${rating}"
     return "${rating}"
 }
