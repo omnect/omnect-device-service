@@ -31,6 +31,7 @@ static LOAD_UPDATE_WDT_INTERVAL_SECS: u64 = 120;
 static RUN_UPDATE_WDT_INTERVAL_SECS: u64 = 600;
 static BOOTLOADER_UPDATED_FLAG: &str = "1";
 static ADU_USER: &str = "adu";
+static REBOOT_ADVICE: &str = "reboot before installing another update";
 #[cfg(not(feature = "mock"))]
 static RM_BIN: &str = "/bin/rm";
 
@@ -526,14 +527,13 @@ impl FirmwareUpdate {
 
         let updated_marker = bootloader_updated_file_path!();
         let bootloader_updated = Self::marker_exists(&updated_marker).with_context(|| {
-            let advice = if selects_target(OMNECT_OS_BOOTPART) {
-                ": reboot before installing another update"
-            } else {
-                ""
-            };
-            format!(
-                "failed to check {updated_marker}: cannot tell whether a bootloader update ran in this boot{advice}"
-            )
+            let cannot_tell = format!(
+                "failed to check {updated_marker}: cannot tell whether a bootloader update ran in this boot"
+            );
+            match Self::selected_switch(&selects_target) {
+                Some(switch) => format!("{cannot_tell}; {switch}"),
+                None => cannot_tell,
+            }
         })?;
 
         if bootloader_updated {
@@ -541,25 +541,32 @@ impl FirmwareUpdate {
             // installed: finish a switch the rollback may have failed to do
             let switched = Self::switch_to_update_part(target_partition);
             let message = if selects_target(OMNECT_OS_BOOTPART) {
-                "bootloader update in this boot: reboot before installing another update"
+                format!("bootloader update in this boot: {REBOOT_ADVICE}")
             } else {
-                "bootloader update in this boot, but the new rootfs is not selected: do not reboot, the current rootfs may not start with the new bootloader"
+                "bootloader update in this boot, but the new rootfs is not selected: do not reboot, the current rootfs may not start with the new bootloader".to_string()
             };
-            switched.context(message)?;
+            switched.context(message.clone())?;
             bail!(message);
         }
 
-        ensure!(
-            !selects_target(OMNECT_VALIDATE_UPDATE_PART),
-            "update activated in this boot: reboot before installing another update"
-        );
-
-        ensure!(
-            !selects_target(OMNECT_OS_BOOTPART),
-            "update pending in this boot: install another update only after the update validation has completed"
-        );
+        if let Some(switch) = Self::selected_switch(&selects_target) {
+            bail!(switch);
+        }
 
         Ok(())
+    }
+
+    fn selected_switch(selects_target: &impl Fn(&str) -> bool) -> Option<String> {
+        if selects_target(OMNECT_VALIDATE_UPDATE_PART) {
+            Some(format!("update activated in this boot: {REBOOT_ADVICE}"))
+        } else if selects_target(OMNECT_OS_BOOTPART) {
+            Some(
+                "update pending in this boot: install another update only after the update validation has completed"
+                    .to_string(),
+            )
+        } else {
+            None
+        }
     }
 
     fn backup_bootargs_once() -> Result<PathBuf> {
@@ -1612,7 +1619,7 @@ mod tests {
         let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the bootloader marker to block the run");
         assert!(
-            err.to_string().contains("reboot before"),
+            err.to_string().contains(REBOOT_ADVICE),
             "expected advice to reboot: {err}"
         );
         assert!(
@@ -1624,7 +1631,7 @@ mod tests {
         let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected the bootloader marker to block the run");
         assert!(
-            err.to_string().contains("reboot before"),
+            err.to_string().contains(REBOOT_ADVICE),
             "expected advice to reboot: {err}"
         );
         assert_switched_to_new_rootfs(&omnect_path);
@@ -1652,7 +1659,7 @@ mod tests {
         let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected a pending validated switch to block the run");
         assert!(
-            err.to_string().contains("reboot before"),
+            err.to_string().contains(REBOOT_ADVICE),
             "expected advice to reboot: {err}"
         );
     }
@@ -1676,7 +1683,7 @@ mod tests {
             "expected the failed check to be reported: {err}"
         );
         assert!(
-            !err.to_string().contains("reboot before"),
+            !err.to_string().contains(REBOOT_ADVICE),
             "expected no advice to reboot while the current rootfs is selected: {err}"
         );
         assert_eq!(
@@ -1694,9 +1701,25 @@ mod tests {
             .expect("set bootpart");
         let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
             .expect_err("expected a failed marker check to block the run");
+        // during the trial boot of a validated update the saved bootpart also equals the target
         assert!(
-            err.to_string().contains("reboot before"),
-            "expected advice to reboot while the new rootfs is selected: {err}"
+            err.to_string().contains("update validation")
+                && !err.to_string().contains(REBOOT_ADVICE),
+            "expected advice to wait for the validation: {err}"
+        );
+
+        bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::A.index().to_string())
+            .expect("set bootpart");
+        bootloader_env::set(
+            OMNECT_VALIDATE_UPDATE_PART,
+            &RootPartition::B.index().to_string(),
+        )
+        .expect("set validate update part");
+        let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
+            .expect_err("expected a failed marker check to block the run");
+        assert!(
+            err.to_string().contains(REBOOT_ADVICE),
+            "expected advice to reboot for a pending validated switch: {err}"
         );
     }
 
