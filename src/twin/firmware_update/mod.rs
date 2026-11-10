@@ -526,8 +526,13 @@ impl FirmwareUpdate {
 
         let updated_marker = bootloader_updated_file_path!();
         let bootloader_updated = Self::marker_exists(&updated_marker).with_context(|| {
+            let advice = if selects_target(OMNECT_OS_BOOTPART) {
+                ": reboot before installing another update"
+            } else {
+                ""
+            };
             format!(
-                "failed to check {updated_marker}: cannot tell whether a bootloader update ran in this boot"
+                "failed to check {updated_marker}: cannot tell whether a bootloader update ran in this boot{advice}"
             )
         })?;
 
@@ -600,16 +605,16 @@ impl FirmwareUpdate {
 
         let updated_marker = bootloader_updated_file_path!();
         let bootloader_marker = Self::marker_exists(&updated_marker);
-        let marker_kept = !swupdate_succeeded
-            && match bootloader_marker {
+        guard.bootloader_updated = swupdate_succeeded
+            || match bootloader_marker {
                 Ok(false) => false,
                 Ok(true) => Self::remove_marker(&updated_marker)
                     .inspect_err(|e| error!("failed to remove the bootloader marker: {e:#}"))
                     .is_err(),
-                // when it is unclear whether the bootloader was written, the new rootfs is selected
+                // the current rootfs may not start with a new bootloader, while the new rootfs
+                // starts with the old one
                 Err(_) => true,
             };
-        guard.bootloader_updated = swupdate_succeeded || marker_kept;
         Self::ensure_bootloader_markers(swupdate_succeeded, bootloader_marker)
     }
 
@@ -1596,6 +1601,10 @@ mod tests {
             err.to_string().contains("do not reboot"),
             "expected a warning not to reboot while the current rootfs is selected: {err}"
         );
+        assert!(
+            format!("{err:#}").contains(OMNECT_OS_BOOTPART),
+            "expected the failed switch to be reported: {err:#}"
+        );
 
         crate::bootloader_env::reset_fail_mock();
         let omnect_path = setup_bootloader_updated_files(&tmp).0;
@@ -1666,6 +1675,10 @@ mod tests {
             err.to_string().contains("failed to check"),
             "expected the failed check to be reported: {err}"
         );
+        assert!(
+            !err.to_string().contains("reboot before"),
+            "expected no advice to reboot while the current rootfs is selected: {err}"
+        );
         assert_eq!(
             bootloader_env::get(OMNECT_OS_BOOTPART).expect("get bootpart"),
             RootPartition::A.index().to_string(),
@@ -1675,6 +1688,15 @@ mod tests {
             bootloader_env::get(OMNECT_BOOTLOADER_UPDATED).unwrap_or_default(),
             "",
             "expected the bootloader updated flag to stay unset"
+        );
+
+        bootloader_env::set(OMNECT_OS_BOOTPART, &RootPartition::B.index().to_string())
+            .expect("set bootpart");
+        let err = FirmwareUpdate::ensure_no_pending_switch(RootPartition::B)
+            .expect_err("expected a failed marker check to block the run");
+        assert!(
+            err.to_string().contains("reboot before"),
+            "expected advice to reboot while the new rootfs is selected: {err}"
         );
     }
 
