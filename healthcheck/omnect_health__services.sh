@@ -80,15 +80,15 @@ function rate_servicelog() {
                                  elif .[1] > 0 then 1
                                  else 0
                                  end' "$servicelog") \
-        || { error "exit log \"$servicelog\" could not be rated"; return 2; }
+        || { error "exit log \"$servicelog\" could not be rated"; return "$RATING_RED"; }
 
     # a log that did not yield one of the three ratings has not been rated at
     # all, and an unrated log must not pass as a healthy one
     case "$rating" in
-        0|1|2) return "$rating" ;;
+        "$RATING_GREEN"|"$RATING_YELLOW"|"$RATING_RED") return "$rating" ;;
     esac
     error "exit log \"$servicelog\" was rated \"$rating\""
-    return 2
+    return "$RATING_RED"
 }
 
 function report_check() {
@@ -102,7 +102,7 @@ function report_infos() {
     local exitinfo="$LOGDIR/${service}.exit-info"
 
     print_info_header "${ME}(${service})" "$rating"
-    [ "$rating" != 0 -a -r "$exitinfo" ] && cat "$exitinfo"
+    [ "$rating" != "$RATING_GREEN" -a -r "$exitinfo" ] && cat "$exitinfo"
 
     return 0
 }
@@ -134,16 +134,16 @@ function do__cmd() {
     # is a broken image and is rated like an unreadable one
     if [ ! -r "$CFGFILEPATH" ]; then
         error "no configuration file (${CFGFILEPATH}) found, don't know what to do."
-        do_rate 2
-        report_all "$report" 2
-        return 2
+        do_rate "$RATING_RED"
+        report_all "$report" "$RATING_RED"
+        return "$RATING_RED"
     fi
 
-    known=$(configured_services) || { do_rate 2; report_all "$report" 2; return 2; }
+    known=$(configured_services) || { do_rate "$RATING_RED"; report_all "$report" "$RATING_RED"; return "$RATING_RED"; }
     [ "$known" ] && mapfile -t services <<<"$known"
 
     for service in "${services[@]}"; do
-        rating=0
+        rating="$RATING_GREEN"
 
         [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
 
@@ -163,8 +163,8 @@ function do__cmd() {
     mapfile -t unknown < <(unknown_services "${services[@]}")
     for service in "${unknown[@]}"; do
         warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
-        do_rate 1
-        "$report" "$service" 1
+        do_rate "$RATING_YELLOW"
+        "$report" "$service" "$RATING_YELLOW"
         nrated=$((nrated + 1))
     done
 
@@ -172,8 +172,8 @@ function do__cmd() {
     # as little about this device as a check that never ran
     if [ "$nrated" -eq 0 ]; then
         warn "no service to rate in \"$CFGFILEPATH\""
-        do_rate 1
-        report_all "$report" 1
+        do_rate "$RATING_YELLOW"
+        report_all "$report" "$RATING_YELLOW"
     fi
 
     get_overall_rating

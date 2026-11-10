@@ -17,10 +17,10 @@ function checkit() {
     if [ "$retval" -eq 0 ]; then
         if [ "$NTP" = yes ]; then
             if [ "$NTPSynchronized" != yes ]; then
-                retval=1
+                retval="$RATING_YELLOW"
             fi
         else
-            retval=2
+            retval="$RATING_RED"
         fi
     fi
     do_rate "$retval"

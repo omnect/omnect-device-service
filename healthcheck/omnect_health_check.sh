@@ -103,11 +103,11 @@ function do__cmd() {
         # an entry without a type is rated red and named by its name or by
         # its position
         [ "$type" ] \
-            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; print_rating 2 "${name:-entry $i}" "${cfgfile##*/}"; do_rate 2; nchecked=$((nchecked + 1)); continue; }
+            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; print_rating "$RATING_RED" "${name:-entry $i}" "${cfgfile##*/}"; do_rate "$RATING_RED"; nchecked=$((nchecked + 1)); continue; }
 
         check="${HEALTHCHECK_DIR}/omnect_health__${type}.sh"
         if [ ! -x "$check" ]; then
-            local rate=2
+            local rate="$RATING_RED"
             error "check \"$check\" for type \"$type\" (entry $i in \"$cfgfile\") cannot be called"
             print_rating "$rate" "$name" "${check##*/}"
             do_rate "$rate"
@@ -125,8 +125,8 @@ function do__cmd() {
 
         # a failing check that printed nothing is named here, so every
         # non-green rating has a line of its own
-        if [ "$retval" -gt 2 ]; then
-            print_rating 2 "$name" "${check##*/}"
+        if [ "$retval" -gt "$RATING_RED" ]; then
+            print_rating "$RATING_RED" "$name" "${check##*/}"
         elif [ "$retval" -ne 0 -a -z "$output" ]; then
             print_rating "$retval" "$name" "${check##*/}"
         fi
@@ -137,7 +137,7 @@ function do__cmd() {
 
     # a device nothing was checked on is not healthy, it is unknown
     [ "$nchecked" -gt 0 ] \
-        || { error "no check was run, health of this device is unknown"; print_rating 1 "${cfgfile##*/}" "${ME}"; do_rate 1; }
+        || { error "no check was run, health of this device is unknown"; print_rating "$RATING_YELLOW" "${cfgfile##*/}" "${ME}"; do_rate "$RATING_YELLOW"; }
 }
 
 function do_checks() {
@@ -163,8 +163,8 @@ check_command_arg "$command"
 # same way: no check could run, so the rating has to say so where it is read
 if [ ! -r "${CFGFILEPATH}" ]; then
     fatal "configuration file \"${CFGFILEPATH}\" not found"
-    print_rating 2 "${CFGFILE}" "${ME}"
-    do_rate 2
+    print_rating "$RATING_RED" "${CFGFILE}" "${ME}"
+    do_rate "$RATING_RED"
 elif read_entries "${CFGFILEPATH}"; then
     # the arguments following the command are optional and name the checks to
     # be run
@@ -183,15 +183,15 @@ elif read_entries "${CFGFILEPATH}"; then
         error "unknown check name(s) [${unknown_list%, }]"
         # the caller named checks this device does not have, so nothing was
         # checked and the health of the device is unknown rather than bad
-        print_rating 1 "${CFGFILE}" "${ME}"
-        do_rate 1
+        print_rating "$RATING_YELLOW" "${CFGFILE}" "${ME}"
+        do_rate "$RATING_YELLOW"
     fi
 else
     # without the entries there is nothing to run, so the run is rated red
     # and the config file is named as the cause
     error "config file \"${CFGFILEPATH}\" could not be read"
-    print_rating 2 "${CFGFILE}" "${ME}"
-    do_rate 2
+    print_rating "$RATING_RED" "${CFGFILE}" "${ME}"
+    do_rate "$RATING_RED"
 fi
 
 get_overall_rating

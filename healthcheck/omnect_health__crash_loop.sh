@@ -35,20 +35,20 @@ function find_crash_loops() {
 }
 
 function do_check() {
-    local found rating=0
+    local found rating="$RATING_GREEN"
 
-    found=$(find_crash_loops) || rating=2
-    [ -z "${found}" ] || rating=2
+    found=$(find_crash_loops) || rating="$RATING_RED"
+    [ -z "${found}" ] || rating="$RATING_RED"
     print_rating "${rating}" crash_loop "$ME"
     do_rate "${rating}"
     return "${rating}"
 }
 
 function do_get_infos() {
-    local found rating=0 error=""
+    local found rating="$RATING_GREEN" error=""
 
-    found=$(find_crash_loops) || { rating=2; error="failed to list services"; }
-    [ -z "${found}" ] || rating=2
+    found=$(find_crash_loops) || { rating="$RATING_RED"; error="failed to list services"; }
+    [ -z "${found}" ] || rating="$RATING_RED"
     print_info_header "${ME}" "${rating}"
     [ -z "${error}" ] || echo "${error}"
     [ -z "${found}" ] || echo "crash-looping services:${found}"

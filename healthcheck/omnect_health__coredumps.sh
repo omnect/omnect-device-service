@@ -56,25 +56,25 @@ function find_coredumps() {
 
 # rates the core dumps of the current system run and returns that rating
 function rate_coredumps() {
-    local rating=0
+    local rating="$RATING_GREEN"
 
     if ! find_coredumps; then
         error "core dumps could not be looked up: ${coredump_errors}"
-        rating=2
+        rating="$RATING_RED"
     elif [ -n "${coredumps}" ]; then
-        rating=2
+        rating="$RATING_RED"
     elif [ -n "${coredump_skipped}" ]; then
         # the searchable part of the journal held no core dump, but the skipped
         # part may have, so there is evidence neither way
         error "core dumps could only be looked up in part of the journal: ${coredump_skipped}"
-        rating=1
+        rating="$RATING_YELLOW"
     fi
 
     return "${rating}"
 }
 
 function do_check() {
-    local rating=0
+    local rating="$RATING_GREEN"
 
     rate_coredumps || rating=$?
 
@@ -84,7 +84,7 @@ function do_check() {
 }
 
 function do_get_infos() {
-    local rating=0
+    local rating="$RATING_GREEN"
 
     rate_coredumps || rating=$?
 
