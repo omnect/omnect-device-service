@@ -1,1 +1,1 @@
-- [ ] Breaks the [local web service API](https://github.com/omnect/omnect-device-service#breaking-changes): `!` in the PR title, minor version bump, old and new format described
+- [ ] Breaks the [local web service API](https://github.com/omnect/omnect-device-service#breaking-changes): `!` in the PR title, version bump (minor on 0.x, major from 1.0), old and new format described
