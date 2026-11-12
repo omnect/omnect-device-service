@@ -46,6 +46,7 @@ This module serves as interface between omnect cloud and device to support certa
     - [Wifi commissioning service](#wifi-commissioning-service)
       - [Feature availability](#feature-availability-8)
   - [Local web service](#local-web-service)
+    - [Breaking changes](#breaking-changes)
     - [Factory reset](#factory-reset-1)
     - [Local firmware update](#local-firmware-update)
       - [Load a firmware package](#load-a-firmware-package)
@@ -882,6 +883,23 @@ omnect-device-service provides a http web service that exposes a web API over a 
 Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)\
 
 The web service features is enabled by default and can be explicitly deactivated via environment variable `DISABLE_WEBSERVICE="true"`.
+
+### Breaking changes
+
+Edge modules use this API. A change is breaking if a client built for the old version can fail with the new one, for example:
+
+- a route or method is changed or removed
+- a request body gets a new required field
+- a field, publish channel or status key is renamed or removed
+- the type or shape of a field changes
+
+A new optional field is not breaking.
+
+A PR with a breaking change:
+
+- has `!` in its title, e.g. `feat!: ...`; the OS release notes list these commits
+- bumps at least the minor version while the version is 0.x
+- describes the old and the new format in the PR description
 
 ### Factory reset
 
