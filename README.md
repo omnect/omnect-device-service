@@ -895,8 +895,9 @@ Edge modules use this API. A change is breaking if a client built for the old ve
 - a new publish channel, or a new enum or status value in published data: clients that parse it into a closed enum reject it
 - an HTTP status code changes, or a route changes between sync and async
 - the socket path, mode or group changes ([socket file](systemd/omnect-device-service.socket))
+- the POST to a registered publish endpoint changes: its `{channel, data}` body or its headers
 
-A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A client that needs a new field, route or channel checks `omnect_device_service_version` in `SystemInfoV1` first. Without `SystemInfoV1` (see `SUPPRESS_SYSTEM_INFO`), the client assumes the oldest version and uses no new field, route or channel.
+A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A request with a value it does not know, e.g. a new factory reset `mode`, is rejected. A client that needs a new field, value, route or channel checks `omnect_device_service_version` in `SystemInfoV1` (key `SystemInfo` in `/status/v1`) first. Without it (see `SUPPRESS_SYSTEM_INFO`), the client assumes the oldest version and uses no new field, value, route or channel.
 
 A PR with a breaking change:
 
