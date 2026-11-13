@@ -46,6 +46,7 @@ This module serves as interface between omnect cloud and device to support certa
     - [Wifi commissioning service](#wifi-commissioning-service)
       - [Feature availability](#feature-availability-8)
   - [Local web service](#local-web-service)
+    - [Breaking changes](#breaking-changes)
     - [Factory reset](#factory-reset-1)
     - [Local firmware update](#local-firmware-update)
       - [Load a firmware package](#load-a-firmware-package)
@@ -882,6 +883,27 @@ omnect-device-service provides a http web service that exposes a web API over a 
 Information about the socket can be found in the appropriate [socket file](systemd/omnect-device-service.socket)\
 
 The web service features is enabled by default and can be explicitly deactivated via environment variable `DISABLE_WEBSERVICE="true"`.
+
+### Breaking changes
+
+Edge modules use this API. A change is breaking if a client built for the old version can fail with the new one, for example:
+
+- a route or method is changed or removed
+- a request body gets a new required field
+- a field, publish channel or status key is renamed or removed
+- the type or shape of a field changes
+- a new publish channel, or a new enum or status value in published data: clients that parse it into a closed enum reject it
+- the HTTP status code of a valid request changes, or a route changes between sync and async
+- the socket path, mode or group changes ([socket file](systemd/omnect-device-service.socket))
+- the POST to a registered publish endpoint changes: its `{channel, data}` body or its headers
+
+A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A request with a value it does not know, e.g. a new factory reset `mode`, is rejected. A client that needs a new field, value, route or channel checks `omnect_device_service_version` in `SystemInfoV1` (key `SystemInfo` in `/status/v1`) first. If the version is not there (for a short time after a start, or always with `SUPPRESS_SYSTEM_INFO=true`), the client uses no new field, value, route or channel until it gets the version.
+
+A PR with a breaking change:
+
+- has `!` in its title, e.g. `feat!: ...`, so that release notes can pick it up
+- bumps the minor version while the version is 0.x, and the major version from 1.0 on
+- describes the old and the new format in the PR description
 
 ### Factory reset
 
