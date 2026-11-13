@@ -893,7 +893,8 @@ Edge modules use this API. A change is breaking if a client built for the old ve
 - a field, publish channel or status key is renamed or removed
 - the type or shape of a field changes
 - a new publish channel, or a new enum or status value in published data: clients that parse it into a closed enum reject it
-- the HTTP status code of a valid request changes, or a route changes between sync and async
+- the HTTP status code of a well-formed request changes, including its documented error responses, or a route changes between sync and async
+- input validation gets stricter: a request that was accepted before is rejected
 - the socket path, mode or group changes ([socket file](systemd/omnect-device-service.socket))
 - the POST to a registered publish endpoint changes: its `{channel, data}` body or its headers
 
