@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 
-. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
 # prints crash-looping services to stdout; returns 1 if they cannot be determined
 function find_crash_loops() {
@@ -35,24 +35,24 @@ function find_crash_loops() {
 }
 
 function do_check() {
-    local found rating=0
+    local found rating="$RATING_GREEN"
 
-    found=$(find_crash_loops) || rating=2
-    [ -z "${found}" ] || rating=2
-    print_rating ${rating} crash_loop "$ME"
-    do_rate ${rating}
-    return ${rating}
+    found=$(find_crash_loops) || rating="$RATING_RED"
+    [ -z "${found}" ] || rating="$RATING_RED"
+    print_rating "${rating}" crash_loop "$ME"
+    do_rate "${rating}"
+    return "${rating}"
 }
 
 function do_get_infos() {
-    local found rating=0 error=""
+    local found rating="$RATING_GREEN" error=""
 
-    found=$(find_crash_loops) || { rating=2; error="failed to list services"; }
-    [ -z "${found}" ] || rating=2
+    found=$(find_crash_loops) || { rating="$RATING_RED"; error="failed to list services"; }
+    [ -z "${found}" ] || rating="$RATING_RED"
     print_info_header "${ME}" "${rating}"
     [ -z "${error}" ] || echo "${error}"
     [ -z "${found}" ] || echo "crash-looping services:${found}"
-    return ${rating}
+    return "${rating}"
 }
 
 command="${1:-check}"
@@ -70,4 +70,4 @@ case "$command" in
         ;;
 esac
 
-exit $retval
+exit "$retval"

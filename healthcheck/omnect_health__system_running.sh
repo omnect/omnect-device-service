@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 
-. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
 function checkit() {
     do_rate_cmd systemctl -q is-system-running
@@ -11,8 +11,8 @@ function do_check() {
     local ret
     checkit
     ret=$?
-    print_rating $ret system-running "$ME"
-    return $ret
+    print_rating "$ret" system-running "$ME"
+    return "$ret"
 }
 
 function do_get_infos() {
@@ -22,8 +22,8 @@ function do_get_infos() {
     print_info_header "${ME}" "$ret"
     # a state other than "running" comes from failed units or from jobs that
     # are still pending
-    [ $ret = 0 ] || { systemctl is-system-running; systemctl --failed; systemctl list-jobs; }
-    return $ret
+    [ "$ret" = 0 ] || { systemctl is-system-running; systemctl --failed; systemctl list-jobs; }
+    return "$ret"
 }
 
 command="${1:-check}"
@@ -42,4 +42,4 @@ case "$command" in
         ;;
 esac
 
-exit $retval
+exit "$retval"

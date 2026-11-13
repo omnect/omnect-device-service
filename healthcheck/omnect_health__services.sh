@@ -11,109 +11,188 @@
 # An additional requirement is to have multiple files with specifications of
 # log entry
 
-. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
-: ${CFGDIR:=/etc/omnect/health_check}
-: ${CFGFILE:=omnect_service_log_analysis.json}
+: "${CFGDIR:=/etc/omnect/health_check}"
+: "${CFGFILE:=omnect_service_log_analysis.json}"
 CFGFILEPATH="${CFGDIR}/${CFGFILE}"
 
-: ${LOGDIR:=/run/omnect_health_log}
-: ${ANALYSISDIR:=/run/omnect_health_log}
+: "${LOGDIR:=/run/omnect_health_log}"
+: "${ANALYSISDIR:=/run/omnect_health_log}"
 
-function do_check() {
-    local jquery nentries service hasratings rating servicelog
-
-    nentries=$(jq '.services | length' "$CFGFILEPATH")
-    [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
-    for ((n=0; n < nentries; n++)); do
-        rating=0
-
-        service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-        [ "$(echo $check_services | grep -w "$service")" ] || continue
-
-        servicelog="$LOGDIR/${service}.exit-log"
-        if [ ! -r "$servicelog" ]; then
-            print_rating $rating "$service" "$ME"
-            continue
-        fi
-
-        hasratings=$(jq ".services[$n] | has(\".ratings\")" "$CFGFILEPATH")
-        if $hasratings; then
-            jquery=$(jq '.services[] | if (has("ratings")) then .ratings else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") ' ${CFGFILEPATH})
-        else
-            jquery=$(jq 'if (has("default-ratings")) then ."default-ratings" else empty end | map("(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}") | join(" | ") | . + " | (.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }"' ${CFGFILEPATH})
-        fi
-
-        # re-rate in case of ...
-        #   a) new entries, or
-        #   b) newer configuration file which might change the (overall)
-        #      outcome
-        # NOTE:
-        #   (re-)rating will normally happen after generation of new entries
-        #   initiated by omnect_service_log.sh via systemd StopPost hook
-        if [    ! -r "${servicelog}.rated" \
-             -o "$CFGFILEPATH" -nt "${servicelog}" \
-             -o "${servicelog}" -nt "${servicelog}.rated" \
-           ]; then
-            eval jq $jquery "$servicelog" > "${servicelog}.rated"
-            mv "${servicelog}.rated" "$servicelog"
-            # create empty anew to remember when we last rated all entries
-            : > "${servicelog}.rated"
-        fi
-
-        if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
-            rating=2
-        elif [ $rating -lt 1 -a $(jq '.infos | map(select(.rating == "yellow")) | length' "${servicelog}") -gt 0 ]; then
-            rating=1
-        fi
-        print_rating $rating "$service" "$ME"
-        do_rate "$rating"
-    done
-    return $overall_rating
+# prints the services the configuration file knows, one per line
+function configured_services() {
+    jq -r '.services[] | .service // error("an entry has no service name")' \
+        "$CFGFILEPATH" \
+        || { error "configuration file \"$CFGFILEPATH\" could not be read"; return 2; }
 }
 
-function do_get_infos() {
-    local nentries service rating servicelog
+# prints the requested services the given list of known ones does not hold
+function unknown_services() {
+    local service
 
-    nentries=$(jq '.services | length' "$CFGFILEPATH")
-    [ "$check_services" ] || check_services=$(jq -r '[ .services[].service ] | join(" ")' "$CFGFILEPATH")
-    for ((n=0; n < nentries; n++)); do
-        rating=0
-
-        service=$(jq -r ".services[$n].service" "$CFGFILEPATH")
-        [ "$(echo $check_services | grep -w "$service")" ] || continue
-
-        servicelog="$LOGDIR/${service}.exit-log"
-        if [ ! -r "$servicelog" ]; then
-            print_info_header "${ME}(${service})" "$rating"
-            continue
-        fi
-
-        if [ $(jq '.infos | map(select(.rating == "red")) | length' "${servicelog}") -gt 0 ]; then
-            rating=2
-        elif [ $rating -lt 1 -a $(jq '.infos | map(select(.rating == "yellow")) | length' "${servicelog}") -gt 0 ]; then
-            rating=1
-        fi
-        do_rate "$rating"
-        print_info_header "${ME}(${service})" "$rating"
-        if [ "$rating" != 0 -a -r /var/run/omnect_health_log/${service}.exit-info ]; then
-                cat /var/run/omnect_health_log/${service}.exit-info
-        fi
+    for service in "${check_services[@]}"; do
+        in_list "$service" "$@" || echo "$service"
     done
+}
+
+# rates the entries of a service exit log by the current rules and reports
+# the resulting rating as exit status
+#
+# the rating is worked out on every call, because the log and the rules can
+# both change while a check runs
+function rate_servicelog() {
+    local service="$1" servicelog="$2"
+    local jquery rating
+
+    # the rules are looked up by the service's name, because the
+    # configuration may be replaced while a check runs
+    #
+    # a service may bring its own ratings, otherwise the defaults apply;
+    # either way an entry no rule matched is rated red
+    jquery=$(jq -r --arg service "$service" '
+        ( first(.services[]? | select(.service == $service))
+          // error("no rules for service \($service)") ) as $rules
+        | [ ( if ($rules | has("ratings"))
+              then $rules.ratings[]?
+              else ."default-ratings"[]?
+              end
+            ) | "(.infos[] | select(" + .condition + ")) += { \"rating\": \"" + .rating + "\"}"
+          ]
+        + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
+        | join(" | ")' "$CFGFILEPATH") \
+        || { error "rating rules for service \"$service\" could not be read"; return 2; }
+
+    # NOTE:
+    #   the entries are rated and counted in a single pass, and the rating is
+    #   worked out where the entries are, so that the only thing left to do
+    #   here is to recognise it; "-e" makes jq say so when a log yielded no
+    #   result at all, which an empty log does
+    #
+    # NOTE:
+    #   everything that is not plainly green or yellow counts as red: a rule
+    #   may name a rating this script does not know, or none at all, which
+    #   leaves the entry with an empty one, and such an entry has been
+    #   matched by a rule precisely because it is worth reporting
+    rating=$(jq -er "$jquery"' | [ ( .infos | map(select(.rating != "green" and .rating != "yellow")) | length ),
+                                   ( .infos | map(select(.rating == "yellow")) | length ) ]
+                               | if   .[0] > 0 then 2
+                                 elif .[1] > 0 then 1
+                                 else 0
+                                 end' "$servicelog") \
+        || { error "exit log \"$servicelog\" could not be rated"; return "$RATING_RED"; }
+
+    # a log that did not yield one of the three ratings has not been rated at
+    # all, and an unrated log must not pass as a healthy one
+    case "$rating" in
+        "$RATING_GREEN"|"$RATING_YELLOW"|"$RATING_RED") return "$rating" ;;
+    esac
+    error "exit log \"$servicelog\" was rated \"$rating\""
+    return "$RATING_RED"
+}
+
+function report_check() {
+    local service="$1" rating="$2"
+
+    print_rating "$rating" "$service" "$ME"
+}
+
+function report_infos() {
+    local service="$1" rating="$2"
+    local exitinfo="$LOGDIR/${service}.exit-info"
+
+    print_info_header "${ME}(${service})" "$rating"
+    [ "$rating" != "$RATING_GREEN" -a -r "$exitinfo" ] && cat "$exitinfo"
+
+    return 0
+}
+
+# reports the given rating for every service the caller asked for, for the
+# cases in which the configuration does not allow rating them one by one, so
+# that the reader of a rating is told which services it is about
+function report_all() {
+    local report="$1" rating="$2" service
+
+    if [ ${#check_services[@]} -eq 0 ]; then
+        "$report" "$ME" "$rating"
+        return 0
+    fi
+
+    for service in "${check_services[@]}"; do
+        "$report" "$service" "$rating"
+    done
+}
+
+# rates every configured service the caller asked for, plus every service the
+# caller asked for that the configuration does not know, and reports each one
+# through the given report function
+function do__cmd() {
+    local report="$1"
+    local service rating servicelog services=() known unknown=() nrated=0
+
+    # both this file and the checks config ship in the image, so a missing one
+    # is a broken image and is rated like an unreadable one
+    if [ ! -r "$CFGFILEPATH" ]; then
+        error "no configuration file (${CFGFILEPATH}) found, don't know what to do."
+        do_rate "$RATING_RED"
+        report_all "$report" "$RATING_RED"
+        return "$RATING_RED"
+    fi
+
+    known=$(configured_services) || { do_rate "$RATING_RED"; report_all "$report" "$RATING_RED"; return "$RATING_RED"; }
+    [ "$known" ] && mapfile -t services <<<"$known"
+
+    for service in "${services[@]}"; do
+        rating="$RATING_GREEN"
+
+        [ ${#check_services[@]} -eq 0 ] || in_list "$service" "${check_services[@]}" || continue
+
+        # an exit log that is there but cannot be read says nothing about
+        # its service, and the rating has to say so
+        servicelog="$LOGDIR/${service}.exit-log"
+        if [ -e "$servicelog" ]; then
+            rate_servicelog "$service" "$servicelog"
+            rating=$?
+        fi
+
+        do_rate "$rating"
+        "$report" "$service" "$rating"
+        nrated=$((nrated + 1))
+    done
+
+    mapfile -t unknown < <(unknown_services "${services[@]}")
+    for service in "${unknown[@]}"; do
+        warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
+        do_rate "$RATING_YELLOW"
+        "$report" "$service" "$RATING_YELLOW"
+        nrated=$((nrated + 1))
+    done
+
+    # a configuration naming no service leaves nothing to rate, which tells
+    # as little about this device as a check that never ran
+    if [ "$nrated" -eq 0 ]; then
+        warn "no service to rate in \"$CFGFILEPATH\""
+        do_rate "$RATING_YELLOW"
+        report_all "$report" "$RATING_YELLOW"
+    fi
+
     get_overall_rating
 }
 
-if [ ! -r "$CFGFILEPATH" ]; then
-    warn "no configuration file (${CFGFILEPATH}) found, don't know what to do."
-    exit 0
-fi
+function do_check() {
+    do__cmd report_check
+}
+
+function do_get_infos() {
+    do__cmd report_infos
+}
 
 command="${1:-check}"
 [ "$1" ] && shift
 check_command_arg "$command"
 
 # allow to select tests via command line
-check_services="$*"
+check_services=("$@")
 
 # first argument must be either "check" or "get-infos"
 case "$command" in
@@ -129,4 +208,4 @@ esac
 
 # print_rating "" "omnect_service_log_analyze" "$ME"
 
-exit $overall_rating
+exit "$overall_rating"

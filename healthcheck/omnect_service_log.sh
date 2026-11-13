@@ -7,10 +7,10 @@
 
 HEALTHCHECK_DIR=/usr/lib/omnect/healthcheck
 
-. ${HEALTHCHECK_DIR}/healthchecklib.sh
+. "${HEALTHCHECK_DIR}/healthchecklib.sh"
 
 SERVICE_EXITLOGDIRNAME=omnect_health_log
-SERVICE_EXITLOGDIR=/var/run/${SERVICE_EXITLOGDIRNAME}
+SERVICE_EXITLOGDIR="/var/run/${SERVICE_EXITLOGDIRNAME}"
 
 STOP_POSTFIX=".exit-log"
 STOP_INFOPOSTFIX=".exit-info"
@@ -35,7 +35,7 @@ function usage() {
 	    ${SERVICE_EXITLOGDIR}/<service-name>.$START_POSTFIX
 EOF
 
-    [ $do_exit -ge 0 ] && exit $do_exit
+    [ "$do_exit" -ge 0 ] && exit "$do_exit"
 }
 
 function output_logentry() {
@@ -46,14 +46,25 @@ function output_logentry() {
     local exitcode="$5"
     local exitstatus="$6"
     
+    # NOTE: a check may read this log at any moment, so every version of it
+    #	    is assembled under a temporary name and moved into place in one
+    #	    step, which leaves a reader either the old log or the new one.
+    local failed=0
     if [ -r "${outputfile}" ]; then
 	# append new entry in existing file
-	jq '.infos += [{ timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' }]' < "$outputfile" > "${outputfile}.tmp"
-	mv  "${outputfile}.tmp" "${outputfile}"
+	jq '.infos += [{ timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' }]' < "$outputfile" > "${outputfile}.tmp" || failed=1
     else
 	# create new file
-	jq -n '{ service: "'"$service"'", infos: [ { timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' } ] }' > "$outputfile"
+	jq -n '{ service: "'"$service"'", infos: [ { timestamp: "'"$timestamp"'"'"${result:+, result: \"$result\"}""${exitcode:+, exitcode: \"$exitcode\"}""${exitstatus:+, exitstatus: \"$exitstatus\"}"' } ] }' > "${outputfile}.tmp" || failed=1
     fi
+
+    if [ "$failed" -ne 0 ]; then
+	rm -f "${outputfile}.tmp"
+	fatal "couldn't write a log entry for service \"$service\""
+	return 1
+    fi
+
+    mv "${outputfile}.tmp" "${outputfile}"
 }
 
 function output_exitinfo() {
@@ -64,6 +75,7 @@ function output_exitinfo() {
     local exitcode="$5"
     local exitstatus="$6"
 
+    local failed=0
     {
 	cat <<EOF
 ========================================
@@ -74,8 +86,17 @@ Exitstatus:  $exitstatus
 Timestamp:   $timestamp
 ----------------------------------------
 EOF
-	journalctl -b0 --no-pager -l -u "$service"
-    } > "$outputfile"
+	journalctl -b0 --no-pager -l -u "$service" \
+	    || echo "the journal of this service could not be read"
+    } > "${outputfile}.tmp" || failed=1
+
+    if [ "$failed" -ne 0 ]; then
+	rm -f "${outputfile}.tmp"
+	fatal "couldn't write the exit info of service \"$service\""
+	return 1
+    fi
+
+    mv "${outputfile}.tmp" "${outputfile}"
 }
 
 case "$1" in
@@ -90,8 +111,8 @@ case "$1" in
     ;;
 esac
 
-[ $# -lt $EXPECTED_PARAMS ] && fatal "too few parameters ($# < $EXPECTED_PARAMS)" && usage 1
-[ $# -gt $EXPECTED_PARAMS ] && warn "additional parameters ignored"
+[ $# -lt "$EXPECTED_PARAMS" ] && fatal "too few parameters ($# < $EXPECTED_PARAMS)" && usage 1
+[ $# -gt "$EXPECTED_PARAMS" ] && warn "additional parameters ignored"
 
 SERVICE="$2"
 
@@ -108,20 +129,34 @@ SERVICE_STARTLOGFILE_1ST="$SERVICE_EXITLOGDIR/$SERVICE$START_1ST_POSTFIX"
 
 timestamp=$(date +%Y-%m-%dT%H:%M:%SZ)
 
+# NOTE:
+#   every unit runs this hook as "ExecStartPre=+-" or "ExecStopPost=+-", and
+#   the "-" makes systemd discard the status, so this says what happened
+#   without any caller acting on it today
+retval=0
+
 case "$1" in
     start)
-	output_logentry "$SERVICE_STARTLOGFILE" "$timestamp" "$SERVICE"
-	if [ ! -r "$SERVICE_STARTLOGFILE_1ST" ]; then
-	    cp -a "$SERVICE_STARTLOGFILE" "$SERVICE_STARTLOGFILE_1ST"
+	if output_logentry "$SERVICE_STARTLOGFILE" "$timestamp" "$SERVICE"; then
+	    if [ ! -r "$SERVICE_STARTLOGFILE_1ST" ]; then
+		cp -a "$SERVICE_STARTLOGFILE" "$SERVICE_STARTLOGFILE_1ST" || retval=1
+	    fi
+	else
+	    retval=1
 	fi
     ;;
     stop)
 	# FIXME: do we need to take care of log file rotation or removal?
-	output_logentry "$SERVICE_EXITLOGFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
-	${HEALTHCHECK_DIR}/omnect_health__services.sh check "$SERVICE" > /dev/null
-	output_exitinfo "$SERVICE_EXITINFOFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"
-	if [ ! -r "$SERVICE_EXITINFOFILE_1ST" ]; then
-	    cp -a "$SERVICE_EXITINFOFILE" "$SERVICE_EXITINFOFILE_1ST"
+	output_logentry "$SERVICE_EXITLOGFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5" \
+	    || retval=1
+	if output_exitinfo "$SERVICE_EXITINFOFILE" "$timestamp" "$SERVICE" "$3" "$4" "$5"; then
+	    if [ ! -r "$SERVICE_EXITINFOFILE_1ST" ]; then
+		cp -a "$SERVICE_EXITINFOFILE" "$SERVICE_EXITINFOFILE_1ST" || retval=1
+	    fi
+	else
+	    retval=1
 	fi
     ;;
 esac
+
+exit "$retval"

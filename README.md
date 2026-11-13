@@ -958,7 +958,10 @@ Independent of this endpoint, the [healthcheck](healthcheck/) directory contains
 scripts that check specific system functions and rate each one green, yellow, or
 red. `omnect_health_check.sh` runs the checks configured in
 `omnect_health_checks.json` and derives the script name from each entry's type,
-so the configuration file lists what a device actually checks.
+so the configuration file lists what a device actually checks. A run that
+performs no check at all - because the configuration is empty - is rated
+yellow, since nothing was checked and the health of such a device is
+unknown.
 
 ### Status updates
 

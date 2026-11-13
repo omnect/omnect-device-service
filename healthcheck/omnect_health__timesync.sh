@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 
-. ${BASH_SOURCE[0]%/*}/healthchecklib.sh || exit 2
+. "$(dirname -- "${BASH_SOURCE[0]}")/healthchecklib.sh" || exit 2
 
 function checkit() {
     local retval
@@ -14,17 +14,17 @@ function checkit() {
 
     retval=$?
 
-    if [ $retval -eq 0 ]; then
+    if [ "$retval" -eq 0 ]; then
         if [ "$NTP" = yes ]; then
             if [ "$NTPSynchronized" != yes ]; then
-                retval=1
+                retval="$RATING_YELLOW"
             fi
         else
-            retval=2
+            retval="$RATING_RED"
         fi
     fi
-    do_rate $retval
-    return $retval
+    do_rate "$retval"
+    return "$retval"
 }
 
 function do_check() {
@@ -35,22 +35,21 @@ function do_check() {
 
     print_rating "" "timesync" "$ME"
 
-    return $retval
+    return "$retval"
 }
 
 function do_get_infos() {
-    local retval rating
+    local retval
 
     checkit
     retval=$?
-    rating=$(get_overall_rating)
 
     print_info_header
-    if [ $retval != 0 ]; then
+    if [ "$retval" != 0 ]; then
         journalctl -b0 --no-pager -l -u systemd-timesyncd.service
     fi
 
-    return $retval
+    return "$retval"
 }
 
 command="${1:-check}"
@@ -65,7 +64,8 @@ case "$command" in
         ;;
     get-infos)
         do_get_infos "$@"
+        retval=$?
         ;;
 esac
 
-exit $retval
+exit "$retval"
