@@ -893,11 +893,12 @@ Edge modules use this API. A change is breaking if a client built for the old ve
 - a field, publish channel or status key is renamed or removed
 - the type or shape of a field changes
 - a new publish channel, or a new enum or status value in published data: clients that parse it into a closed enum reject it
-- the HTTP status code of a valid request changes, or a route changes between sync and async
+- the HTTP status code of a well-formed request changes, including its documented error responses, or a route changes between sync and async
+- input validation gets stricter: a request that was accepted before is rejected
 - the socket path, mode or group changes ([socket file](systemd/omnect-device-service.socket))
 - the POST to a registered publish endpoint changes: its `{channel, data}` body or its headers
 
-A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A request with a value it does not know, e.g. a new factory reset `mode`, is rejected. A client that needs a new field, value, route or channel checks `omnect_device_service_version` in `SystemInfoV1` (key `SystemInfo` in `/status/v1`) first. If the version is not there (for a short time after a start, or always with `SUPPRESS_SYSTEM_INFO=true`), the client uses no new field, value, route or channel until it gets the version.
+A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A request with a value it does not know, e.g. a new factory reset `mode`, is rejected. A client that needs a new field, value, route or channel checks `omnect_device_service_version` in `SystemInfoV1` (key `SystemInfo` in `/status/v1`) first. So every API addition bumps the version: the patch version on 0.x, the minor version from 1.0. If the version is not there (for a short time after a start, or always with `SUPPRESS_SYSTEM_INFO=true`), the client uses no new field, value, route or channel until it gets the version.
 
 A PR with a breaking change:
 
