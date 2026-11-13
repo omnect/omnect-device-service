@@ -896,11 +896,11 @@ Edge modules use this API. A change is breaking if a client built for the old ve
 - an HTTP status code changes, or a route changes between sync and async
 - the socket path, mode or group changes ([socket file](systemd/omnect-device-service.socket))
 
-A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A client that needs a new field, route or channel checks `omnect_device_service_version` in `SystemInfoV1` first.
+A new optional field is not breaking for old clients. Edge modules and the OS are updated separately, so a new client can also run against an older version: requests with a field it does not know are accepted and the field is ignored. A client that needs a new field, route or channel checks `omnect_device_service_version` in `SystemInfoV1` first. Without `SystemInfoV1` (see `SUPPRESS_SYSTEM_INFO`), the client assumes the oldest version and uses no new field, route or channel.
 
 A PR with a breaking change:
 
-- has `!` in its title, e.g. `feat!: ...`; the OS release notes list these commits
+- has `!` in its title, e.g. `feat!: ...`, so that release notes can pick it up
 - bumps the minor version while the version is 0.x, and the major version from 1.0 on
 - describes the old and the new format in the PR description
 
