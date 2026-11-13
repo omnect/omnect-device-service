@@ -3,8 +3,7 @@ mod grub;
 #[cfg(feature = "bootloader_uboot")]
 mod uboot;
 
-#[cfg(any(feature = "bootloader_grub", feature = "bootloader_uboot"))]
-static SUDO_BIN: &str = "/usr/bin/sudo";
+pub(crate) static SUDO_BIN: &str = "/usr/bin/sudo";
 
 use anyhow::Result;
 #[cfg(feature = "bootloader_grub")]
@@ -12,6 +11,8 @@ use grub::{
     bootloader_env as get_inner, set_bootloader_env as set_inner,
     unset_bootloader_env as unset_inner,
 };
+#[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
+pub(crate) use mock_store::MockOp;
 #[cfg(feature = "bootloader_uboot")]
 use uboot::{
     bootloader_env as get_inner, set_bootloader_env as set_inner,
@@ -20,17 +21,30 @@ use uboot::{
 
 #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
 mod mock_store {
-    use std::{collections::BTreeMap, sync::Mutex};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::Mutex,
+    };
 
     pub static STORE: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
-    pub static FAILING_KEY: Mutex<Option<String>> = Mutex::new(None);
+    pub static FAILING_KEYS: Mutex<BTreeSet<(MockOp, String)>> = Mutex::new(BTreeSet::new());
+
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    pub enum MockOp {
+        Set,
+        Unset,
+    }
 
     pub fn store() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
         STORE.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn failing_key() -> std::sync::MutexGuard<'static, Option<String>> {
-        FAILING_KEY.lock().unwrap_or_else(|e| e.into_inner())
+    pub fn failing_keys() -> std::sync::MutexGuard<'static, BTreeSet<(MockOp, String)>> {
+        FAILING_KEYS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn fails(op: MockOp, key: &str) -> bool {
+        failing_keys().contains(&(op, key.to_string()))
     }
 }
 
@@ -54,7 +68,7 @@ pub fn set(key: &str, value: &str) -> Result<()> {
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
         anyhow::ensure!(
-            mock_store::failing_key().as_deref() != Some(key),
+            !mock_store::fails(MockOp::Set, key),
             "mock: set {key} failed"
         );
         let mut guard = mock_store::store();
@@ -70,6 +84,10 @@ pub fn unset(key: &str) -> Result<()> {
 
     #[cfg(not(any(feature = "bootloader_grub", feature = "bootloader_uboot")))]
     {
+        anyhow::ensure!(
+            !mock_store::fails(MockOp::Unset, key),
+            "mock: unset {key} failed"
+        );
         let mut guard = mock_store::store();
         guard.remove(key);
         Ok(())
@@ -84,16 +102,25 @@ pub fn unset(key: &str) -> Result<()> {
 ))]
 pub(crate) fn clear_mock() {
     mock_store::store().clear();
-    *mock_store::failing_key() = None;
+    reset_fail_mock();
 }
 
-/// Makes every following `set` of `key` fail, until the next `clear_mock`.
+/// Makes every following `op` of `key` fail, until `reset_fail_mock` or `clear_mock`.
 #[cfg(all(
     not(any(feature = "bootloader_grub", feature = "bootloader_uboot")),
     test
 ))]
-pub(crate) fn fail_set_mock(key: &str) {
-    *mock_store::failing_key() = Some(key.to_string());
+pub(crate) fn fail_mock(op: MockOp, key: &str) {
+    mock_store::failing_keys().insert((op, key.to_string()));
+}
+
+/// Stops `set` and `unset` from failing, but keeps the stored values.
+#[cfg(all(
+    not(any(feature = "bootloader_grub", feature = "bootloader_uboot")),
+    test
+))]
+pub(crate) fn reset_fail_mock() {
+    mock_store::failing_keys().clear();
 }
 
 /// Shared lock for all tests that mutate the global mock store or
