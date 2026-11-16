@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # check for the most recent release: https://github.com/CondeNast/conventional-pull-request-action/releases
-      # replace vX.X.X below with the most recently released version
+      # pin to the commit SHA of the latest release tag and keep the tag as a trailing comment
       - uses: CondeNast/conventional-pull-request-action@3ce30fdb4d2beef8b941f23a1114dd8188eba082 # v0.2.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
