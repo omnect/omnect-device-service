@@ -15,7 +15,11 @@ jobs:
   lint-pr:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@0717577d45739eb3c851188b29f50ed6c0b2194e # v2
+      # the commitlint rules come from the base branch, so a PR cannot relax its own check
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
       # check for the most recent release: https://github.com/CondeNast/conventional-pull-request-action/releases
       # replace vX.X.X below with the most recently released version
       - uses: CondeNast/conventional-pull-request-action@3ce30fdb4d2beef8b941f23a1114dd8188eba082 # v0.2.0
