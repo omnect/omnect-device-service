@@ -8,6 +8,7 @@ omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv_no_script.sh facto
 
 # firmware update + update validation finalization
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_extra_bootargs
+omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_os_bootpart
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_update_part
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_printenv omnect_validate_extra_bootargs
 omnect_device_service ALL=(root) NOPASSWD: /usr/bin/fw_setenv_no_script.sh omnect_bootloader_updated 1
