@@ -184,7 +184,11 @@ impl RunUpdateGuard {
         let write_tmp = || -> Result<()> {
             Self::copy_to_boot(backup, &tmp_file)?;
             fs::File::open(&tmp_file)?.sync_all()?;
-            Self::rename_in_boot(&tmp_file, &omnect_file)
+            Self::rename_in_boot(&tmp_file, &omnect_file)?;
+            // /boot is mounted without dirsync: the rename only marks the inode dirty, and a sync
+            // of /boot writes the FAT with the old clusters freed but not the new entry
+            fs::File::open(&omnect_file)?.sync_all()?;
+            Ok(())
         };
         if let Err(e) = write_tmp() {
             let _ = Self::remove_from_boot(&tmp_file);
@@ -1310,6 +1314,27 @@ mod tests {
         assert!(
             backup_path.exists(),
             "expected backup to be kept for further attempts in this boot"
+        );
+    }
+
+    #[test]
+    fn restore_omnect_file_failed_rename_removes_temp_file() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+
+        // a directory as target: the copy to the temp file works, the rename over it fails
+        fs::remove_file(&omnect_path).expect("remove omnect file");
+        fs::create_dir(&omnect_path).expect("create dir as omnect file");
+
+        assert!(
+            RunUpdateGuard::restore_omnect_file(&backup_path).is_err(),
+            "expected the failed rename to be returned"
+        );
+        assert!(omnect_path.is_dir(), "expected the target to be unchanged");
+        assert!(
+            !omnect_path.with_extension("tmp").exists(),
+            "expected the temp file to be removed"
         );
     }
 
