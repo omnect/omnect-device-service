@@ -34,6 +34,10 @@ static ADU_USER: &str = "adu";
 static REBOOT_ADVICE: &str = "reboot before installing another update";
 #[cfg(not(feature = "mock"))]
 static RM_BIN: &str = "/bin/rm";
+#[cfg(not(feature = "mock"))]
+static CP_BIN: &str = "/bin/cp";
+#[cfg(not(feature = "mock"))]
+static MV_BIN: &str = "/bin/mv";
 
 struct LoadUpdateGuard {
     wdt: Option<Duration>,
@@ -160,7 +164,7 @@ impl RunUpdateGuard {
         }
     }
 
-    fn restore_omnect_file(backup: &Path) -> std::io::Result<()> {
+    fn restore_omnect_file(backup: &Path) -> Result<()> {
         let omnect_file = PathBuf::from(bootargs_omnect_file_path!());
         let saved = fs::read(backup)?;
 
@@ -174,24 +178,79 @@ impl RunUpdateGuard {
             _ => {}
         }
 
-        // write a temp file and rename it over the target, so a power loss never leaves a
+        // copy to a temp file and rename it over the target, so a power loss never leaves a
         // truncated file behind
         let tmp_file = omnect_file.with_extension("tmp");
-        let write_tmp = || -> std::io::Result<()> {
-            let mut file = fs::File::create(&tmp_file)?;
-            std::io::Write::write_all(&mut file, &saved)?;
-            file.sync_all()
+        let write_tmp = || -> Result<()> {
+            Self::copy_to_boot(backup, &tmp_file)?;
+            fs::File::open(&tmp_file)?.sync_all()?;
+            Self::rename_in_boot(&tmp_file, &omnect_file)
         };
         if let Err(e) = write_tmp() {
-            let _ = fs::remove_file(&tmp_file);
+            let _ = Self::remove_from_boot(&tmp_file);
             return Err(e);
         }
-        fs::rename(&tmp_file, &omnect_file)?;
 
         match omnect_file.parent() {
-            Some(dir) => fs::File::open(dir)?.sync_all(),
+            Some(dir) => Ok(fs::File::open(dir)?.sync_all()?),
             None => Ok(()),
         }
+    }
+
+    // /boot is writable by the disk group only, which adu is in
+    fn copy_to_boot(from: &Path, to: &Path) -> Result<()> {
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            FirmwareUpdate::adu_command(CP_BIN)
+                .arg(from)
+                .arg(to)
+                .status()?
+                .success(),
+            "failed to run cp command"
+        );
+
+        #[cfg(feature = "mock")]
+        fs::copy(from, to)?;
+
+        Ok(())
+    }
+
+    fn rename_in_boot(from: &Path, to: &Path) -> Result<()> {
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            FirmwareUpdate::adu_command(MV_BIN)
+                .arg(from)
+                .arg(to)
+                .status()?
+                .success(),
+            "failed to run mv command"
+        );
+
+        #[cfg(feature = "mock")]
+        fs::rename(from, to)?;
+
+        Ok(())
+    }
+
+    fn remove_from_boot(path: &Path) -> Result<()> {
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            FirmwareUpdate::adu_command(RM_BIN)
+                .arg("-f")
+                .arg(path)
+                .status()?
+                .success(),
+            "failed to run rm command"
+        );
+
+        #[cfg(feature = "mock")]
+        if let Err(e) = fs::remove_file(path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(e.into());
+        }
+
+        Ok(())
     }
 }
 
