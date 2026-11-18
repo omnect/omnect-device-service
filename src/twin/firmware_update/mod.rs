@@ -161,7 +161,7 @@ impl RunUpdateGuard {
     }
 
     fn restore_omnect_file(backup: &Path) -> std::io::Result<()> {
-        let omnect_file = bootargs_omnect_file_path!();
+        let omnect_file = PathBuf::from(bootargs_omnect_file_path!());
         let saved = fs::read(backup)?;
 
         // leave /boot untouched if the run failed before changing it; a missing file was backed
@@ -174,9 +174,24 @@ impl RunUpdateGuard {
             _ => {}
         }
 
-        let mut file = fs::File::create(omnect_file)?;
-        std::io::Write::write_all(&mut file, &saved)?;
-        file.sync_all()
+        // write a temp file and rename it over the target, so a power loss never leaves a
+        // truncated file behind
+        let tmp_file = omnect_file.with_extension("tmp");
+        let write_tmp = || -> std::io::Result<()> {
+            let mut file = fs::File::create(&tmp_file)?;
+            std::io::Write::write_all(&mut file, &saved)?;
+            file.sync_all()
+        };
+        if let Err(e) = write_tmp() {
+            let _ = fs::remove_file(&tmp_file);
+            return Err(e);
+        }
+        fs::rename(&tmp_file, &omnect_file)?;
+
+        match omnect_file.parent() {
+            Some(dir) => fs::File::open(dir)?.sync_all(),
+            None => Ok(()),
+        }
     }
 }
 
@@ -1228,6 +1243,10 @@ mod tests {
             fs::read_to_string(&omnect_path).expect("read omnect file"),
             "original_arg",
             "expected omnect file to be restored from backup"
+        );
+        assert!(
+            !omnect_path.with_extension("tmp").exists(),
+            "expected no temp file to be left behind"
         );
         assert!(
             backup_path.exists(),
