@@ -174,7 +174,9 @@ impl RunUpdateGuard {
             _ => {}
         }
 
-        fs::write(omnect_file, saved)
+        let mut file = fs::File::create(omnect_file)?;
+        std::io::Write::write_all(&mut file, &saved)?;
+        file.sync_all()
     }
 }
 
