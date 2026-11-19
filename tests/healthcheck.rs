@@ -4,10 +4,11 @@
 //! reports rather than the state of the machine running them.
 
 use std::{
-    fs,
+    fs, io,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    sync::RwLock,
 };
 use tempfile::TempDir;
 
@@ -178,7 +179,27 @@ exit 0
 
 const TIMEDATECTL_STUB: &str = "echo NTP=yes\necho NTPSynchronized=yes\n";
 
+/// A child inherits every file the test process has open for writing, and
+/// keeps it until its own exec. Running such a file meanwhile fails with
+/// `ETXTBSY`, so a child is only started while no executable is written.
+static SPAWN_LOCK: RwLock<()> = RwLock::new(());
+
+/// Runs the command like `Command::output`, but holds `SPAWN_LOCK` while
+/// the child is started.
+fn output_of(command: &mut Command) -> io::Result<Output> {
+    let child = {
+        let _guard = SPAWN_LOCK.write().expect("spawn lock");
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
+    child.wait_with_output()
+}
+
 fn write_with_mode(path: &Path, content: &str, mode: u32) {
+    let _guard = SPAWN_LOCK.read().expect("spawn lock");
     fs::write(path, content).expect("write script");
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("chmod script");
 }
@@ -203,18 +224,13 @@ fn jq_calls(counter: &Path) -> usize {
 }
 
 fn require_jq() {
-    Command::new("jq")
-        .arg("--version")
-        .output()
+    output_of(Command::new("jq").arg("--version"))
         .expect("jq not found in PATH, but the healthcheck scripts need it to read their config");
 }
 
 /// The real `jq`, resolved before any sandbox wrapper shadows it.
 fn real_jq() -> PathBuf {
-    let output = Command::new("bash")
-        .args(["-c", "command -v jq"])
-        .output()
-        .expect("look up jq");
+    let output = output_of(Command::new("bash").args(["-c", "command -v jq"])).expect("look up jq");
     PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
@@ -430,12 +446,7 @@ exec "{jq}" "$@"
     }
 
     fn run_script(&self, script: &str, args: &[&str]) -> Report {
-        Report::new(
-            self.command(script)
-                .args(args)
-                .output()
-                .expect("run healthcheck script"),
-        )
+        Report::new(output_of(self.command(script).args(args)).expect("run healthcheck script"))
     }
 
     /// Mirrors `bash <bare-name>` from the script's own directory, the one
@@ -444,7 +455,7 @@ exec "{jq}" "$@"
         let mut command = Command::new("bash");
         self.set_env(&mut command);
         command.arg(script).args(args).current_dir(self.lib());
-        Report::new(command.output().expect("run healthcheck script"))
+        Report::new(output_of(&mut command).expect("run healthcheck script"))
     }
 }
 
