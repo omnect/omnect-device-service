@@ -103,7 +103,7 @@ function report_infos() {
     local exitinfo="$LOGDIR/${service}.exit-info"
 
     print_info_header "${ME}(${service})" "$rating"
-    [ "$rating" != "$RATING_GREEN" -a -r "$exitinfo" ] && cat "$exitinfo"
+    [[ "$rating" != "$RATING_GREEN" && -r "$exitinfo" ]] && cat "$exitinfo"
 
     return 0
 }

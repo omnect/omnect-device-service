@@ -43,6 +43,7 @@ function in_list() {
 # put in front of a jq program that reads a config file with "jq -n": the
 # file has to hold exactly one JSON document, so an empty file, a second
 # document and content after the first one are errors
+# shellcheck disable=SC2034  # used by the scripts that source this file
 JQ_ONE_DOCUMENT='[inputs] | if length != 1 then error("the file must hold exactly one JSON document") else .[0] end'
 
 # a rating is also the exit status of a check, so its values are fixed

@@ -116,7 +116,7 @@ function do__cmd() {
         retval=$?
 
         if [ -n "$output" ] \
-           && [ "$output_when" = 2 -o "$output_when" = 1 -a "$retval" != "$RATING_GREEN" ]; then
+           && [[ "$output_when" = 2 || ( "$output_when" = 1 && "$retval" != "$RATING_GREEN" ) ]]; then
             echo "$output"
         fi
 
@@ -124,7 +124,7 @@ function do__cmd() {
         # non-green rating has a line of its own
         if [ "$retval" -gt "$RATING_RED" ]; then
             print_rating "$RATING_RED" "$name" "${check##*/}"
-        elif [ "$retval" -ne "$RATING_GREEN" -a -z "$output" ]; then
+        elif [[ "$retval" -ne "$RATING_GREEN" && -z "$output" ]]; then
             print_rating "$retval" "$name" "${check##*/}"
         fi
         do_rate "$retval" "${check##*/}"
