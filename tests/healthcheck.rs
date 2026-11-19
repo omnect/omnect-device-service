@@ -1877,11 +1877,9 @@ fn an_exit_info_that_could_not_be_written_is_not_installed() {
     );
 }
 
-/// The hook says in its exit status whether the entry was written. No unit
-/// acts on that today, because they all run the hook with "-", so this
-/// covers the status itself and not what systemd makes of it.
+/// The hook says in its exit status whether the entry was written.
 #[test]
-fn a_stop_that_could_not_be_logged_is_reported() {
+fn a_stop_that_could_not_be_logged_fails_the_hook() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(CRASH_RATED_SERVICE);
     sandbox.install_service_log();
@@ -1902,9 +1900,9 @@ fn a_stop_that_could_not_be_logged_is_reported() {
 
 /// The first start of a service is kept as the record of when it last came
 /// up for the first time, so it must not be taken from an entry that was
-/// never written. The exit status carries the same caveat as the stop case.
+/// never written.
 #[test]
-fn a_start_that_could_not_be_logged_is_reported() {
+fn a_start_that_could_not_be_logged_fails_the_hook() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
     sandbox.set_service_analysis(CRASH_RATED_SERVICE);
     sandbox.install_service_log();

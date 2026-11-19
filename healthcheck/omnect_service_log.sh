@@ -77,7 +77,7 @@ function output_exitinfo() {
 
     local failed=0
     {
-	cat <<EOF
+	cat <<EOF || failed=1
 ========================================
 Service:     $service
 Result:      $result
@@ -129,10 +129,7 @@ SERVICE_STARTLOGFILE_1ST="$SERVICE_EXITLOGDIR/$SERVICE$START_1ST_POSTFIX"
 
 timestamp=$(date +%Y-%m-%dT%H:%M:%SZ)
 
-# NOTE:
-#   every unit runs this hook as "ExecStartPre=+-" or "ExecStopPost=+-", and
-#   the "-" makes systemd discard the status, so this says what happened
-#   without any caller acting on it today
+# the exit status says whether every record was written
 retval=0
 
 case "$1" in
