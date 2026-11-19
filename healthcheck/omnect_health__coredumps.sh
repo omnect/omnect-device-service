@@ -48,7 +48,7 @@ function find_coredumps() {
         coredump_errors="${coredump_skipped:-the journal could not be read}"
         coredump_skipped=
         coredumps=
-        return 2
+        return 1
     fi
 
     return 0

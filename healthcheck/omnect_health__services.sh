@@ -61,7 +61,7 @@ function rate_servicelog() {
           ]
         + [ "(.infos[] | select(has(\"rating\") | not)) += { \"rating\": \"red\" }" ]
         | join(" | ")' "$CFGFILEPATH") \
-        || { error "rating rules for service \"$service\" could not be read"; return 2; }
+        || { error "rating rules for service \"$service\" could not be read"; return "$RATING_RED"; }
 
     # NOTE:
     #   the entries are rated and counted in a single pass, and the rating is
@@ -74,11 +74,12 @@ function rate_servicelog() {
     #   may name a rating this script does not know, or none at all, which
     #   leaves the entry with an empty one, and such an entry has been
     #   matched by a rule precisely because it is worth reporting
-    rating=$(jq -er "$jquery"' | [ ( .infos | map(select(.rating != "green" and .rating != "yellow")) | length ),
+    rating=$(jq -er --argjson green "$RATING_GREEN" --argjson yellow "$RATING_YELLOW" --argjson red "$RATING_RED" \
+                "$jquery"' | [ ( .infos | map(select(.rating != "green" and .rating != "yellow")) | length ),
                                    ( .infos | map(select(.rating == "yellow")) | length ) ]
-                               | if   .[0] > 0 then 2
-                                 elif .[1] > 0 then 1
-                                 else 0
+                               | if   .[0] > 0 then $red
+                                 elif .[1] > 0 then $yellow
+                                 else $green
                                  end' "$servicelog") \
         || { error "exit log \"$servicelog\" could not be rated"; return "$RATING_RED"; }
 
@@ -107,19 +108,28 @@ function report_infos() {
     return 0
 }
 
-# reports the given rating for every service the caller asked for, for the
-# cases in which the configuration does not allow rating them one by one, so
-# that the reader of a rating is told which services it is about
-function report_all() {
+# counts the rating and reports it through the given report function, so
+# that the rating a reader sees is the one that was counted
+function rate_and_report() {
+    local report="$1" service="$2" rating="$3"
+
+    do_rate "$rating"
+    "$report" "$service" "$rating"
+}
+
+# rates and reports the given rating for every service the caller asked for,
+# for the cases in which the configuration does not allow rating them one by
+# one, so that the reader of a rating is told which services it is about
+function rate_and_report_all() {
     local report="$1" rating="$2" service
 
     if [ ${#check_services[@]} -eq 0 ]; then
-        "$report" "$ME" "$rating"
+        rate_and_report "$report" "$ME" "$rating"
         return 0
     fi
 
     for service in "${check_services[@]}"; do
-        "$report" "$service" "$rating"
+        rate_and_report "$report" "$service" "$rating"
     done
 }
 
@@ -134,12 +144,11 @@ function do__cmd() {
     # is a broken image and is rated like an unreadable one
     if [ ! -r "$CFGFILEPATH" ]; then
         error "no configuration file (${CFGFILEPATH}) found, don't know what to do."
-        do_rate "$RATING_RED"
-        report_all "$report" "$RATING_RED"
+        rate_and_report_all "$report" "$RATING_RED"
         return "$RATING_RED"
     fi
 
-    known=$(configured_services) || { do_rate "$RATING_RED"; report_all "$report" "$RATING_RED"; return "$RATING_RED"; }
+    known=$(configured_services) || { rate_and_report_all "$report" "$RATING_RED"; return "$RATING_RED"; }
     [ "$known" ] && mapfile -t services <<<"$known"
 
     for service in "${services[@]}"; do
@@ -155,16 +164,14 @@ function do__cmd() {
             rating=$?
         fi
 
-        do_rate "$rating"
-        "$report" "$service" "$rating"
+        rate_and_report "$report" "$service" "$rating"
         nrated=$((nrated + 1))
     done
 
     mapfile -t unknown < <(unknown_services "${services[@]}")
     for service in "${unknown[@]}"; do
         warn "no rules for service \"$service\" in \"$CFGFILEPATH\""
-        do_rate "$RATING_YELLOW"
-        "$report" "$service" "$RATING_YELLOW"
+        rate_and_report "$report" "$service" "$RATING_YELLOW"
         nrated=$((nrated + 1))
     done
 
@@ -172,8 +179,7 @@ function do__cmd() {
     # as little about this device as a check that never ran
     if [ "$nrated" -eq 0 ]; then
         warn "no service to rate in \"$CFGFILEPATH\""
-        do_rate "$RATING_YELLOW"
-        report_all "$report" "$RATING_YELLOW"
+        rate_and_report_all "$report" "$RATING_YELLOW"
     fi
 
     get_overall_rating

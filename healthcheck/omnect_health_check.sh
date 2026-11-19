@@ -102,14 +102,12 @@ function do__cmd() {
         # an entry without a type is rated red and named by its name or by
         # its position
         [ "$type" ] \
-            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; print_rating "$RATING_RED" "${name:-entry $i}" "${cfgfile##*/}"; do_rate "$RATING_RED"; nchecked=$((nchecked + 1)); continue; }
+            || { error "entry $i in \"$cfgfile\" is missing \"type\" attribute"; print_and_rate "$RATING_RED" "${name:-entry $i}" "${cfgfile##*/}"; nchecked=$((nchecked + 1)); continue; }
 
         check="${HEALTHCHECK_DIR}/omnect_health__${type}.sh"
         if [ ! -x "$check" ]; then
-            local rate="$RATING_RED"
             error "check \"$check\" for type \"$type\" (entry $i in \"$cfgfile\") cannot be called"
-            print_rating "$rate" "$name" "${check##*/}"
-            do_rate "$rate"
+            print_and_rate "$RATING_RED" "$name" "${check##*/}"
             nchecked=$((nchecked + 1))
             continue
         fi
@@ -118,7 +116,7 @@ function do__cmd() {
         retval=$?
 
         if [ -n "$output" ] \
-           && [ "$output_when" = 2 -o "$output_when" = 1 -a "$retval" != 0 ]; then
+           && [ "$output_when" = 2 -o "$output_when" = 1 -a "$retval" != "$RATING_GREEN" ]; then
             echo "$output"
         fi
 
@@ -126,7 +124,7 @@ function do__cmd() {
         # non-green rating has a line of its own
         if [ "$retval" -gt "$RATING_RED" ]; then
             print_rating "$RATING_RED" "$name" "${check##*/}"
-        elif [ "$retval" -ne 0 -a -z "$output" ]; then
+        elif [ "$retval" -ne "$RATING_GREEN" -a -z "$output" ]; then
             print_rating "$retval" "$name" "${check##*/}"
         fi
         do_rate "$retval" "${check##*/}"
@@ -135,7 +133,7 @@ function do__cmd() {
     done
 
     [ "$nchecked" -gt 0 ] \
-        || { error "no check was run, health of this device is unknown"; print_rating "$RATING_YELLOW" "${cfgfile##*/}" "${ME}"; do_rate "$RATING_YELLOW"; }
+        || { error "no check was run, health of this device is unknown"; print_and_rate "$RATING_YELLOW" "${cfgfile##*/}" "${ME}"; }
 }
 
 function do_checks() {
@@ -161,8 +159,7 @@ check_command_arg "$command"
 # same way: no check could run, so the rating has to say so where it is read
 if [ ! -r "${CFGFILEPATH}" ]; then
     fatal "configuration file \"${CFGFILEPATH}\" not found"
-    print_rating "$RATING_RED" "${CFGFILE}" "${ME}"
-    do_rate "$RATING_RED"
+    print_and_rate "$RATING_RED" "${CFGFILE}" "${ME}"
 elif read_entries "${CFGFILEPATH}"; then
     # the arguments following the command are optional and name the checks to
     # be run
@@ -181,15 +178,13 @@ elif read_entries "${CFGFILEPATH}"; then
         error "unknown check name(s) [${unknown_list%, }]"
         # the caller named checks this device does not have, so nothing was
         # checked and the health of the device is unknown
-        print_rating "$RATING_YELLOW" "${CFGFILE}" "${ME}"
-        do_rate "$RATING_YELLOW"
+        print_and_rate "$RATING_YELLOW" "${CFGFILE}" "${ME}"
     fi
 else
     # without the entries there is nothing to run, so the run is rated red
     # and the config file is named as the cause
     error "config file \"${CFGFILEPATH}\" could not be read"
-    print_rating "$RATING_RED" "${CFGFILE}" "${ME}"
-    do_rate "$RATING_RED"
+    print_and_rate "$RATING_RED" "${CFGFILE}" "${ME}"
 fi
 
 get_overall_rating

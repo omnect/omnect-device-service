@@ -87,6 +87,16 @@ function do_rate() {
     esac
 }
 
+# prints a rating and adds it to the overall rating, so that the rating a
+# reader sees is the one that was counted
+function print_and_rate() {
+    local rating="$1"
+    shift
+
+    print_rating "$rating" "$@"
+    do_rate "$rating"
+}
+
 function do_rate_cmd() {
     local ret
 

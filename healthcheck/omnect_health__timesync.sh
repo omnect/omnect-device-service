@@ -45,7 +45,7 @@ function do_get_infos() {
     retval=$?
 
     print_info_header
-    if [ "$retval" != 0 ]; then
+    if [ "$retval" != "$RATING_GREEN" ]; then
         journalctl -b0 --no-pager -l -u systemd-timesyncd.service
     fi
 
