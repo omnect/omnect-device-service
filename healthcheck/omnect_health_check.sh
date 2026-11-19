@@ -31,19 +31,18 @@ entries=()
 #   there
 #
 # NOTE:
-#   jq's exit status decides here: on a malformed config file it prints the
-#   entries it could read before giving up, and checking only those would rate
-#   a device whose remaining checks never ran
+#   jq's exit status decides here: an entry it cannot read stops it after it
+#   printed the entries before, and checking only those would rate a device
+#   whose remaining checks never ran
 #
 # NOTE:
-#   the document is read through "input", so that an empty file - no JSON
-#   document at all, and a common result of a power loss during a write -
-#   is an error
+#   the file has to hold one list; an empty file is a common result of a
+#   power loss during a write
 function read_entries() {
     local cfgfile="$1" rawentries
 
-    rawentries=$(jq -n -r 'input | def flat: tostring | split("\n") | join(" ") | split("\r") | join(" "); .[] | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
-        || return 2
+    rawentries=$(jq -n -r "$JQ_ONE_DOCUMENT"' | def flat: tostring | split("\n") | join(" ") | split("\r") | join(" "); if type != "array" then error("the configuration must be a list of entries") else .[] end | [ (."type" // "" | flat), (."name" // "" | flat), (."extra-args" // "" | flat) ] | join("\u001f")' "$cfgfile") \
+        || return 1
 
     [ "$rawentries" ] && mapfile -t entries <<<"$rawentries"
 

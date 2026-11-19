@@ -548,6 +548,45 @@ fn a_config_file_without_a_document_is_rated_red() {
     );
 }
 
+/// jq reads only as much of a file as a program asks for, so content after
+/// the first document would be dropped unseen, and with it every check it
+/// lists.
+#[test]
+fn a_config_file_that_is_not_one_list_is_rated_red() {
+    let cases = [
+        (
+            "content after the list",
+            r#"[ { "name": "coredumps", "type": "coredumps" } ]
+, { "name": "time", "type": "timesync" } ]"#,
+        ),
+        (
+            "two documents",
+            r#"[ { "name": "coredumps", "type": "coredumps" } ]
+[ { "name": "time", "type": "timesync" } ]"#,
+        ),
+        ("an object", "{}"),
+    ];
+
+    for (case, config) in cases {
+        let sandbox = Sandbox::new(config);
+
+        let report = sandbox.run_script("omnect_health_check.sh", &["check"]);
+
+        assert_eq!(
+            report.rating, RATING_RED,
+            "a config file with {case} must be rated red:\n{}{}",
+            report.stdout, report.stderr
+        );
+        assert_eq!(
+            report.ratings(),
+            [("[RED]", "omnect_health_checks.json")],
+            "a config file with {case} must be named as the cause:\n{}{}",
+            report.stdout,
+            report.stderr
+        );
+    }
+}
+
 #[test]
 fn a_missing_config_file_is_rated_where_the_rating_is_read() {
     let sandbox = Sandbox::new("[]");
@@ -1662,6 +1701,50 @@ fn a_missing_service_config_is_rated_red() {
         report.stdout,
         report.stderr
     );
+}
+
+/// A rules file without exactly one document is as unusable as a missing
+/// one; an empty file is a common result of a power loss during a write.
+#[test]
+fn a_service_config_that_is_not_one_document_is_rated_red() {
+    let cases = [
+        ("no document", ""),
+        (
+            "two documents",
+            r#"{ "services": [] }
+{ "services": [] }"#,
+        ),
+        (
+            "content after the document",
+            r#"{ "services": [] }
+, { "service": "picky" } ] }"#,
+        ),
+    ];
+
+    for (case, rules) in cases {
+        let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+        sandbox.set_service_analysis(rules);
+
+        for (args, named) in [
+            (&["check"][..], "omnect_health__services.sh"),
+            (&["check", "picky"][..], "picky"),
+        ] {
+            let report = sandbox.run_script("omnect_health__services.sh", args);
+
+            assert_eq!(
+                report.rating, RATING_RED,
+                "a rules file with {case} must be rated red ({args:?}):\n{}{}",
+                report.stdout, report.stderr
+            );
+            assert_eq!(
+                report.ratings(),
+                [("[RED]", named)],
+                "a rules file with {case} must name what it fails ({args:?}):\n{}{}",
+                report.stdout,
+                report.stderr
+            );
+        }
+    }
 }
 
 /// A rules file naming no service at all leaves the check with nothing to
