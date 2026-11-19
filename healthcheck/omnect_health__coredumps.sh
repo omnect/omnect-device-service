@@ -16,7 +16,7 @@ coredump_errors=
 coredump_skipped=
 
 # puts the core dumps of the current system run into "coredumps"; returns 0
-# when it could look for them, and 2 when it could not
+# when it could look for them, and 1 when it could not
 #
 # NOTE:
 #   journalctl succeeds whether or not an entry matched, and fails only when
