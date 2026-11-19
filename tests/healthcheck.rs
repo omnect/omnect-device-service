@@ -1848,6 +1848,37 @@ fn an_exit_info_keeps_its_header_when_the_journal_cannot_be_read() {
 /// The exit info is the only record of what the journal held when a service
 /// died, so one that could not be written must not be installed, let alone
 /// kept as the first failure of that service.
+/// The header carries the exit status of the service, so an exit info
+/// without it must not be installed either.
+#[test]
+fn an_exit_info_without_its_header_is_not_installed() {
+    let sandbox = Sandbox::new(COREDUMPS_CONFIG);
+    sandbox.set_service_analysis(CRASH_RATED_SERVICE);
+    sandbox.install_service_log();
+    // the header is the only output of "cat" on the stop path
+    sandbox.stub("cat", "exit 1\n");
+
+    let report = sandbox.run_script(
+        "omnect_service_log.sh",
+        &["stop", "picky", "exit-code", "exited", "SEGV"],
+    );
+
+    assert_ne!(
+        report.rating, 0,
+        "an exit info without its header was reported as written:\n{}{}",
+        report.stdout, report.stderr
+    );
+    assert!(
+        !sandbox.run().join("picky.exit-info").exists(),
+        "an exit info without its header was installed"
+    );
+    assert!(
+        !sandbox.run().join("picky.1st.exit-info").exists(),
+        "an exit info without its header was kept as the first failure of \
+         this service"
+    );
+}
+
 #[test]
 fn an_exit_info_that_could_not_be_written_is_not_installed() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
