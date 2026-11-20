@@ -44,6 +44,8 @@ state to edge modules.
 - Lint: `cargo clippy --features bootloader_grub -- -D warnings` and
   `cargo clippy --features mock --all-targets -- -D warnings` (only the
   second covers test code)
+- Format: `cargo fmt`
+- Before a commit, format and both lint commands must pass.
 
 ## Breaking UDS API changes
 
@@ -58,5 +60,6 @@ breaking:
 - describe the old and new format in the PR description.
 
 The hook `.claude/hooks/uds-api-guard.sh` blocks the PR command until this
-is decided. If the change is not breaking, prefix the command with
-`UDS_API_BREAKING=no` and tell the user why.
+is decided. It checks changes in `src/` and the socket unit. If the change is
+not breaking, put `UDS_API_BREAKING=no` directly before `gh` and tell the
+user why.
