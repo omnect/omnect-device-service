@@ -7,7 +7,7 @@ set -u
 
 NOT_BREAKING_MARKER="UDS_API_BREAKING=no"
 # Files that define the UDS API (README.md, "Breaking changes").
-API_PATHS=(src "systemd/*.socket")
+API_PATHS=(":(top)src" ":(top)systemd/*.socket")
 GH_TIMEOUT_S=15
 
 repo_name() {
