@@ -95,7 +95,7 @@ git -C "$dir" diff --quiet --no-ext-diff --no-textconv "$base" "$head" -- "${API
 [[ "$?" -eq 1 ]] || exit 0
 
 if [[ "$title" =~ ^[a-z]+(\([^\)]*\))?!: ]]; then
-    old=$(git -C "$dir" show "$base:Cargo.toml" 2>/dev/null | sed -nE 's/^version *= *"([0-9]+)\.([0-9]+)\..*/\1 \2/p' | head -1)
+    old=$(git -C "$dir" show "$base_ref:Cargo.toml" 2>/dev/null | sed -nE 's/^version *= *"([0-9]+)\.([0-9]+)\..*/\1 \2/p' | head -1)
     new=$(git -C "$dir" show "$head:Cargo.toml" 2>/dev/null | sed -nE 's/^version *= *"([0-9]+)\.([0-9]+)\..*/\1 \2/p' | head -1)
     [[ -n "$old" && -n "$new" ]] || exit 0
     read -r old_major old_minor <<<"$old"
