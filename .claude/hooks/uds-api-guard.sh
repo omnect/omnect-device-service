@@ -111,6 +111,6 @@ fi
 
 [[ " $env_prefix" =~ [[:space:]]"$NOT_BREAKING_MARKER"[[:space:]] ]] && exit 0
 
-decide deny "$repo: edge modules use its UDS API, and this PR changes its files (src/ or the socket unit). Check the diff against $base_ref for a breaking change of that API as listed in README.md, \"Breaking changes\": e.g. a changed or removed route or method, a changed request or response body, a renamed or removed field, publish channel or status key, a changed field type or shape, or a changed socket path, mode or group (a new optional field is not breaking).
+decide deny "$repo: edge modules use its UDS API, and this PR changes its files (src/ or the socket unit). Read README.md, section \"Breaking changes\", and check the diff against $base_ref for each case listed there.
 - Breaking: put \"!\" in the PR title (e.g. \"feat!: ...\"), bump at least the minor version while on 0.x, and describe the old and new format in the PR description. The release notes pick it up from the title.
 - Not breaking: run the command again with the prefix $NOT_BREAKING_MARKER directly before \"gh\" and tell the user why it is not breaking."
