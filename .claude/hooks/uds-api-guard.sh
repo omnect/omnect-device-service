@@ -26,7 +26,7 @@ unquote() {
 input=$(cat)
 cmd=$(jq -r '.tool_input.command // empty' <<<"$input" 2>/dev/null) || exit 0
 # A gh call at the start of a command, optionally after env assignments.
-gh_re='(^|[;&|(`[:cntrl:]])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+)*)gh[[:space:]]+pr[[:space:]]+(create|edit)([[:space:]]|$)'
+gh_re='(^|[;&|(`[:cntrl:]])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+)*)gh[[:space:]]+pr[[:space:]]+(create|new|edit)([[:space:]]|$)'
 [[ "$cmd" =~ $gh_re ]] || exit 0
 env_prefix=${BASH_REMATCH[2]}
 sub=${BASH_REMATCH[4]}
