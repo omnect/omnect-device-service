@@ -24,3 +24,24 @@ jobs:
           commitTitleMatch: "false" # default: 'true'
           # if you squash merge PRs and enabled "Default to PR title for squash merge commits", you can disable all linting of commits
           ignoreCommits: "true" # default: 'false'
+
+  # Edge modules use the UDS API. Under squash merge the PR title becomes the
+  # commit subject, and the release notes take breaking changes from its "!".
+  uds-api-breaking:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          API_FILES: '^(src/|systemd/[^/]*\.socket$)'
+        run: |
+          # previous_filename: a file moved out of the API paths counts too
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          grep -qE "$API_FILES" <<<"$files" || exit 0
+          [[ "$TITLE" =~ ^[a-z]+(\([^\)]*\))?!: ]] && exit 0
+          grep -qxE '[[:space:]]*UDS_API_BREAKING=no[[:space:]]*' <<<"$BODY" && exit 0
+          echo "::error::This PR changes UDS API files. If it breaks the API (README.md, \"Breaking changes\"), put ! in the title. If not, add a line UDS_API_BREAKING=no to the description."
+          exit 1

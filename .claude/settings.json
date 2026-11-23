@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/uds-api-guard.sh omnect/omnect-device-service ':(top)src' ':(top)systemd/*.socket'",
-            "timeout": 60
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/uds-api-reminder.sh",
+            "timeout": 10
           }
         ]
       }
