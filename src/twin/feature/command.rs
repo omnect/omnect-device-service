@@ -383,6 +383,29 @@ mod tests {
         );
 
         let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({
+                    "mode": 4,
+                    "preserve": [],
+                }),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
+        assert!(
+            Command::from_direct_method(&DirectMethod {
+                name: "factory_reset".to_string(),
+                payload: json!({"mode": 1}),
+                responder,
+            })
+            .is_err()
+        );
+
+        let (responder, _rx) = oneshot::channel::<CommandResult>();
         assert_eq!(
             Command::from_direct_method(&DirectMethod {
                 name: "factory_reset".to_string(),

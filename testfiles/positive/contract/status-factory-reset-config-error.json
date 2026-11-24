@@ -1,0 +1,8 @@
+{
+  "factory_reset": {
+    "status": 3,
+    "error": "unknown preserve topic foo",
+    "data_wiped": false
+  },
+  "first_boot": false
+}
