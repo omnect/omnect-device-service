@@ -1,0 +1,7 @@
+{
+    "factory_reset": {
+        "status": 2,
+        "error": "mkfs failed"
+    },
+    "first_boot": false
+}

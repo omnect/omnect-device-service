@@ -1,0 +1,7 @@
+{
+    "factory_reset": {
+        "status": -1,
+        "data_wiped": false
+    },
+    "first_boot": false
+}

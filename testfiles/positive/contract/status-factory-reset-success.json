@@ -1,0 +1,10 @@
+{
+  "factory_reset": {
+    "status": 0,
+    "paths": [
+      "/etc/hostname"
+    ],
+    "data_wiped": true
+  },
+  "first_boot": false
+}
