@@ -70,6 +70,6 @@ jobs:
             exit 1
           fi
 
-          grep -qxE '[[:space:]]*UDS_API_BREAKING=no[[:space:]]*' <<<"$BODY" && exit 0
+          grep -qxE '[[:space:]]*`?UDS_API_BREAKING=no`?[[:space:]]*' <<<"$BODY" && exit 0
           echo "::error::This PR changes UDS API files. If it breaks the API (README.md, \"Breaking changes\"), put ! in the title and bump the version. If not, add a line UDS_API_BREAKING=no to the description."
           exit 1
