@@ -14,16 +14,17 @@ jobs:
   lint-pr:
     runs-on: ubuntu-latest
     steps:
-      # check for the most recent release: https://github.com/CondeNast/conventional-pull-request-action/releases
-      # pin to the commit SHA of the latest release tag and keep the tag as a trailing comment
-      - uses: CondeNast/conventional-pull-request-action@3ce30fdb4d2beef8b941f23a1114dd8188eba082 # v0.2.0
+      # releases: https://github.com/amannn/action-semantic-pull-request/releases
+      # pin to the commit SHA of a release tag and keep the tag as a trailing comment
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # if the PR contains a single commit, fail if the commit message and the PR title do not match
-          commitTitleMatch: "false" # default: 'true'
-          # if you squash merge PRs and enabled "Default to PR title for squash merge commits", you can disable all linting of commits
-          ignoreCommits: "true" # default: 'false'
+          scopes: "[a-z0-9_./-]+"
+          subjectPattern: ^(?![A-Z]).+[^.]$
+          subjectPatternError: The subject "{subject}" must start with a lowercase letter and must not end with a dot.
+          # Dependabot writes "Bump ...", and its PRs have this label.
+          ignoreLabels: dependencies
 
   # Edge modules use the UDS API. Under squash merge the PR title becomes the
   # commit subject, and the release notes take breaking changes from its "!".
