@@ -61,8 +61,9 @@ breaking:
 
 If it is not breaking, put a line `UDS_API_BREAKING=no` in the PR
 description and tell the user why. The CI job `uds-api-breaking` fails for a
-PR that changes `src/` or the socket unit and has neither. It runs again when
-the PR is pushed or its title or description changes.
+PR that changes `src/` or the socket unit and has neither, and for a `!` title
+without the version bump. It runs again when the PR is pushed or its title or
+description changes.
 
 Check again after each push to an open PR, and fix the title or the marker
 if needed. Merge with the PR title: no `--subject` on `gh pr merge`, because
