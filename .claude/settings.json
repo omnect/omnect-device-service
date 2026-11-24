@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/uds-api-guard.sh",
-            "timeout": 30
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/uds-api-reminder.sh",
+            "timeout": 10
           }
         ]
       }

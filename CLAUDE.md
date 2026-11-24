@@ -59,7 +59,16 @@ breaking:
 - bump at least the minor version while on 0.x,
 - describe the old and new format in the PR description.
 
-The hook `.claude/hooks/uds-api-guard.sh` blocks the PR command until this
-is decided. It checks changes in `src/` and the socket unit. If the change is
-not breaking, put `UDS_API_BREAKING=no` directly before `gh` and tell the
-user why.
+If it is not breaking, put a line `UDS_API_BREAKING=no` in the PR
+description and tell the user why. The CI job `uds-api-breaking` fails for a
+PR that changes `src/` or the socket unit and has neither, and for a `!` title
+without the version bump. It runs again when the PR is pushed or its title or
+description changes.
+
+Check again after each push to an open PR, and fix the title or the marker
+if needed. Merge with the PR title: no `--subject` on `gh pr merge`, because
+the squash commit subject replaces the title that CI checked.
+
+The hook `.claude/hooks/uds-api-reminder.sh` adds this rule to the context
+before a PR command or a `git push`. The CI job and the hook are the same in
+`wifi-commissioning-service`, apart from the paths: change both repos.
