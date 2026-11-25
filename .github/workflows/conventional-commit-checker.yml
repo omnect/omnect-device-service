@@ -14,13 +14,63 @@ jobs:
   lint-pr:
     runs-on: ubuntu-latest
     steps:
-      # check for the most recent release: https://github.com/CondeNast/conventional-pull-request-action/releases
-      # pin to the commit SHA of the latest release tag and keep the tag as a trailing comment
-      - uses: CondeNast/conventional-pull-request-action@3ce30fdb4d2beef8b941f23a1114dd8188eba082 # v0.2.0
+      # releases: https://github.com/amannn/action-semantic-pull-request/releases
+      # pin to the commit SHA of a release tag and keep the tag as a trailing comment
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # if the PR contains a single commit, fail if the commit message and the PR title do not match
-          commitTitleMatch: "false" # default: 'true'
-          # if you squash merge PRs and enabled "Default to PR title for squash merge commits", you can disable all linting of commits
-          ignoreCommits: "true" # default: 'false'
+          scopes: "[a-z0-9_./-]+"
+          subjectPattern: ^(?![A-Z]).+[^.]$
+          subjectPatternError: The subject "{subject}" must start with a lowercase letter and must not end with a dot.
+          # Dependabot writes "Bump ...", and its PRs have this label.
+          ignoreLabels: dependencies
+
+  # Edge modules use the UDS API. Under squash merge the PR title becomes the
+  # commit subject, and the release notes take breaking changes from its "!".
+  uds-api-breaking:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          API_FILES: '^(src/|systemd/[^/]*\.socket$)'
+        run: |
+          # previous_filename: a file moved out of the API paths counts too
+          names=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | [.filename, .previous_filename // empty] | @tsv')
+          # The endpoint lists at most 3000 files.
+          if (( $(grep -c . <<<"$names") < CHANGED_FILES )); then
+            echo "::error::Could not list all $CHANGED_FILES changed files. Check this PR for a breaking UDS API change by hand."
+            exit 1
+          fi
+          grep -qE "$API_FILES" <<<"${names//$'\t'/$'\n'}" || exit 0
+
+          if [[ "$TITLE" =~ ^[a-z]+(\([^\)]*\))?!: ]]; then
+            # prints "major minor" of the package version at a commit, first line
+            version() {
+              gh api -H 'Accept: application/vnd.github.raw' "repos/$1/contents/Cargo.toml?ref=$2" |
+                sed -nE 's/^version *= *"([0-9]+)\.([0-9]+)\..*/\1 \2/p'
+            }
+            read -r old_major old_minor <<<"$(version "$REPO" "$BASE_SHA")"
+            read -r new_major new_minor <<<"$(version "$HEAD_REPO" "$HEAD_SHA")"
+            if [[ -z "$old_minor" || -z "$new_minor" ]]; then
+              echo "::error::Could not read the version in Cargo.toml."
+              exit 1
+            fi
+            if (( old_major == 0 ? new_major > 0 || new_minor > old_minor : new_major > old_major )); then
+              exit 0
+            fi
+            echo "::error::The title marks a breaking UDS API change, but the version $old_major.$old_minor -> $new_major.$new_minor has no minor bump (on 0.x) or major bump (from 1.0)."
+            exit 1
+          fi
+
+          grep -qxE '[[:space:]]*`?UDS_API_BREAKING=no`?[[:space:]]*' <<<"$BODY" && exit 0
+          echo "::error::This PR changes UDS API files. If it breaks the API (README.md, \"Breaking changes\"), put ! in the title and bump the version. If not, add a line UDS_API_BREAKING=no to the description."
+          exit 1

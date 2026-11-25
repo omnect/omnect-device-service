@@ -34,6 +34,10 @@ static ADU_USER: &str = "adu";
 static REBOOT_ADVICE: &str = "reboot before installing another update";
 #[cfg(not(feature = "mock"))]
 static RM_BIN: &str = "/bin/rm";
+#[cfg(not(feature = "mock"))]
+static CP_BIN: &str = "/bin/cp";
+#[cfg(not(feature = "mock"))]
+static MV_BIN: &str = "/bin/mv";
 
 struct LoadUpdateGuard {
     wdt: Option<Duration>,
@@ -160,8 +164,8 @@ impl RunUpdateGuard {
         }
     }
 
-    fn restore_omnect_file(backup: &Path) -> std::io::Result<()> {
-        let omnect_file = bootargs_omnect_file_path!();
+    fn restore_omnect_file(backup: &Path) -> Result<()> {
+        let omnect_file = PathBuf::from(bootargs_omnect_file_path!());
         let saved = fs::read(backup)?;
 
         // leave /boot untouched if the run failed before changing it; a missing file was backed
@@ -174,7 +178,83 @@ impl RunUpdateGuard {
             _ => {}
         }
 
-        fs::write(omnect_file, saved)
+        // copy to a temp file and rename it over the target, so a power loss never leaves a
+        // truncated file behind
+        let tmp_file = omnect_file.with_extension("tmp");
+        let write_tmp = || -> Result<()> {
+            Self::copy_to_boot(backup, &tmp_file)?;
+            fs::File::open(&tmp_file)?.sync_all()?;
+            Self::rename_in_boot(&tmp_file, &omnect_file)?;
+            // /boot is mounted without dirsync: the rename only marks the inode dirty, and a sync
+            // of /boot writes the FAT with the old clusters freed but not the new entry
+            fs::File::open(&omnect_file)?.sync_all()?;
+            Ok(())
+        };
+        if let Err(e) = write_tmp() {
+            let _ = Self::remove_from_boot(&tmp_file);
+            return Err(e);
+        }
+
+        match omnect_file.parent() {
+            Some(dir) => Ok(fs::File::open(dir)?.sync_all()?),
+            None => Ok(()),
+        }
+    }
+
+    // /boot is writable by the disk group only, which adu is in
+    fn copy_to_boot(from: &Path, to: &Path) -> Result<()> {
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            FirmwareUpdate::adu_command(CP_BIN)
+                .arg(from)
+                .arg(to)
+                .status()?
+                .success(),
+            "failed to run cp command"
+        );
+
+        #[cfg(feature = "mock")]
+        fs::copy(from, to)?;
+
+        Ok(())
+    }
+
+    fn rename_in_boot(from: &Path, to: &Path) -> Result<()> {
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            FirmwareUpdate::adu_command(MV_BIN)
+                .arg(from)
+                .arg(to)
+                .status()?
+                .success(),
+            "failed to run mv command"
+        );
+
+        #[cfg(feature = "mock")]
+        fs::rename(from, to)?;
+
+        Ok(())
+    }
+
+    fn remove_from_boot(path: &Path) -> Result<()> {
+        #[cfg(not(feature = "mock"))]
+        ensure!(
+            FirmwareUpdate::adu_command(RM_BIN)
+                .arg("-f")
+                .arg(path)
+                .status()?
+                .success(),
+            "failed to run rm command"
+        );
+
+        #[cfg(feature = "mock")]
+        if let Err(e) = fs::remove_file(path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(e.into());
+        }
+
+        Ok(())
     }
 }
 
@@ -1228,8 +1308,33 @@ mod tests {
             "expected omnect file to be restored from backup"
         );
         assert!(
+            !omnect_path.with_extension("tmp").exists(),
+            "expected no temp file to be left behind"
+        );
+        assert!(
             backup_path.exists(),
             "expected backup to be kept for further attempts in this boot"
+        );
+    }
+
+    #[test]
+    fn restore_omnect_file_failed_rename_removes_temp_file() {
+        let _lock = BOOTARGS_TEST_LOCK.lock().expect("bootargs test lock");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let (omnect_path, backup_path) = setup_rollback_files(&tmp, "original_arg", "custom_arg");
+
+        // a directory as target: the copy to the temp file works, the rename over it fails
+        fs::remove_file(&omnect_path).expect("remove omnect file");
+        fs::create_dir(&omnect_path).expect("create dir as omnect file");
+
+        assert!(
+            RunUpdateGuard::restore_omnect_file(&backup_path).is_err(),
+            "expected the failed rename to be returned"
+        );
+        assert!(omnect_path.is_dir(), "expected the target to be unchanged");
+        assert!(
+            !omnect_path.with_extension("tmp").exists(),
+            "expected the temp file to be removed"
         );
     }
 

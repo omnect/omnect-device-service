@@ -11,6 +11,10 @@ omnect_device_service ALL=(adu) NOPASSWD: /usr/bin/swupdate
 omnect_device_service ALL=(adu) NOPASSWD: /bin/rm -f /tmp/omnect-bootloader-update
 # remove a stale not-necessary marker before the bootloader step
 omnect_device_service ALL=(adu) NOPASSWD: /bin/rm -f /tmp/omnect-bootloader-update-not-necessary
+# restore the omnect bootargs file on rollback (/boot is writable by group disk only)
+omnect_device_service ALL=(adu) NOPASSWD: /bin/cp /tmp/omnect_extra_bootargs_omnect.backup /boot/omnect_extra_bootargs_omnect.tmp
+omnect_device_service ALL=(adu) NOPASSWD: /bin/mv /boot/omnect_extra_bootargs_omnect.tmp /boot/omnect_extra_bootargs_omnect
+omnect_device_service ALL=(adu) NOPASSWD: /bin/rm -f /boot/omnect_extra_bootargs_omnect.tmp
 
 # reboot reason logging needs root permissions with EFI variables backend, but
 # only log command is run
