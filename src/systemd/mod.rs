@@ -89,9 +89,8 @@ pub async fn reboot(reason: &str, extra_info: &str) -> Result<()> {
     Ok(())
 }
 
-// ListUnits as returned by systemd, with the states as strings: the typed
-// bindings reject a state they do not know, which fails the whole reply, so a
-// state a newer systemd adds would break the update validation on every device.
+// ListUnits as returned by systemd. The states are strings, so a state that a
+// newer systemd adds cannot fail the whole reply and break the update validation.
 // All fields have to be there to match the signature, only some are read.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Type)]

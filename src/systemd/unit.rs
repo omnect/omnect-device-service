@@ -110,8 +110,9 @@ pub async fn job_removed_units() -> Result<impl futures::Stream<Item = String> +
     use anyhow::Context;
     use futures::StreamExt;
     use log::warn;
+    use std::num::NonZeroUsize;
 
-    const SIGNAL_QUEUE_CAPACITY: std::num::NonZeroUsize = std::num::NonZeroUsize::new(64).unwrap();
+    const SIGNAL_QUEUE_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).unwrap();
 
     let manager = system_manager().await?;
     manager
