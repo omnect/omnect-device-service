@@ -1452,7 +1452,7 @@ fn a_service_is_rated_by_its_own_rules_after_a_reordering() {
         "jq",
         &format!(
             r#"case "$*" in
-  *".services[].service"*)
+  *".services[] | .service"*)
       "{jq}" "$@"
       status=$?
       if [ ! -e "{marker}" ]; then
@@ -1473,6 +1473,10 @@ exec "{jq}" "$@"
 
     let report = sandbox.run_script("omnect_health__services.sh", &["check", "strict"]);
 
+    assert!(
+        sandbox.root().join("reordered").exists(),
+        "the jq stub did not recognise the call that reads the service names"
+    );
     assert_eq!(
         report.ratings(),
         [("[RED]", "strict")],
