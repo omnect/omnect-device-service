@@ -1845,9 +1845,6 @@ fn an_exit_info_keeps_its_header_when_the_journal_cannot_be_read() {
     );
 }
 
-/// The exit info is the only record of what the journal held when a service
-/// died, so one that could not be written must not be installed, let alone
-/// kept as the first failure of that service.
 /// The header carries the exit status of the service, so an exit info
 /// without it must not be installed either.
 #[test]
@@ -1879,6 +1876,9 @@ fn an_exit_info_without_its_header_is_not_installed() {
     );
 }
 
+/// The exit info is the only record of what the journal held when a service
+/// died, so one that could not be written must not be installed, let alone
+/// kept as the first failure of that service.
 #[test]
 fn an_exit_info_that_could_not_be_written_is_not_installed() {
     let sandbox = Sandbox::new(COREDUMPS_CONFIG);
