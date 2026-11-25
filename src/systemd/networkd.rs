@@ -54,9 +54,9 @@ pub async fn networkd_signal_stream() -> Result<zbus::MessageStream> {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender("org.freedesktop.network1")
-        .context("networkd_signal_stream: invalid sender name")?
-        .build();
-    zbus::MessageStream::for_match_rule(rule, &conn, Some(64))
+        .build()
+        .context("networkd_signal_stream: invalid match rule")?;
+    zbus::MessageStream::for_match_rule(rule, &conn, std::num::NonZeroUsize::new(64))
         .await
         .context("networkd_signal_stream: for_match_rule() failed")
 }

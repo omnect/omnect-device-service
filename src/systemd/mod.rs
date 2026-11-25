@@ -12,7 +12,7 @@ use std::{
     sync::Once,
     time::{Duration, Instant},
 };
-use zbus::{proxy::CacheProperties, zvariant::OwnedObjectPath, zvariant::Type};
+use zbus::{OwnedObjectPath, Type, proxy::CacheProperties};
 
 const SYSTEM_STATE_RUNNING: &str = "running";
 const SYSTEM_STATE_DEGRADED: &str = "degraded";
@@ -118,6 +118,40 @@ trait SystemdManager {
     fn system_state(&self) -> zbus::Result<String>;
 
     fn list_units(&self) -> zbus::Result<Vec<ListedUnit>>;
+
+    fn list_units_by_patterns(
+        &self,
+        states: &[&str],
+        patterns: &[&str],
+    ) -> zbus::Result<Vec<ListedUnit>>;
+
+    fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
+
+    fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
+
+    fn restart_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
+
+    fn reload_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
+
+    fn subscribe(&self) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    fn job_removed(
+        &self,
+        id: u32,
+        job: zbus::ObjectPath<'_>,
+        unit: &str,
+        result: &str,
+    ) -> zbus::Result<()>;
+}
+
+#[zbus::proxy(
+    interface = "org.freedesktop.systemd1.Service",
+    default_service = "org.freedesktop.systemd1"
+)]
+trait SystemdService {
+    #[zbus(property)]
+    fn n_restarts(&self) -> zbus::Result<u32>;
 }
 
 pub async fn wait_for_system_healthy(deadline: Duration) -> Result<()> {
@@ -301,8 +335,8 @@ async fn collect_unit_health(
 }
 
 async fn service_n_restarts(connection: &zbus::Connection, unit: &ListedUnit) -> Result<u32> {
-    Ok(systemd_zbus::ServiceProxy::builder(connection)
-        .path(unit.path.clone())?
+    Ok(SystemdServiceProxy::builder(connection)
+        .path(unit.path.clone())
         // a single read per poll: the default cache would subscribe to
         // PropertiesChanged for this unit and be dropped right after
         .cache_properties(CacheProperties::No)

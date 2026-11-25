@@ -95,14 +95,13 @@ struct SoftwareInfo {
     boot_time: Option<String>,
 }
 
-#[derive(Default)]
 struct HardwareInfo {
     components: sysinfo::Components,
     disk: sysinfo::Disks,
     system: sysinfo::System,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Serialize)]
 pub struct SystemInfo {
     #[serde(skip_serializing)]
     tx_reported_properties: Option<mpsc::Sender<serde_json::Value>>,
@@ -229,13 +228,16 @@ impl SystemInfo {
                 boot_time,
             },
             hardware_info: HardwareInfo {
-                components: sysinfo::Components::new_with_refreshed_list(),
-                disk: sysinfo::Disks::new_with_refreshed_list(),
+                components: sysinfo::Components::new_with_refreshed_list()
+                    .context("new: failed to read components")?,
+                disk: sysinfo::Disks::new_with_refreshed_list()
+                    .context("new: failed to read disks")?,
                 system: sysinfo::System::new_with_specifics(
                     sysinfo::RefreshKind::nothing()
                         .with_cpu(sysinfo::CpuRefreshKind::everything())
                         .with_memory(sysinfo::MemoryRefreshKind::everything()),
-                ),
+                )
+                .context("new: failed to read system")?,
             },
             hostname: Self::hostname()?,
             reboot_reason: reboot_reason::current_reboot_reason(),
@@ -279,11 +281,7 @@ impl SystemInfo {
 
     #[cfg(not(feature = "mock"))]
     fn hostname() -> Result<String> {
-        let Some(hostname) = sysinfo::System::host_name() else {
-            bail!("metrics: hostname could not be read")
-        };
-
-        Ok(hostname)
+        sysinfo::System::host_name().context("metrics: hostname could not be read")
     }
 
     #[cfg(feature = "mock")]
@@ -293,7 +291,9 @@ impl SystemInfo {
 
     fn boot_time() -> Result<String> {
         let boot_time = time::OffsetDateTime::UNIX_EPOCH
-            + std::time::Duration::from_secs(sysinfo::System::boot_time());
+            + std::time::Duration::from_secs(
+                sysinfo::System::boot_time().context("boot_time: read boot time")?,
+            );
         boot_time
             .format(&Rfc3339)
             .context("boot_time: format uptime")
@@ -376,7 +376,7 @@ impl SystemInfo {
 
         let mut disk_total = 0;
         let mut disk_used = 0;
-        for disk in self.hardware_info.disk.list() {
+        for disk in self.hardware_info.disk.iter() {
             if disk.name().to_str() == Some("/dev/omnect/data") {
                 disk_total = disk.total_space();
                 disk_used = disk.total_space() - disk.available_space();
