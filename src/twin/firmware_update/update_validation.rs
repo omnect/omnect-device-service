@@ -248,7 +248,7 @@ impl UpdateValidation {
             systemd::unit::unit_action(
                 IOT_HUB_DEVICE_UPDATE_SERVICE,
                 UnitAction::Start,
-                systemd_zbus::Mode::Fail,
+                systemd::unit::Mode::Fail,
             )
             .await?;
         }

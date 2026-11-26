@@ -97,13 +97,13 @@ impl RunUpdateGuard {
         systemd::unit::unit_action(
             IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
             UnitAction::Stop,
-            systemd_zbus::Mode::Replace,
+            systemd::unit::Mode::Replace,
         )
         .await?;
         systemd::unit::unit_action(
             IOT_HUB_DEVICE_UPDATE_SERVICE,
             UnitAction::Stop,
-            systemd_zbus::Mode::Replace,
+            systemd::unit::Mode::Replace,
         )
         .await?;
 
@@ -299,7 +299,7 @@ impl Drop for RunUpdateGuard {
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE,
                     UnitAction::Start,
-                    systemd_zbus::Mode::Fail,
+                    systemd::unit::Mode::Fail,
                 )
                 .await
                 {
@@ -309,7 +309,7 @@ impl Drop for RunUpdateGuard {
                 if let Err(e) = systemd::unit::unit_action(
                     IOT_HUB_DEVICE_UPDATE_SERVICE_TIMER,
                     UnitAction::Start,
-                    systemd_zbus::Mode::Fail,
+                    systemd::unit::Mode::Fail,
                 )
                 .await
                 {

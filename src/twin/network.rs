@@ -109,12 +109,8 @@ impl Feature for Network {
         match cmd {
             Command::Tick(_) => self.report(false).await?,
             Command::ReloadNetwork => {
-                unit::unit_action(
-                    NETWORK_SERVICE,
-                    unit::UnitAction::Reload,
-                    systemd_zbus::Mode::Fail,
-                )
-                .await?;
+                unit::unit_action(NETWORK_SERVICE, unit::UnitAction::Reload, unit::Mode::Fail)
+                    .await?;
             }
             _ => bail!("unexpected command"),
         }

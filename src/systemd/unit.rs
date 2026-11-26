@@ -1,5 +1,19 @@
 use anyhow::Result;
-pub use systemd_zbus::Mode;
+#[derive(Copy, Clone, Debug)]
+pub enum Mode {
+    Replace,
+    Fail,
+}
+
+impl Mode {
+    #[cfg(not(feature = "mock"))]
+    fn as_str(self) -> &'static str {
+        match self {
+            Mode::Replace => "replace",
+            Mode::Fail => "fail",
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum UnitAction {
@@ -10,12 +24,11 @@ pub enum UnitAction {
 }
 
 #[cfg(not(feature = "mock"))]
-async fn system_manager() -> Result<systemd_zbus::ManagerProxy<'static>> {
+async fn system_manager() -> Result<super::SystemdManagerProxy<'static>> {
     use anyhow::Context;
-    use systemd_zbus::ManagerProxy;
 
     let connection = crate::systemd::system_connection().await?;
-    ManagerProxy::new(&connection)
+    super::SystemdManagerProxy::new(&connection)
         .await
         .context("failed to create systemd manager proxy")
 }
@@ -36,10 +49,10 @@ pub async fn unit_action(unit: &str, unit_action: UnitAction, mode: Mode) -> Res
 
     let action = |&unit_action| async move {
         match unit_action {
-            UnitAction::Reload => manager.reload_unit(unit, mode).await,
-            UnitAction::Restart => manager.restart_unit(unit, mode).await,
-            UnitAction::Start => manager.start_unit(unit, mode).await,
-            UnitAction::Stop => manager.stop_unit(unit, mode).await,
+            UnitAction::Reload => manager.reload_unit(unit, mode.as_str()).await,
+            UnitAction::Restart => manager.restart_unit(unit, mode.as_str()).await,
+            UnitAction::Start => manager.start_unit(unit, mode.as_str()).await,
+            UnitAction::Stop => manager.stop_unit(unit, mode.as_str()).await,
         }
     };
 
@@ -71,7 +84,8 @@ pub async fn unit_action(_unit: &str, _unit_action: UnitAction, _mode: Mode) -> 
 #[cfg(not(feature = "mock"))]
 pub async fn active_units_by_patterns(patterns: &[&str]) -> Result<Vec<String>> {
     use anyhow::Context;
-    use systemd_zbus::ActiveState;
+
+    const ACTIVE_STATE_ACTIVE: &str = "active";
 
     let manager = system_manager().await?;
     let mut names: Vec<String> = manager
@@ -79,7 +93,7 @@ pub async fn active_units_by_patterns(patterns: &[&str]) -> Result<Vec<String>> 
         .await
         .context("active_units_by_patterns: list_units_by_patterns failed")?
         .into_iter()
-        .filter(|unit| unit.active == ActiveState::Active)
+        .filter(|unit| unit.active_state == ACTIVE_STATE_ACTIVE)
         .map(|unit| unit.name)
         .collect();
     names.sort();
@@ -96,8 +110,9 @@ pub async fn job_removed_units() -> Result<impl futures::Stream<Item = String> +
     use anyhow::Context;
     use futures::StreamExt;
     use log::warn;
+    use std::num::NonZeroUsize;
 
-    const SIGNAL_QUEUE_CAPACITY: usize = 64;
+    const SIGNAL_QUEUE_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).unwrap();
 
     let manager = system_manager().await?;
     manager
@@ -108,12 +123,10 @@ pub async fn job_removed_units() -> Result<impl futures::Stream<Item = String> +
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender("org.freedesktop.systemd1")
-        .context("job_removed_units: invalid sender")?
         .interface("org.freedesktop.systemd1.Manager")
-        .context("job_removed_units: invalid interface")?
         .member("JobRemoved")
-        .context("job_removed_units: invalid member")?
-        .build();
+        .build()
+        .context("job_removed_units: invalid match rule")?;
 
     let stream = zbus::MessageStream::for_match_rule(
         rule,
@@ -134,7 +147,7 @@ pub async fn job_removed_units() -> Result<impl futures::Stream<Item = String> +
         };
         match msg
             .body()
-            .deserialize::<(u32, zbus::zvariant::OwnedObjectPath, String, String)>()
+            .deserialize::<(u32, zbus::OwnedObjectPath, String, String)>()
         {
             Ok((_, _, unit, _)) => Some(unit),
             Err(e) => {
