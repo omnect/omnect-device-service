@@ -24,8 +24,35 @@ function fatal() {
     echo -e "${ME}: FATAL ERROR: ${@}" >&2
 }
 
+# true if $1 equals one of the remaining arguments
+#
+# NOTE:
+#   a check name may contain a blank, so the list comes as separate
+#   arguments
+function in_list() {
+    local needle="$1" item
+    shift
+
+    for item; do
+        [ "$item" = "$needle" ] && return 0
+    done
+
+    return 1
+}
+
+# put in front of a jq program that reads a config file with "jq -n": the
+# file has to hold exactly one JSON document, so an empty file, a second
+# document and content after the first one are errors
+# shellcheck disable=SC2034  # used by the scripts that source this file
+JQ_ONE_DOCUMENT='[inputs] | if length != 1 then error("the file must hold exactly one JSON document") else .[0] end'
+
+# a rating is also the exit status of a check, so its values are fixed
+RATING_GREEN=0
+RATING_YELLOW=1
+RATING_RED=2
+
 strrating=("GREEN" "YELLOW" "RED")
-overall_rating=0
+overall_rating="$RATING_GREEN"
 
 function print_rating() {
     local rating="${1:-${overall_rating}}"
@@ -45,20 +72,30 @@ function do_rate() {
     local hint="$2"
 
     case "X$rating" in
-        X0)
+        "X$RATING_GREEN")
             : # everything fine here
         ;;
-        X1)
-            [ $overall_rating -ge 1 ] || overall_rating=1
+        "X$RATING_YELLOW")
+            [ "$overall_rating" -ge "$RATING_YELLOW" ] || overall_rating="$RATING_YELLOW"
             ;;
-        X2)
-            [ $overall_rating -ge 2 ] || overall_rating=2
+        "X$RATING_RED")
+            [ "$overall_rating" -ge "$RATING_RED" ] || overall_rating="$RATING_RED"
             ;;
         *)
-            fatal "Unknown rating \"$rating\" ${hint:-${ME}} - treated as 2 == RED"
-            overall_rating=2
+            fatal "Unknown rating \"$rating\" ${hint:-${ME}} - treated as ${RATING_RED} == ${strrating[$RATING_RED]}"
+            overall_rating="$RATING_RED"
             ;;
     esac
+}
+
+# prints a rating and adds it to the overall rating, so that the rating a
+# reader sees is the one that was counted
+function print_and_rate() {
+    local rating="$1"
+    shift
+
+    print_rating "$rating" "$@"
+    do_rate "$rating"
 }
 
 function do_rate_cmd() {
@@ -66,8 +103,8 @@ function do_rate_cmd() {
 
     "$@"
     ret=$?
-    do_rate $ret "$1"
-    return $ret
+    do_rate "$ret" "$1"
+    return "$ret"
 }
 
 function check_command_arg() {
@@ -95,5 +132,5 @@ function print_info_header() {
 }
 
 function get_overall_rating() {
-    return $overall_rating
+    return "$overall_rating"
 }
