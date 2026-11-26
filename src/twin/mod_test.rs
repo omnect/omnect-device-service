@@ -754,29 +754,28 @@ pub mod mod_test {
         let test_files = vec!["testfiles/positive/os-release"];
 
         let test = |test_attr: &mut TestConfig| {
-            test_attr
-                .twin
-                .client
-                .as_mut()
-                .expect("client present")
-                .expect_twin_report()
-                .returning(|_| panic!("twin report panicked"));
-
             let (senders, observers) = ClientObservers::channels();
+            let dropped_before_report = Arc::new(AtomicBool::new(false));
+            let dropped_in_mock = Arc::clone(&dropped_before_report);
+
+            let client = test_attr.twin.client.as_mut().expect("client present");
+            client.expect_twin_report().times(1).returning(move |_| {
+                dropped_in_mock.store(senders.tx_connection_status.is_closed(), Ordering::SeqCst);
+                Ok(())
+            });
+            client.expect_shutdown().times(1).returning(|_| ());
+
             let (tx_rep, mut rx_rep) = mpsc::channel(TEST_CHANNEL_SIZE);
             let (_tx_out, mut rx_out) = mpsc::channel(TEST_CHANNEL_SIZE);
             tx_rep
                 .try_send(json!({}))
                 .expect("queue reported properties");
 
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                block_on(test_attr.twin.shutdown(observers, &mut rx_rep, &mut rx_out))
-            }));
+            block_on(test_attr.twin.shutdown(observers, &mut rx_rep, &mut rx_out));
             test_attr.twin.client = Some(MockMyIotHub::default());
 
-            assert!(result.is_err(), "twin_report must panic");
             assert!(
-                senders.tx_connection_status.is_closed(),
+                dropped_before_report.load(Ordering::SeqCst),
                 "shutdown must drop the observers before it reports"
             );
         };
@@ -844,8 +843,12 @@ pub mod mod_test {
         TestCase::run(test_files, vec![], vec![], |_| {}, test);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn run_exits_on_closed_observer_channel_test() {
+    /// `connect_twin` on Authenticated reports, and in that report the client
+    /// drops the senders that `close` removes.
+    fn run_exits_on_closed_observer_channel(
+        close: fn(&mut MyIotHubBuilder),
+        expected_error: &'static str,
+    ) {
         let test_files = vec![
             "testfiles/positive/os-release",
             "testfiles/positive/consent_conf.json",
@@ -853,13 +856,16 @@ pub mod mod_test {
             "testfiles/positive/history_consent.json",
         ];
 
-        let test = |_: &mut TestConfig| {
+        let test = move |_: &mut TestConfig| {
             let ctx = MockMyIotHub::builder_context();
             ctx.expect().times(1).returning(MyIotHubBuilder::default);
             let mut client = MockMyIotHub::default();
-            // `connect_twin` on Authenticated reports, and the client loses its senders
-            client.expect_twin_report().returning(|_| {
-                CLIENT_SENDERS.take();
+            client.expect_twin_report().returning(move |_| {
+                CLIENT_SENDERS.with_borrow_mut(|senders| {
+                    if let Some(senders) = senders {
+                        close(senders);
+                    }
+                });
                 Ok(())
             });
             client.expect_shutdown().times(1).returning(|_| ());
@@ -868,8 +874,75 @@ pub mod mod_test {
             let err = block_on(Twin::run()).expect_err("run must return an error");
 
             assert!(
-                err.to_string().contains("connection status channel closed"),
+                err.to_string().contains(expected_error),
                 "unexpected error: {err:#}"
+            );
+        };
+
+        TestCase::run(test_files, vec![], vec![], |_| {}, test);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_exits_on_closed_connection_status_channel_test() {
+        run_exits_on_closed_observer_channel(
+            |senders| senders.tx_connection_status = None,
+            "connection status channel closed",
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_exits_on_closed_direct_method_channel_test() {
+        run_exits_on_closed_observer_channel(
+            |senders| senders.tx_direct_method = None,
+            "direct method channel closed",
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_exits_on_closed_desired_properties_channel_test() {
+        run_exits_on_closed_observer_channel(
+            |senders| senders.tx_twin_desired = None,
+            "desired properties channel closed",
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_continues_after_client_reset_test() {
+        let test_files = vec!["testfiles/positive/os-release"];
+
+        let test = |_: &mut TestConfig| {
+            let ctx = MockMyIotHub::builder_context();
+            ctx.expect().times(2).returning(MyIotHubBuilder::default);
+
+            let mut new_client = MockMyIotHub::default();
+            new_client
+                .expect_twin_report()
+                .returning(|_| Err(anyhow!("report of new client failed")));
+            new_client.expect_shutdown().times(1).returning(|_| ());
+            let mut new_client = Some(new_client);
+
+            // BadCredential resets the client
+            let mut old_client = MockMyIotHub::default();
+            old_client.expect_twin_report().returning(|_| Ok(()));
+            old_client.expect_shutdown().times(1).returning(move |_| {
+                // the real client drops its senders when it is destroyed
+                CLIENT_SENDERS.take();
+                NEXT_CLIENT.set(
+                    new_client
+                        .take()
+                        .map(|client| (client, AuthenticationStatus::Authenticated)),
+                );
+            });
+            NEXT_CLIENT.set(Some((
+                old_client,
+                AuthenticationStatus::Unauthenticated(UnauthenticatedReason::BadCredential),
+            )));
+
+            let err = block_on(Twin::run()).expect_err("run must return an error");
+
+            assert!(
+                err.to_string().contains("report of new client failed"),
+                "run must go on with the new client after a reset, but failed with: {err:#}"
             );
         };
 

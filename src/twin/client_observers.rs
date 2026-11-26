@@ -5,8 +5,9 @@ use tokio::sync::mpsc;
 const OBSERVER_CHANNEL_SIZE: usize = 100;
 
 /// Drop the receivers before the client is destroyed: the SDK joins its
-/// callback thread on destroy, and a callback blocks until its message is
-/// received and a direct method is answered. Dropped receivers unblock it.
+/// callback thread on destroy, and a callback blocks while its channel is
+/// full, and a direct method blocks until it is answered. Dropped receivers
+/// unblock it.
 pub struct ClientObservers {
     pub rx_connection_status: mpsc::Receiver<AuthenticationStatus>,
     pub rx_twin_desired: mpsc::Receiver<TwinUpdate>,
