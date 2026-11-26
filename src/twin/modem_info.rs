@@ -21,9 +21,8 @@ mod inner {
     use std::collections::HashMap;
     use tokio::sync::OnceCell;
     use zbus::{
-        Connection,
+        Connection, OwnedObjectPath,
         fdo::{DBusProxy, ObjectManagerProxy},
-        zvariant::OwnedObjectPath,
     };
 
     #[derive(PartialEq, Serialize)]
@@ -79,8 +78,8 @@ mod inner {
             }
 
             let managed_objects = ObjectManagerProxy::builder(connection)
-                .destination(Self::MODEMMANAGER_BUS)?
-                .path(Self::MODEMMANAGER_PATH)?
+                .destination(Self::MODEMMANAGER_BUS)
+                .path(Self::MODEMMANAGER_PATH)
                 .build()
                 .await?
                 .get_managed_objects()
@@ -96,8 +95,8 @@ mod inner {
             let connection = self.connection().await?;
 
             bearer::BearerProxy::builder(connection)
-                .destination(Self::MODEMMANAGER_BUS)?
-                .path(bearer_path)?
+                .destination(Self::MODEMMANAGER_BUS)
+                .path(bearer_path)
                 .build()
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to construct bearer proxy: {err}"))
@@ -107,8 +106,8 @@ mod inner {
             let connection = self.connection().await?;
 
             sim::SimProxy::builder(connection)
-                .destination(Self::MODEMMANAGER_BUS)?
-                .path(sim_path)?
+                .destination(Self::MODEMMANAGER_BUS)
+                .path(sim_path)
                 .build()
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to construct sim proxy: {err}"))
@@ -121,8 +120,8 @@ mod inner {
             let connection = self.connection().await?;
 
             modem::ModemProxy::builder(connection)
-                .destination(Self::MODEMMANAGER_BUS)?
-                .path(modem_path)?
+                .destination(Self::MODEMMANAGER_BUS)
+                .path(modem_path)
                 .build()
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to construct modem proxy: {err}"))
@@ -135,8 +134,8 @@ mod inner {
             let connection = self.connection().await?;
 
             modem3gpp::Modem3gppProxy::builder(connection)
-                .destination(Self::MODEMMANAGER_BUS)?
-                .path(modem_path)?
+                .destination(Self::MODEMMANAGER_BUS)
+                .path(modem_path)
                 .build()
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to construct modem 3gpp proxy: {err}"))
